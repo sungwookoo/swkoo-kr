@@ -25,6 +25,9 @@ export interface OnboardingConfig {
   // Discord webhook URL fired when a user's deploy GHA workflow fails.
   // Separate channel from signup so operator can route them differently.
   discordBuildFailureWebhookUrl: string | undefined;
+  // Discord webhook URL fired when the daily Trivy scan finds new
+  // critical/high vulns in a user's image. Empty disables notifications.
+  discordScanWebhookUrl: string | undefined;
   // Control repo where /api/deploy/register writes a small per-user
   // registration file (deploy/users/<login>.yaml) for ApplicationSet.
   manifestRepo: string; // "<owner>/<name>", e.g. "sungwookoo/swkoo-kr"
@@ -58,6 +61,7 @@ export const onboardingConfig = registerAs(
       .filter(Boolean),
     discordWebhookUrl: process.env.DISCORD_WEBHOOK_URL || undefined,
     discordBuildFailureWebhookUrl: process.env.DISCORD_BUILD_FAILURE_WEBHOOK_URL || undefined,
+    discordScanWebhookUrl: process.env.DISCORD_SCAN_WEBHOOK_URL || undefined,
     manifestRepo: process.env.MANIFEST_REPO ?? 'sungwookoo/swkoo-kr',
     manifestBranch: process.env.MANIFEST_BRANCH ?? 'main',
     deployOwner: process.env.GITHUB_DEPLOY_OWNER ?? 'swkoo-deploy',

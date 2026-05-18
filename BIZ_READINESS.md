@@ -167,3 +167,4 @@ Phase 2 셀프서비스가 동작하면서 노출된, 사업화 전이라도 손
 | 2026-05-12 | Phase 2.10 위생 패스 — §4 체크리스트 4개 항목 ✅ (manifest 경로 헬퍼, T&C/Privacy 스텁, scanResult/writeBackMethod 필드). §4a no-op commit ✅. |
 | 2026-05-14 | Phase 1 종료(친구 2명 + 본인 부계정 실배포 검증). Phase 2.11 — Observatory per-viewer 데이터 격리 §4 추가. |
 | 2026-05-14 (later) | Phase 3 일괄 반영. §4: per-tenant repo 분리(3.1) · K-PIPA 데이터 권리(3.2) · 실제 Trivy 스캔(3.3) · T&C/Privacy production-tone 항목 추가. §5: per-tenant repo 행 ✅ 해소, K-PIPA 행은 절차적 부분만 잔존으로 분리. |
+| 2026-05-18 | 스캔 UI 노출(`/account/scan` + `<ScanPanel />`) + critical/high 신규 발견 시 운영자 Discord 알림(`DISCORD_SCAN_WEBHOOK_URL`). Phase 3.3 행동 트리거 마무리. repo `swkoo-portfolio` → `swkoo-kr` rename. |

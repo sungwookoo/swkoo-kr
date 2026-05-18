@@ -1,10 +1,11 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ConfigType } from '@nestjs/config';
 import type { V1Job } from '@kubernetes/client-node';
+import axios from 'axios';
 
 import { onboardingConfig } from '../config/onboarding.config';
 import { KubeClient } from '../kube/kube.client';
-import { UsersRepository } from '../onboarding/users.repository';
+import { UsersRepository, ScanResultRow } from '../onboarding/users.repository';
 import { DeployService } from './deploy.service';
 
 const TRIVY_IMAGE = 'aquasec/trivy:0.50.0';
@@ -67,6 +68,7 @@ export class ScanService {
         const image = `ghcr.io/${u.githubLogin.toLowerCase()}/${deployment.repo.toLowerCase()}:latest`;
         const result = await this.runScan(u.githubLogin, image);
         if (!result) continue;
+        const previous = this.users.latestScanResultForUser(u.id);
         this.users.insertScanResult({
           userId: u.id,
           image,
@@ -79,6 +81,7 @@ export class ScanService {
         this.logger.log(
           `scan complete for ${u.githubLogin}: critical=${result.critical} high=${result.high} medium=${result.medium}`
         );
+        this.maybeNotifyScanFindings(u.githubLogin, image, result, previous);
       } catch (err) {
         this.logger.warn(`scan failed for ${u.githubLogin}: ${(err as Error).message}`);
       }
@@ -229,6 +232,44 @@ export class ScanService {
       // Best-effort cleanup; ttlSecondsAfterFinished will eventually GC.
       this.logger.warn(`deleteJob ${jobName}: ${(err as Error).message}`);
     }
+  }
+
+  /** Fires an operator Discord alert when today's scan introduces critical
+   * or high vulns the previous scan didn't already cover. Skips when the
+   * counts didn't increase (avoids daily re-pings for unfixed findings). */
+  private maybeNotifyScanFindings(
+    login: string,
+    image: string,
+    current: ScanCounts,
+    previous: ScanResultRow | null
+  ): void {
+    const url = this.config.discordScanWebhookUrl;
+    if (!url) return;
+    if (current.critical === 0 && current.high === 0) return;
+    if (
+      previous &&
+      current.critical <= previous.critical &&
+      current.high <= previous.high
+    ) {
+      return;
+    }
+    const lines = [
+      '🟠 이미지 스캔 경보',
+      `**${login}** — \`${image}\``,
+      `Critical: ${current.critical} · High: ${current.high} · Medium: ${current.medium}`,
+    ];
+    if (previous) {
+      lines.push(
+        `(이전: Critical ${previous.critical} · High ${previous.high})`
+      );
+    } else {
+      lines.push('(첫 스캔)');
+    }
+    void axios
+      .post(url, { content: lines.join('\n') }, { timeout: 5000 })
+      .catch((err) => {
+        this.logger.error(`Scan Discord webhook failed: ${(err as Error).message}`);
+      });
   }
 
   private parseTrivyOutput(raw: string): ScanCounts | null {
