@@ -55,5 +55,12 @@
   "engines": {
     "node": ">=22.0.0",
     "npm": ">=10.0.0"
+  },
+  "jest": {
+    "preset": "ts-jest",
+    "testEnvironment": "node",
+    "rootDir": "src",
+    "testRegex": "\\.spec\\.ts$",
+    "moduleFileExtensions": ["ts", "js", "json"]
   }
 }
