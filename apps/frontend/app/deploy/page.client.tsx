@@ -8,10 +8,12 @@ import { useSWRConfig } from 'swr';
 import { loginUrl, logout, ME_SWR_KEY, useMe } from '@/lib/auth';
 import { deleteMyAccount, exportMyData } from '@/lib/account';
 import {
+  checkSubdomain,
   CurrentDeployment,
   registerDeploy,
   RepoSummary,
   StackPreview,
+  SubdomainCheckResult,
   useCurrent,
   useRepos,
   usePreview,
@@ -618,14 +620,45 @@ type DeployState =
   | { kind: 'pending' }
   | { kind: 'error'; message: string; reason?: string; installUrl?: string };
 
+function deriveDefaultSlug(fullName: string): string {
+  const [owner, repo] = fullName.split('/');
+  return `${owner}-${repo}`
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 53);
+}
+
 function DeployTrigger({ fullName }: { fullName: string }): JSX.Element {
   const router = useRouter();
   const [state, setState] = useState<DeployState>({ kind: 'idle' });
+  const [slug, setSlug] = useState('');
+  const [slugCheck, setSlugCheck] = useState<SubdomainCheckResult | null>(null);
+  const [checking, setChecking] = useState(false);
+
+  const defaultSlug = deriveDefaultSlug(fullName);
+
+  const handleSlugBlur = async (): Promise<void> => {
+    const trimmed = slug.trim().toLowerCase();
+    if (!trimmed) {
+      setSlugCheck(null);
+      return;
+    }
+    setChecking(true);
+    try {
+      const result = await checkSubdomain(trimmed);
+      setSlugCheck(result);
+    } catch {
+      setSlugCheck(null);
+    } finally {
+      setChecking(false);
+    }
+  };
 
   const handleDeploy = async (): Promise<void> => {
     setState({ kind: 'pending' });
     try {
-      const result = await registerDeploy(fullName);
+      const result = await registerDeploy(fullName, slug.trim() || undefined);
       const [owner, repo] = result.fullName.split('/');
       router.push(`/deploy/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`);
     } catch (err) {
@@ -639,8 +672,48 @@ function DeployTrigger({ fullName }: { fullName: string }): JSX.Element {
     }
   };
 
+  const slugUnusable = slugCheck && !slugCheck.available;
+  const canDeploy = state.kind !== 'pending' && !checking && !slugUnusable;
+
   return (
-    <div className="space-y-2 border-t border-slate-800 pt-4">
+    <div className="space-y-3 border-t border-slate-800 pt-4">
+      <div className="space-y-1.5">
+        <label className="text-xs font-medium text-slate-400" htmlFor="slug">
+          URL 슬러그 <span className="text-slate-600">(선택)</span>
+        </label>
+        <div className="flex items-center gap-1.5 font-mono text-sm">
+          <input
+            id="slug"
+            type="text"
+            value={slug}
+            onChange={(e) => {
+              setSlug(e.target.value);
+              setSlugCheck(null);
+            }}
+            onBlur={handleSlugBlur}
+            placeholder={defaultSlug}
+            maxLength={63}
+            disabled={state.kind === 'pending'}
+            className="flex-1 rounded-md border border-slate-800 bg-slate-950 px-2.5 py-1.5 text-slate-100 placeholder:text-slate-600 focus:border-slate-600 focus:outline-none disabled:opacity-60"
+          />
+          <span className="text-slate-500">.apps.swkoo.kr</span>
+        </div>
+        <p className="text-xs text-slate-500">
+          {slugUnusable ? (
+            <span className="text-amber-400">{slugCheck!.message ?? '사용할 수 없음'}</span>
+          ) : slugCheck?.available ? (
+            <span className="text-emerald-400">✓ 사용 가능</span>
+          ) : checking ? (
+            '확인 중…'
+          ) : (
+            <>
+              비워두면 <span className="font-mono text-slate-400">{defaultSlug}.apps.swkoo.kr</span>로
+              배포됩니다.
+            </>
+          )}
+        </p>
+      </div>
+
       {state.kind === 'error' && (
         <div className="space-y-2">
           <p className="text-sm text-amber-400">
@@ -680,7 +753,7 @@ function DeployTrigger({ fullName }: { fullName: string }): JSX.Element {
       <button
         type="button"
         onClick={handleDeploy}
-        disabled={state.kind === 'pending'}
+        disabled={!canDeploy}
         className="inline-flex items-center gap-2 rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-emerald-500 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-400"
       >
         {state.kind === 'pending' ? '배포 시작 중…' : 'Deploy →'}

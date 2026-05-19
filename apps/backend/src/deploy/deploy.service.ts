@@ -10,6 +10,10 @@ import { UsersRepository } from '../onboarding/users.repository';
 import { ArgoCdClient } from '../pipelines/services/argo-cd.client';
 import { GithubAppService } from './github-app.service';
 import {
+  subdomainErrorMessage,
+  validateSubdomainFormat,
+} from './subdomain';
+import {
   getUserDeployRepoName,
   getUserRegistrationPath,
   renderDeployRepoFiles,
@@ -53,6 +57,7 @@ interface GithubContent {
 
 export interface RegisterRequest {
   fullName: string; // "owner/repo"
+  subdomain?: string; // optional user-chosen sub-slug for <slug>.apps.swkoo.kr
 }
 
 export interface RegisterResponse {
@@ -265,7 +270,7 @@ export class DeployService {
     }
 
     const appName = sanitizeName(repo);
-    const subdomain = sanitizeName(`${loginLc}-${appName}`, 53);
+    const subdomain = this.claimSubdomainOrDefault(user, loginLc, appName, req.subdomain);
     const deployRepoName = getUserDeployRepoName(loginLc);
     const deployRepoFullName = `${this.config.deployOwner}/${deployRepoName}`;
     const params = {
@@ -434,7 +439,8 @@ export class DeployService {
     if (!userRepo) return null;
 
     const appName = sanitizeName(userRepo);
-    const subdomain = sanitizeName(`${loginLc}-${appName}`, 53);
+    const user = this.users.findByLogin(loginLc);
+    const subdomain = this.resolveSubdomain(user, loginLc, appName);
     const state: CurrentDeployment['state'] = registrationContent ? 'active' : 'deleting';
 
     return {
@@ -583,7 +589,8 @@ export class DeployService {
   ): Promise<DeploymentStatus> {
     const loginLc = login.toLowerCase();
     const appName = sanitizeName(repo);
-    const subdomain = sanitizeName(`${loginLc}-${appName}`, 53);
+    const user = this.users.findByLogin(loginLc);
+    const subdomain = this.resolveSubdomain(user, loginLc, appName);
     const liveUrl = `https://${subdomain}.${this.config.appsDomain}`;
 
     const [manifestsStage, buildStage, app, liveStage] = await Promise.all([
@@ -760,5 +767,52 @@ export class DeployService {
     } catch {
       return { status: 'pending', message: '라이브 URL 응답 대기 중', link: liveUrl };
     }
+  }
+
+  /** Resolves the subdomain the user wants for *this* register call.
+   * If they supplied one, validate + claim it (UNIQUE in DB). If they
+   * didn't, preserve the slug they already own (so re-deploy keeps the
+   * same URL) or fall back to the auto-derived `<login>-<repo>`. */
+  private claimSubdomainOrDefault(
+    user: { subdomain: string | null },
+    loginLc: string,
+    appName: string,
+    requested: string | undefined
+  ): string {
+    const trimmed = requested?.trim().toLowerCase() ?? '';
+    if (!trimmed) {
+      return user.subdomain ?? sanitizeName(`${loginLc}-${appName}`, 53);
+    }
+    if (user.subdomain === trimmed) {
+      return trimmed;
+    }
+    const format = validateSubdomainFormat(trimmed);
+    if (!format.ok) {
+      throw new ForbiddenException({
+        reason: 'INVALID_SUBDOMAIN',
+        message: subdomainErrorMessage(format.reason),
+      });
+    }
+    const result = this.users.setSubdomain(loginLc, trimmed);
+    if (result === 'taken') {
+      throw new ForbiddenException({
+        reason: 'SUBDOMAIN_TAKEN',
+        message: subdomainErrorMessage('TAKEN'),
+      });
+    }
+    if (result === 'no_user') {
+      throw new ForbiddenException({ reason: 'NO_USER', message: 'user record missing' });
+    }
+    return trimmed;
+  }
+
+  /** Read-only sibling of claimSubdomainOrDefault — used by status / current
+   * endpoints that must reflect the same host the manifests use. */
+  private resolveSubdomain(
+    user: { subdomain: string | null } | null | undefined,
+    loginLc: string,
+    appName: string
+  ): string {
+    return user?.subdomain ?? sanitizeName(`${loginLc}-${appName}`, 53);
   }
 }

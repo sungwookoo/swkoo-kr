@@ -25,6 +25,10 @@ export interface UserRow {
   lastLoginAt: string;
   isAllowed: boolean;
   policyVersion: string | null;
+  // User-chosen sub-slug for `<subdomain>.apps.swkoo.kr`. NULL means fall
+  // back to the auto-derived `<login>-<repo>` host. Globally unique among
+  // non-NULL values (partial UNIQUE index).
+  subdomain: string | null;
 }
 
 export interface TokenSet {
@@ -136,6 +140,16 @@ export class UsersRepository implements OnModuleInit, OnModuleDestroy {
     // also routed through the consent screen on first /deploy visit.
     this.addColumnIfMissing('users', 'policy_version', 'TEXT');
     this.addColumnIfMissing('users', 'policy_accepted_at', 'TEXT');
+    // Step 1: user-chosen sub-slug. Partial UNIQUE index permits multiple
+    // NULL rows (users who haven't claimed a slug); enforces uniqueness only
+    // among claimed slugs. SQLite's UNIQUE on a plain column would already
+    // permit multiple NULLs, but the partial index makes the intent explicit
+    // and avoids surprises if the column default ever changes.
+    this.addColumnIfMissing('users', 'subdomain', 'TEXT');
+    this.db.exec(
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_users_subdomain
+         ON users(subdomain) WHERE subdomain IS NOT NULL`
+    );
     this.logger.log('users + audit_log tables ready');
   }
 
@@ -156,7 +170,8 @@ export class UsersRepository implements OnModuleInit, OnModuleDestroy {
     name, email, avatar_url AS avatarUrl,
     created_at AS createdAt, last_login_at AS lastLoginAt,
     CASE WHEN is_allowed = 1 THEN 1 ELSE 0 END AS isAllowed,
-    policy_version AS policyVersion
+    policy_version AS policyVersion,
+    subdomain
   `;
 
   private hydrate(row: unknown): UserRow {
@@ -244,6 +259,7 @@ export class UsersRepository implements OnModuleInit, OnModuleDestroy {
              refresh_token = NULL,
              token_expires_at = NULL,
              is_allowed    = 0,
+             subdomain     = NULL,
              deleted_at    = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
            WHERE id = ?`
         )
@@ -336,6 +352,31 @@ export class UsersRepository implements OnModuleInit, OnModuleDestroy {
       .prepare(`UPDATE users SET is_allowed = ? WHERE LOWER(github_login) = ?`)
       .run(isAllowed ? 1 : 0, login.toLowerCase());
     return result.changes > 0;
+  }
+
+  /** Claims a sub-slug for the user, or releases it (subdomain=null).
+   *  Returns 'taken' if another user already owns the slug (UNIQUE index
+   *  violation), 'ok' on success, 'no_user' if the login doesn't exist. */
+  setSubdomain(login: string, subdomain: string | null): 'ok' | 'taken' | 'no_user' {
+    try {
+      const result = this.db
+        .prepare(`UPDATE users SET subdomain = ? WHERE LOWER(github_login) = ?`)
+        .run(subdomain, login.toLowerCase());
+      return result.changes > 0 ? 'ok' : 'no_user';
+    } catch (err) {
+      const code = (err as { code?: string }).code;
+      if (code === 'SQLITE_CONSTRAINT_UNIQUE') return 'taken';
+      throw err;
+    }
+  }
+
+  findBySubdomain(subdomain: string): UserRow | undefined {
+    const stmt = this.db.prepare(`
+      SELECT ${this.userColumns}
+      FROM users WHERE subdomain = ? AND deleted_at IS NULL
+    `);
+    const row = stmt.get(subdomain);
+    return row ? this.hydrate(row) : undefined;
   }
 
   /** One-way seed from DEPLOY_ALLOWLIST env → DB on every boot. Only flips

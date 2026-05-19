@@ -218,12 +218,17 @@ export async function saveEnvVars(
   return (await response.json()) as { ok: true; count: number };
 }
 
-export async function registerDeploy(fullName: string): Promise<RegisterResponse> {
+export async function registerDeploy(
+  fullName: string,
+  subdomain?: string
+): Promise<RegisterResponse> {
+  const body: { fullName: string; subdomain?: string } = { fullName };
+  if (subdomain && subdomain.trim()) body.subdomain = subdomain.trim().toLowerCase();
   const response = await fetch(`${API_BASE_URL}/deploy/register`, {
     method: 'POST',
     credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ fullName }),
+    body: JSON.stringify(body),
   });
   if (!response.ok) {
     let payload: { message?: string | RegisterError } = {};
@@ -247,4 +252,21 @@ export async function registerDeploy(fullName: string): Promise<RegisterResponse
     );
   }
   return (await response.json()) as RegisterResponse;
+}
+
+export interface SubdomainCheckResult {
+  available: boolean;
+  reason?: 'FORMAT' | 'RESERVED' | 'TAKEN';
+  message?: string;
+}
+
+export async function checkSubdomain(slug: string): Promise<SubdomainCheckResult> {
+  const response = await fetch(
+    `${API_BASE_URL}/deploy/subdomain/check?slug=${encodeURIComponent(slug)}`,
+    { credentials: 'include' }
+  );
+  if (!response.ok) {
+    throw new Error(`check failed (${response.status})`);
+  }
+  return (await response.json()) as SubdomainCheckResult;
 }

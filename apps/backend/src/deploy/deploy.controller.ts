@@ -14,9 +14,10 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
-import { IsString, Matches } from 'class-validator';
+import { IsOptional, IsString, Matches } from 'class-validator';
 
 import { AuthedRequest, JwtAuthGuard } from '../onboarding/jwt-auth.guard';
+import { UsersRepository } from '../onboarding/users.repository';
 import {
   CurrentDeployment,
   DeploymentStatus,
@@ -26,12 +27,23 @@ import {
   StackPreview,
 } from './deploy.service';
 import { EnvService } from './env.service';
+import {
+  subdomainErrorMessage,
+  validateSubdomainFormat,
+} from './subdomain';
 import { sanitizeName } from './templates';
 
 class RegisterDto {
   @IsString()
   @Matches(/^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/, { message: 'fullName must match owner/name' })
   fullName!: string;
+
+  // Optional user-chosen sub-slug. Omit/empty → backend keeps the user's
+  // existing slug or falls back to `<login>-<repo>`. Format/reserved checks
+  // run in the service; controller just enforces type.
+  @IsOptional()
+  @IsString()
+  subdomain?: string;
 }
 
 @Controller('deploy')
@@ -39,8 +51,33 @@ class RegisterDto {
 export class DeployController {
   constructor(
     private readonly service: DeployService,
-    private readonly envService: EnvService
+    private readonly envService: EnvService,
+    private readonly users: UsersRepository
   ) {}
+
+  /** Pre-submit availability check for a sub-slug. Cheap (format + reserved
+   * + single SELECT) so safe to call on input blur from the deploy form.
+   * Treats the requester's own current slug as available — re-deploying
+   * with the same slug must not error. */
+  @Get('subdomain/check')
+  checkSubdomain(
+    @Req() req: AuthedRequest,
+    @Query('slug') slug: string | undefined
+  ): { available: boolean; reason?: 'FORMAT' | 'RESERVED' | 'TAKEN'; message?: string } {
+    if (!slug) {
+      return { available: false, reason: 'FORMAT', message: subdomainErrorMessage('FORMAT') };
+    }
+    const normalized = slug.trim().toLowerCase();
+    const format = validateSubdomainFormat(normalized);
+    if (!format.ok) {
+      return { available: false, reason: format.reason, message: subdomainErrorMessage(format.reason) };
+    }
+    const owner = this.users.findBySubdomain(normalized);
+    if (owner && owner.id !== req.user.id) {
+      return { available: false, reason: 'TAKEN', message: subdomainErrorMessage('TAKEN') };
+    }
+    return { available: true };
+  }
 
   @Get('repos')
   listRepos(@Req() req: AuthedRequest): Promise<RepoSummary[]> {
