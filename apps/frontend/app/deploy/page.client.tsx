@@ -109,21 +109,45 @@ export function DeployPageClient(): JSX.Element {
   }
 
   if (!me.isAllowed) {
+    const handleRecheck = async (): Promise<void> => {
+      await mutate(ME_SWR_KEY);
+    };
     return (
       <Shell narrow>
         <div className="max-w-md space-y-6 text-center">
           <ProfileBadge me={me} />
-          <h1 className="text-2xl font-semibold text-slate-100">액세스 권한이 필요합니다</h1>
-          <p className="text-slate-400">
-            이 페이지는 등록된 사용자만 사용할 수 있습니다. 액세스 요청은 운영자에게 문의해주세요.
+          <h1 className="text-2xl font-semibold text-slate-100">가입이 접수됐어요</h1>
+          <p className="leading-relaxed text-slate-400">
+            운영자에게 알림이 발송됐습니다. 승인되면 이 페이지에서 바로 배포할 수 있어요.
           </p>
-          <button
-            type="button"
-            onClick={handleLogout}
-            className="text-sm text-slate-500 underline-offset-2 hover:text-slate-300 hover:underline"
-          >
-            로그아웃
-          </button>
+          <div className="flex flex-wrap items-center justify-center gap-3">
+            <button
+              type="button"
+              onClick={handleRecheck}
+              className="rounded-md border border-slate-700 px-4 py-2 text-sm text-slate-200 transition-colors hover:border-slate-500 hover:bg-slate-900"
+            >
+              상태 다시 확인
+            </button>
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="text-sm text-slate-500 underline-offset-2 hover:text-slate-300 hover:underline"
+            >
+              로그아웃
+            </button>
+          </div>
+          <p className="pt-2 text-xs text-slate-600">
+            오래 걸리면{' '}
+            <a
+              href="https://github.com/sungwookoo"
+              target="_blank"
+              rel="noreferrer"
+              className="underline decoration-slate-700 underline-offset-2 hover:text-slate-300"
+            >
+              GitHub @sungwookoo
+            </a>
+            로 연락주세요.
+          </p>
         </div>
       </Shell>
     );
