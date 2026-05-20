@@ -1,7 +1,0 @@
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: user-sample
-  labels:
-    swkoo.kr/user: sample
-    swkoo.kr/tenant: user
