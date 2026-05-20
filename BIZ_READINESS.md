@@ -136,6 +136,9 @@ Phase 2 빌드 중 적용할 "사업 전환 준비" 패턴:
 - [x] **운영 데이터 복구 능력** — Step 2.2 (2026-05-20). `BackupService` 가 매일 04:00 KST SQLite 전체 스냅샷을 OCI Object Storage 로 업로드 (Instance Principal, lifecycle 90일). PVC 복원 dry-run 으로 runbook 검증 — 다운타임 ~1분. 백업 retention 은 `/privacy` §3 에 명시. *유료 사용자 첫 결제 후 데이터 손실은 신뢰 영구 손상* → 결제 도입 전 사전 조건 충족.
 - [x] **사용자 URL 자율성 — sub-slug** — Step 1 (2026-05-20). `users.subdomain` 컬럼 + 예약어/포맷 검증 + 가용성 체크 endpoint + Deploy 화면 입력 필드. 친구 인터뷰 *"도메인 바꾸고싶다"* ask 의 첫 단계. 다음 단계(사용자 본인 도메인 연결) 가 첫 paid feature 후보.
 - [x] **알람 → 운영자 통로 검증** — Step 2.3 (2026-05-20). Alertmanager → Discord 통로가 22일+ 비어있던 silent failure 발견·해결. 13개 룰 중 `SwkooBackendDown` 표현식 버그 (`up == 0` 만으로는 target-missing 못 잡음) 도 동시 수정. *유료 SLA 약속 전 알람 채널 작동은 필수*.
+- [x] **사용자 측 deploy 완료 알림** — C 작업 (2026-05-20). Resend API 통해 OAuth email 로 자동 발송. `users.last_notified_image_sha` 컬럼 dedup → 같은 이미지엔 한 번만, 새 push 마다 한 번. `noreply@swkoo.kr` 발신. 친구 ask 와 직접 연결된 *진짜 사용자 가치* — 진행도 페이지 안 켜놔도 deploy 완료 알 수 있음.
+- [x] **major dep 일괄 upgrade** — Frontend Next 14→16 / React 18→19 / ESLint 8→10 / TS 5→6, Backend NestJS 10→11 (2026-05-20). Next 14 의 critical authz bypass + content injection CVE 해결. 친구 베타가 *가장 안전한 major upgrade 윈도우* 라는 판단 — paid 진입 후엔 동일 작업 비용 훨씬 큼.
+- [x] **운영 hygiene 묶음** — 2026-05-20 오후 B 묶음. GHA `update-manifests` race 자동 retry, `/api/auth` rate limit (`@nestjs/throttler`), `/deploy` 0-repo 빈 상태 안내, 에러 메시지 친화화, 운영자 자체 이미지 (swkoo-backend·frontend) Trivy 스캔 추가.
 
 ---
 
@@ -172,3 +175,4 @@ Phase 2 셀프서비스가 동작하면서 노출된, 사업화 전이라도 손
 | 2026-05-14 (later) | Phase 3 일괄 반영. §4: per-tenant repo 분리(3.1) · K-PIPA 데이터 권리(3.2) · 실제 Trivy 스캔(3.3) · T&C/Privacy production-tone 항목 추가. §5: per-tenant repo 행 ✅ 해소, K-PIPA 행은 절차적 부분만 잔존으로 분리. |
 | 2026-05-18 | 스캔 UI 노출(`/account/scan` + `<ScanPanel />`) + critical/high 신규 발견 시 운영자 Discord 알림(`DISCORD_SCAN_WEBHOOK_URL`). Phase 3.3 행동 트리거 마무리. repo `swkoo-portfolio` → `swkoo-kr` rename. |
 | 2026-05-20 | Step 1·2 묶음 — paid 진입 전 사전 조건 정리. §4 체크리스트에 *복구 능력 (백업)*, *URL 자율성 (sub-slug)*, *알람 통로 검증* 3건 ✅ 추가. /privacy §3에 백업 retention(최대 90일) 명시 — K-PIPA Art.30 보강. Step 2.3 audit 으로 silent failure 3건 발견·해결 (SwkooBackendDown · null receiver · InfoInhibitor 누수). |
+| 2026-05-20 (오후) | Pre-Step-3 보강 + 사용자 가치 작업. §4 체크리스트 추가 4건: *deploy 완료 이메일* (C, 친구 ask 직접 답), *major dep 일괄 upgrade* (Next 16 / React 19 / NestJS 11), *운영 hygiene 묶음* (B: GHA race / throttler / 0-repo / 친화화 / op-scan). /privacy rev 2: Resend 처리위탁자 추가. OCI auth token 회수 (docs/registry.md 평문 leak 정리) + 클러스터 imagePullSecret 갱신. stale 설계문서 6개 삭제. |

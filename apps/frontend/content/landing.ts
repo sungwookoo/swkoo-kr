@@ -48,6 +48,7 @@ export const builders = {
     'per-tenant ResourceQuota · LimitRange · NetworkPolicy',
     'Prometheus + Alertmanager → 운영자 Discord (arm64 변환 sidecar 자체 구현)',
     '일일 SQLite 백업 → OCI Object Storage (Instance Principal, 90일 retention)',
+    '사용자 deploy 완료 자동 이메일 (Resend, GitHub OAuth email)',
   ],
 } as const;
 
