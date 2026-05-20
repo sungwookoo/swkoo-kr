@@ -96,6 +96,56 @@ Argo CD UI에서 `swkoo-kr` 애플리케이션을 Sync하면 K3s 클러스터에
 - 리플리카 수와 리소스 요청/제한은 각 Deployment에서 조정
 - 추가 환경 변수는 Secret/ConfigMap을 만들어 `envFrom` 또는 `env`로 주입
 
+## 알람 → Discord 라우팅 (Step 2.3)
+
+Prometheus 알람은 `deploy/observability/*-alerts.yaml` 의 PrometheusRule 들이 정의. Alertmanager → Discord 통로는 다음 3가지로 구성:
+
+1. **Discord 변환 sidecar** (`alertmanager-discord-deployment.yaml`) — Alertmanager 의 webhook 페이로드를 Discord 가 받는 포맷으로 변환. 이 sidecar 가 없으면 Discord 가 400으로 거절
+2. **AlertmanagerConfig CR** (`alertmanagerconfig-discord.yaml`) — discord receiver + Watchdog 헬스체크 route
+3. **Alertmanager CR 패치** (`alertmanager-cr-patch.yaml`) — helm-managed CR 이라 kustomize 미포함, *수동 1회 적용*
+
+### 1회 설정 (운영자)
+
+**a. Discord webhook URL Secret 생성**
+
+```bash
+kubectl create secret generic alertmanager-discord-webhook -n monitoring \
+  --from-literal=url='https://discord.com/api/webhooks/<id>/<token>'
+```
+
+(URL 은 Discord 서버 → 채널 설정 → 연동 → 웹훅 에서 발급)
+
+**b. Alertmanager CR 패치**
+
+운영자가 1회 수동 적용. Helm 으로 kube-prometheus-stack 업그레이드 시 되돌려질 수 있음 — 그땐 재적용:
+
+```bash
+kubectl patch alertmanager kube-prometheus-stack-alertmanager -n monitoring --type=merge -p '{
+  "spec": {
+    "alertmanagerConfigSelector": { "matchLabels": { "alertmanagerConfig": "swkoo" } },
+    "alertmanagerConfigNamespaceSelector": { "matchLabels": { "kubernetes.io/metadata.name": "monitoring" } },
+    "alertmanagerConfigMatcherStrategy": { "type": "None" }
+  }
+}'
+```
+
+(`alertmanager-cr-patch.yaml` 에 같은 내용 reference 로 보관)
+
+### 동작 검증
+
+- `Watchdog` 알람은 kube-prometheus-stack 의 내장 룰 — 항상 fire 상태. AlertmanagerConfig 의 `repeatInterval: 6h` 라 *6시간마다 Discord 메시지 1건* 도달해야 정상
+- 도착 안 하면 통로가 죽음 — `kubectl logs -n monitoring deploy/alertmanager-discord` 부터 확인
+- 즉시 검증하려면 synthetic alert:
+
+```bash
+kubectl -n monitoring exec alertmanager-kube-prometheus-stack-alertmanager-0 -c alertmanager -- \
+  wget -qO- --post-data='[{"labels":{"alertname":"SwkooSmokeTest","severity":"warning"},"annotations":{"summary":"smoke test from operator"}}]' \
+  --header='Content-Type: application/json' \
+  'http://localhost:9093/api/v2/alerts'
+```
+
+30초~5분 안에 Discord 도달.
+
 ## 백업 / 복구
 
 ### 일일 자동 백업 (Step 2.2)

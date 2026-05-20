@@ -10,3 +10,9 @@ resources:
   - argocd-alerts.yaml
   - backend-servicemonitor.yaml
   - backend-alerts.yaml
+  - alertmanager-discord-deployment.yaml
+  - alertmanagerconfig-discord.yaml
+  # alertmanager-cr-patch.yaml is intentionally NOT included — the
+  # Alertmanager CR is helm-managed and emitting our own full copy via
+  # kustomize would clobber helm's other fields. That file is reference
+  # material; apply it once via `kubectl patch` (see deploy/README.md).

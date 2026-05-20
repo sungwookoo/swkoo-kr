@@ -1,0 +1,43 @@
+# Routes fired alerts to the alertmanager-discord translator, which then
+# reposts to the operator's Discord channel. Two receivers because the
+# Watchdog heartbeat needs a longer repeat interval than real alerts —
+# the heartbeat is supposed to be quiet "I'm alive" pings, not a flood.
+#
+# Picked up by the Alertmanager CR via alertmanagerConfigSelector +
+# alertmanagerConfigMatcherStrategy: None (see alertmanager-cr-patch.yaml).
+# Without the matcherStrategy override, the operator would inject a
+# `namespace=monitoring` matcher and our routes would never match the
+# `swkoo` and ArgoCD-side alerts we actually care about.
+apiVersion: monitoring.coreos.com/v1alpha1
+kind: AlertmanagerConfig
+metadata:
+  name: swkoo-discord
+  namespace: monitoring
+  labels:
+    alertmanagerConfig: swkoo
+spec:
+  route:
+    receiver: discord
+    groupBy:
+      - alertname
+      - severity
+      - namespace
+    groupWait: 30s
+    groupInterval: 5m
+    repeatInterval: 4h
+    routes:
+      - receiver: discord-heartbeat
+        matchers:
+          - name: alertname
+            value: Watchdog
+        repeatInterval: 6h
+        continue: false
+  receivers:
+    - name: discord
+      webhookConfigs:
+        - url: http://alertmanager-discord.monitoring.svc.cluster.local:9094
+          sendResolved: true
+    - name: discord-heartbeat
+      webhookConfigs:
+        - url: http://alertmanager-discord.monitoring.svc.cluster.local:9094
+          sendResolved: false

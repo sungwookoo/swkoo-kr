@@ -11,7 +11,13 @@ spec:
     - name: swkoo.backend
       rules:
         - alert: SwkooBackendDown
-          expr: up{job="swkoo-backend"} == 0
+          # `up == 0` only fires when the scrape target is registered but
+          # unreachable. When the pod is scaled to 0 (or otherwise leaves
+          # the ServiceMonitor's selector), the target disappears entirely
+          # and `up` returns no series — so we need `absent()` to catch
+          # that case. Verified during the 2026-05-20 PVC restore where
+          # the original `up == 0` form silently missed a ~3 min outage.
+          expr: up{job="swkoo-backend"} == 0 or absent(up{job="swkoo-backend"}) == 1
           for: 1m
           labels:
             severity: critical

@@ -1,0 +1,25 @@
+# Patches the kube-prometheus-stack Alertmanager CR so the operator picks
+# up our AlertmanagerConfig CRs. Without these three fields:
+#   - alertmanagerConfigSelector: {} ← matches NOTHING, so our routing
+#     is invisible to the operator.
+#   - alertmanagerConfigNamespaceSelector: {} ← same.
+#   - alertmanagerConfigMatcherStrategy.type defaults to OnNamespace,
+#     which would inject `namespace=monitoring` matchers into every
+#     route — silently filtering out alerts from `swkoo` and others.
+#
+# kube-prometheus-stack is installed via Helm (not ArgoCD); a future
+# Helm upgrade may revert these fields. See deploy/README.md.
+apiVersion: monitoring.coreos.com/v1
+kind: Alertmanager
+metadata:
+  name: kube-prometheus-stack-alertmanager
+  namespace: monitoring
+spec:
+  alertmanagerConfigSelector:
+    matchLabels:
+      alertmanagerConfig: swkoo
+  alertmanagerConfigNamespaceSelector:
+    matchLabels:
+      kubernetes.io/metadata.name: monitoring
+  alertmanagerConfigMatcherStrategy:
+    type: None

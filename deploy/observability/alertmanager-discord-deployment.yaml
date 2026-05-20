@@ -1,0 +1,71 @@
+# Tiny translator sidecar: Alertmanager doesn't speak Discord's webhook
+# schema natively, and Discord rejects Alertmanager's raw payload as a 400.
+# benjojo/alertmanager-discord receives Alertmanager's webhook payload and
+# reposts it to the actual Discord webhook URL in Discord's expected shape.
+#
+# DISCORD_WEBHOOK env is sourced from the `alertmanager-discord-webhook`
+# Secret created out-of-band (kubectl create secret … --from-literal=url=…
+# — see deploy/README.md). Keeping the URL out of git avoids leaking the
+# operator's notification channel.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: alertmanager-discord
+  namespace: monitoring
+  labels:
+    app: alertmanager-discord
+    app.kubernetes.io/component: notification-translator
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: alertmanager-discord
+  template:
+    metadata:
+      labels:
+        app: alertmanager-discord
+    spec:
+      containers:
+        - name: translator
+          image: benjojo/alertmanager-discord:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 9094
+              name: http
+          env:
+            - name: DISCORD_WEBHOOK
+              valueFrom:
+                secretKeyRef:
+                  name: alertmanager-discord-webhook
+                  key: url
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65534
+            capabilities:
+              drop: ["ALL"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: alertmanager-discord
+  namespace: monitoring
+  labels:
+    app: alertmanager-discord
+spec:
+  selector:
+    app: alertmanager-discord
+  ports:
+    - port: 9094
+      targetPort: 9094
+      name: http
