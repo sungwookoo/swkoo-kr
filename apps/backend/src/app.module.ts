@@ -6,6 +6,7 @@ import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 
 import { alertmanagerConfig } from './config/alertmanager.config';
 import { backupConfig } from './config/backup.config';
+import { emailConfig } from './config/email.config';
 import { githubConfig } from './config/github.config';
 import { onboardingConfig } from './config/onboarding.config';
 import { pipelinesConfig } from './config/pipelines.config';
@@ -14,6 +15,7 @@ import { webhooksConfig } from './config/webhooks.config';
 import { AlertsModule } from './alerts/alerts.module';
 import { BackupModule } from './backup/backup.module';
 import { DeployModule } from './deploy/deploy.module';
+import { EmailModule } from './email/email.module';
 import { HealthController } from './health/health.controller';
 import { MetricsModule } from './metrics/metrics.module';
 import { OnboardingModule } from './onboarding/onboarding.module';
@@ -27,7 +29,7 @@ import { WebhooksModule } from './webhooks/webhooks.module';
     ConfigModule.forRoot({
       isGlobal: true,
       cache: true,
-      load: [pipelinesConfig, githubConfig, alertmanagerConfig, webhooksConfig, onboardingConfig, backupConfig]
+      load: [pipelinesConfig, githubConfig, alertmanagerConfig, webhooksConfig, onboardingConfig, backupConfig, emailConfig]
     }),
     ScheduleModule.forRoot(),
     // Global rate limiter — primary purpose is brute-force protection on
@@ -41,7 +43,8 @@ import { WebhooksModule } from './webhooks/webhooks.module';
     WebhooksModule,
     OnboardingModule,
     DeployModule,
-    BackupModule
+    BackupModule,
+    EmailModule
   ],
   controllers: [HealthController, OverviewController],
   providers: [

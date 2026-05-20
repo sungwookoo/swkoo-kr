@@ -14,7 +14,7 @@ export default function PrivacyPage(): import("react").ReactNode {
           <h1 className="display-tight text-balance text-3xl font-semibold text-zinc-50 sm:text-4xl">
             개인정보 처리방침
           </h1>
-          <p className="text-xs text-zinc-500">시행일자: 2026-05-20</p>
+          <p className="text-xs text-zinc-500">시행일자: 2026-05-20 (rev 2)</p>
         </header>
 
         <section className="space-y-3 text-sm leading-relaxed text-zinc-400">
@@ -31,7 +31,7 @@ export default function PrivacyPage(): import("react").ReactNode {
             <li>
               <strong className="text-zinc-300">GitHub OAuth 사인인 정보</strong>:
               GitHub 사용자 ID, 로그인 핸들, 이름, 이메일(GitHub이 제공하는 경우),
-              아바타 URL
+              아바타 URL. 이메일은 deploy 완료 알림 발송에도 사용됩니다 (위탁자: Resend)
             </li>
             <li>
               <strong className="text-zinc-300">OAuth refresh token</strong>:
@@ -116,6 +116,12 @@ export default function PrivacyPage(): import("react").ReactNode {
             <li>
               <strong className="text-zinc-300">Discord</strong> — 운영자 알림 채널
               (사용자 식별 정보 미전송, 빌드·배포 이벤트만)
+            </li>
+            <li>
+              <strong className="text-zinc-300">Resend Inc.</strong> — 사용자 본인의
+              deploy 완료 이메일 알림 발송. 전송 데이터: 이메일 주소, GitHub 로그인,
+              repo 이름, 라이브 URL, 이미지 digest. 사용자 본인에게만 발송되며 외부에
+              제공되지 않음. 운영자가 활성화한 경우에 한해 동작.
             </li>
           </ul>
         </Section>

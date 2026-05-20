@@ -157,6 +157,10 @@ export class UsersRepository implements OnModuleInit, OnModuleDestroy {
     // Per-scan top-vulnerabilities JSON. Stored on the scan_results row
     // so the latest scan's details are co-located with its counts.
     this.addColumnIfMissing('scan_results', 'findings_json', 'TEXT');
+    // Dedup key for deploy-success email — last image sha we already
+    // notified the user about. Persisting across backend restarts
+    // prevents duplicate emails on pod recreate.
+    this.addColumnIfMissing('users', 'last_notified_image_sha', 'TEXT');
     this.logger.log('users + audit_log tables ready');
   }
 
@@ -384,6 +388,22 @@ export class UsersRepository implements OnModuleInit, OnModuleDestroy {
       if (code === 'SQLITE_CONSTRAINT_UNIQUE') return 'taken';
       throw err;
     }
+  }
+
+  /** Reads/writes the last image SHA the user was emailed about. Returns
+   * the previous value (or null) so callers can detect a change without
+   * a separate read. */
+  getLastNotifiedImageSha(userId: number): string | null {
+    const row = this.db
+      .prepare(`SELECT last_notified_image_sha AS sha FROM users WHERE id = ?`)
+      .get(userId) as { sha: string | null } | undefined;
+    return row?.sha ?? null;
+  }
+
+  setLastNotifiedImageSha(userId: number, sha: string): void {
+    this.db
+      .prepare(`UPDATE users SET last_notified_image_sha = ? WHERE id = ?`)
+      .run(sha, userId);
   }
 
   findBySubdomain(subdomain: string): UserRow | undefined {

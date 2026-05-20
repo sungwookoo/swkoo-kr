@@ -62,6 +62,7 @@
   - `DISCORD_BUILD_FAILURE_WEBHOOK_URL` — 사용자 repo GHA 빌드 실패 시 운영자 알림 (없으면 알림 OFF)
   - `DISCORD_SCAN_WEBHOOK_URL` — 일일 Trivy 스캔에서 critical/high 신규 발견 시 운영자 알림 (없으면 알림 OFF)
   - `OCI_REGION`, `OCI_OBJECT_STORAGE_NAMESPACE`, `OCI_BACKUP_BUCKET` — 셋 다 설정 시 매일 04:00 KST SQLite 백업이 OCI Object Storage 로 업로드. 하나라도 비면 백업 OFF. 인증은 Instance Principal (메타데이터 서비스, 정적 키 없음) — Dynamic Group + Policy 사전 설정 필요 (아래 *백업 / 복구* 섹션)
+  - `RESEND_API_KEY`, `EMAIL_FROM` — 둘 다 설정 시 사용자 deploy 완료 시 OAuth email 로 자동 알림. `EMAIL_FROM` 은 "swkoo.kr <noreply@swkoo.kr>" 형식. Resend 콘솔에서 도메인 verification 후 키 발급 필요. 미설정 시 알림 OFF
   - `BRAND_NAME`, `APPS_DOMAIN`, `MANIFEST_REPO`, `MANIFEST_BRANCH`, `APP_BASE_URL`, `PIPELINES_CACHE_TTL`, `ALERTS_CACHE_TTL` — 기본값 덮어쓸 때만
 
   키 추가/수정 (기존 키 보존하며 merge):

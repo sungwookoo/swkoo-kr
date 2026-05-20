@@ -4,6 +4,7 @@ import { PatchStrategy, setHeaderOptions } from '@kubernetes/client-node';
 import axios from 'axios';
 
 import { onboardingConfig } from '../config/onboarding.config';
+import { EmailService } from '../email/email.service';
 import { KubeClient } from '../kube/kube.client';
 import { AuthService } from '../onboarding/auth.service';
 import { UsersRepository } from '../onboarding/users.repository';
@@ -128,6 +129,7 @@ export class DeployService {
     private readonly users: UsersRepository,
     private readonly argo: ArgoCdClient,
     private readonly kube: KubeClient,
+    private readonly email: EmailService,
     @Inject(onboardingConfig.KEY)
     private readonly config: ConfigType<typeof onboardingConfig>
   ) {}
@@ -603,6 +605,14 @@ export class DeployService {
     const imageDetectedStage = this.checkImageDetectedStage(app);
     const deployStage = this.checkDeployStage(app);
 
+    // Fire deploy-success email when liveStage flips to success for a
+    // *new* image digest. Polling endpoint hit on every front-end tick
+    // so we have to dedup; persisted in users.last_notified_image_sha
+    // to survive backend restarts.
+    if (user && user.email && liveStage.status === 'success') {
+      void this.maybeNotifyDeploySuccess(user.id, user.email, loginLc, repo, liveUrl, app);
+    }
+
     return {
       login: loginLc,
       repo,
@@ -616,6 +626,50 @@ export class DeployService {
         live: liveStage,
       },
     };
+  }
+
+  private async maybeNotifyDeploySuccess(
+    userId: number,
+    email: string,
+    login: string,
+    repo: string,
+    liveUrl: string,
+    app: unknown
+  ): Promise<void> {
+    if (!this.email.enabled()) return;
+    const digest = this.extractImageDigest(app);
+    if (!digest) return;
+    const last = this.users.getLastNotifiedImageSha(userId);
+    if (last === digest) return;
+    // Set FIRST, send second — if Resend hangs, the next poll won't
+    // re-fire while the first request is in flight. Worst case on
+    // network failure: one missed notification (better than spam).
+    this.users.setLastNotifiedImageSha(userId, digest);
+    await this.email.sendDeploySuccess({
+      to: email,
+      login,
+      repo,
+      liveUrl,
+      imageDigest: digest.length > 19 ? `sha256:${digest.slice(7, 19)}…` : digest,
+    });
+    this.users.audit({
+      actor: login,
+      action: 'DEPLOY_NOTIFY',
+      target: repo,
+      reason: null,
+      metaJson: JSON.stringify({ digest }),
+    });
+  }
+
+  private extractImageDigest(app: unknown): string | null {
+    const imagesField = (app as {
+      spec?: { source?: { kustomize?: { images?: string[] } } };
+    } | null)?.spec?.source?.kustomize?.images;
+    const images = Array.isArray(imagesField) ? imagesField : [];
+    const pinned = images.find((entry) => entry.includes('@sha256:'));
+    if (!pinned) return null;
+    const idx = pinned.indexOf('sha256:');
+    return idx >= 0 ? pinned.slice(idx) : null;
   }
 
   private async checkManifestStage(login: string): Promise<StageInfo> {

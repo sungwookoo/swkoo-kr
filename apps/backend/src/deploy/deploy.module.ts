@@ -1,7 +1,9 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 
+import { emailConfig } from '../config/email.config';
 import { onboardingConfig } from '../config/onboarding.config';
+import { EmailModule } from '../email/email.module';
 import { KubeModule } from '../kube/kube.module';
 import { OnboardingModule } from '../onboarding/onboarding.module';
 import { PipelinesModule } from '../pipelines/pipelines.module';
@@ -18,7 +20,9 @@ import { ScanService } from './scan.service';
     OnboardingModule,
     PipelinesModule,
     KubeModule,
+    EmailModule,
     ConfigModule.forFeature(onboardingConfig),
+    ConfigModule.forFeature(emailConfig),
   ],
   controllers: [DeployController, AccountController],
   providers: [DeployService, GithubAppService, EnvService, CleanupService, ScanService],
