@@ -45,6 +45,7 @@
   - `DISCORD_WEBHOOK_URL` — 신규 사용자 가입 시 Discord 알림 (없으면 알림 OFF)
   - `DISCORD_BUILD_FAILURE_WEBHOOK_URL` — 사용자 repo GHA 빌드 실패 시 운영자 알림 (없으면 알림 OFF)
   - `DISCORD_SCAN_WEBHOOK_URL` — 일일 Trivy 스캔에서 critical/high 신규 발견 시 운영자 알림 (없으면 알림 OFF)
+  - `OCI_REGION`, `OCI_OBJECT_STORAGE_NAMESPACE`, `OCI_BACKUP_BUCKET` — 셋 다 설정 시 매일 04:00 KST SQLite 백업이 OCI Object Storage 로 업로드. 하나라도 비면 백업 OFF. 인증은 Instance Principal (메타데이터 서비스, 정적 키 없음) — Dynamic Group + Policy 사전 설정 필요 (아래 *백업 / 복구* 섹션)
   - `BRAND_NAME`, `APPS_DOMAIN`, `MANIFEST_REPO`, `MANIFEST_BRANCH`, `APP_BASE_URL`, `PIPELINES_CACHE_TTL`, `ALERTS_CACHE_TTL` — 기본값 덮어쓸 때만
 
   키 추가/수정 (기존 키 보존하며 merge):
@@ -94,3 +95,58 @@ Argo CD UI에서 `swkoo-kr` 애플리케이션을 Sync하면 K3s 클러스터에
 - 도메인/TLS Secret 이름은 `deploy/base/backend/ingress.yaml`, `deploy/base/frontend/ingress.yaml`에서 변경
 - 리플리카 수와 리소스 요청/제한은 각 Deployment에서 조정
 - 추가 환경 변수는 Secret/ConfigMap을 만들어 `envFrom` 또는 `env`로 주입
+
+## 백업 / 복구
+
+### 일일 자동 백업 (Step 2.2)
+
+`BackupService`가 매일 04:00 KST 에 SQLite 전체 스냅샷을 OCI Object Storage 로 업로드.
+키 패턴: `daily/<YYYY-MM-DD>/observatory.sqlite`. 같은 날짜 키는 덮어씌워짐.
+
+**OCI 사전 설정 (1회)**:
+1. Bucket 생성 (Standard tier, private). 이름은 `OCI_BACKUP_BUCKET` 과 일치
+2. Dynamic Group 생성 — matching rule: `instance.id = 'ocid1.instance.oc1.<region>.<vm-ocid>'`
+3. IAM Policy:
+   ```
+   Allow dynamic-group <dynamic-group-name> to manage objects in compartment <compartment-name> where target.bucket.name='<bucket-name>'
+   Allow dynamic-group <dynamic-group-name> to read buckets in compartment <compartment-name>
+   ```
+4. 권장: bucket Lifecycle Policy — 90일 지난 객체 자동 삭제
+
+backend Secret 에 `OCI_REGION` / `OCI_OBJECT_STORAGE_NAMESPACE` / `OCI_BACKUP_BUCKET` 추가 + rollout.
+
+### 수동 트리거 (smoke test, pre-migration)
+
+```bash
+# 관리자 JWT 쿠키 있는 상태에서
+curl -X POST https://swkoo.kr/api/admin/backup/trigger \
+  -H 'Cookie: <admin-session-cookie>'
+# → { "bucket": "...", "key": "daily/2026-05-20/observatory.sqlite", "sizeBytes": N }
+```
+
+### 복구 절차 (사고 시)
+
+1. OCI 콘솔 → Object Storage → `swkoo-kr-backups` 버킷 → 원하는 날짜의 객체 다운로드
+2. 다운로드한 `observatory.sqlite` 파일을 sqlite3 로 sanity-check:
+   ```bash
+   sqlite3 observatory.sqlite ".tables"   # users, audit_log, scan_results 등 보이면 OK
+   sqlite3 observatory.sqlite "SELECT count(*) FROM users WHERE deleted_at IS NULL;"
+   ```
+3. 백엔드 정지 (PVC 점유 해제):
+   ```bash
+   kubectl scale deployment/swkoo-backend -n swkoo --replicas=0
+   ```
+4. 한 번 디버그 pod 를 띄워 PVC 마운트 + 파일 교체:
+   ```bash
+   kubectl run pvc-restore -n swkoo --rm -it --restart=Never \
+     --image=alpine --overrides='{"spec":{"volumes":[{"name":"data","persistentVolumeClaim":{"claimName":"swkoo-backend-data"}}],"containers":[{"name":"pvc-restore","image":"alpine","stdin":true,"tty":true,"volumeMounts":[{"name":"data","mountPath":"/data"}]}]}}' \
+     -- sh
+   # 다른 터미널에서: kubectl cp ./observatory.sqlite swkoo/pvc-restore:/data/observatory.sqlite
+   # 컨테이너 안: ls -la /data/ 확인 후 exit
+   ```
+5. 백엔드 재시작:
+   ```bash
+   kubectl scale deployment/swkoo-backend -n swkoo --replicas=1
+   kubectl rollout status deployment/swkoo-backend -n swkoo
+   ```
+6. 스모크: `/api/health` 200 응답 + `/admin/users` 목록 확인
