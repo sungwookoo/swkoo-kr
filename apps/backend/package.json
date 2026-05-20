@@ -22,6 +22,7 @@
     "@nestjs/core": "^11.1.21",
     "@nestjs/platform-express": "^11.1.21",
     "@nestjs/schedule": "^6.1.3",
+    "@nestjs/throttler": "^6.5.0",
     "axios": "^1.6.8",
     "better-sqlite3": "^11.10.0",
     "class-transformer": "^0.5.1",

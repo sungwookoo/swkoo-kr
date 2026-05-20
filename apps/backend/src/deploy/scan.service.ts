@@ -74,6 +74,60 @@ export class ScanService {
     private readonly config: ConfigType<typeof onboardingConfig>
   ) {}
 
+  /** Scan our own swkoo-backend + swkoo-frontend OCIR images. Symmetric to
+   * scanAllActiveUsers — gives the operator the same vuln visibility on
+   * the control-plane that friends get on their own deploys. Counts go
+   * to logs + audit_log + Discord (same DISCORD_SCAN_WEBHOOK_URL path);
+   * not stored in scan_results because that table is per-user and
+   * adding a synthetic user row felt worse than just logging. */
+  async scanOperatorImages(): Promise<void> {
+    if (!this.kube.available()) return;
+    // Read current images from the deployed Deployments — that's the
+    // source of truth for what's running, not whatever :latest happens
+    // to be in OCIR at the moment of the scan.
+    const images: Array<{ name: string; image: string }> = [];
+    try {
+      for (const name of ['swkoo-backend', 'swkoo-frontend']) {
+        const dep = await this.kube.apps!.readNamespacedDeployment({
+          name,
+          namespace: BACKEND_NS,
+        });
+        const image = dep.spec?.template?.spec?.containers?.[0]?.image;
+        if (image) images.push({ name, image });
+      }
+    } catch (err) {
+      this.logger.warn(`operator image lookup failed: ${(err as Error).message}`);
+      return;
+    }
+
+    for (const { name, image } of images) {
+      try {
+        const result = await this.runScan(`operator-${name}`, image);
+        if (!result) continue;
+        this.logger.log(
+          `operator scan ${name}: critical=${result.critical} high=${result.high} medium=${result.medium}`
+        );
+        this.users.audit({
+          actor: 'system',
+          action: 'SCAN_OPERATOR',
+          target: name,
+          reason: null,
+          metaJson: JSON.stringify({
+            image,
+            critical: result.critical,
+            high: result.high,
+            medium: result.medium,
+          }),
+        });
+        // Reuse the existing notification path. previous=null forces a
+        // post on first critical/high — fine, operator wants the signal.
+        this.maybeNotifyScanFindings(`operator/${name}`, image, result, null);
+      } catch (err) {
+        this.logger.warn(`operator scan ${name} failed: ${(err as Error).message}`);
+      }
+    }
+  }
+
   /** Scan every active user. Best-effort: a single user's failure doesn't
    * block the rest. */
   async scanAllActiveUsers(): Promise<void> {

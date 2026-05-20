@@ -10,6 +10,7 @@ import {
   UnauthorizedException
 } from '@nestjs/common';
 import { ConfigType } from '@nestjs/config';
+import { SkipThrottle } from '@nestjs/throttler';
 import type { Request } from 'express';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 
@@ -20,6 +21,11 @@ interface RawBodyRequest extends Request {
   rawBody?: Buffer;
 }
 
+// HMAC-protected webhook endpoints (ArgoCD, GitHub) already authenticate
+// the sender. Rate-limiting them risks dropping events from bursts of
+// legitimate activity (e.g., a GHA workflow that emits many run events
+// in quick succession).
+@SkipThrottle()
 @Controller('webhooks')
 export class WebhooksController {
   private readonly logger = new Logger(WebhooksController.name);

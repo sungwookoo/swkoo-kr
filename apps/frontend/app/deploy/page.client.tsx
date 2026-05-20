@@ -493,9 +493,43 @@ function RepoGrid({
   }
   if (!repos || repos.length === 0) {
     return (
-      <p className="text-slate-500">
-        본인이 owner인 GitHub repo가 없습니다. 새 repo를 만들고 다시 와주세요.
-      </p>
+      <div className="space-y-4 rounded-lg border border-slate-800 bg-slate-900/40 p-6">
+        <p className="text-slate-300">
+          본인이 owner인 GitHub repo가 아직 없네요. 새로 만들면 여기에 표시됩니다.
+        </p>
+        <p className="text-sm text-slate-500">
+          처음이시면 swkoo.kr 에서 검증된 Next.js 템플릿으로 시작하시는 게 가장 빠릅니다 — 한 번 클릭으로 본인 GitHub 에 새 repo 가 만들어집니다.
+        </p>
+        <div className="flex flex-wrap items-center gap-3 pt-1">
+          <a
+            href="https://github.com/sungwookoo/nextjs-sample/generate"
+            target="_blank"
+            rel="noreferrer"
+            className="group inline-flex items-center gap-2 rounded-md bg-white px-4 py-2 text-sm font-semibold text-black transition-colors hover:bg-zinc-200"
+          >
+            <span>템플릿으로 새 repo 만들기 (sungwookoo/nextjs-sample)</span>
+            <span className="transition-transform group-hover:translate-x-0.5">↗</span>
+          </a>
+          <Link
+            href="/deploy/getting-started"
+            className="text-sm text-slate-500 transition-colors hover:text-slate-300"
+          >
+            시작 가이드 →
+          </Link>
+        </div>
+        <p className="text-xs text-slate-600 pt-2">
+          이미 만드신 repo가 있다면 화면이 갱신되도록 페이지를 새로고침해주세요. GitHub App access 가 <span className="font-mono">Only select repositories</span> 면{' '}
+          <a
+            href="https://github.com/apps/swkoo-deploy/installations/select_target"
+            target="_blank"
+            rel="noreferrer"
+            className="underline decoration-slate-700 underline-offset-2 hover:text-slate-300"
+          >
+            여기서
+          </a>{' '}
+          새 repo 를 추가하셔야 보입니다.
+        </p>
+      </div>
     );
   }
 
@@ -716,10 +750,7 @@ function DeployTrigger({ fullName }: { fullName: string }): import("react").Reac
 
       {state.kind === 'error' && (
         <div className="space-y-2">
-          <p className="text-sm text-amber-400">
-            {state.reason && <span className="font-mono text-xs">[{state.reason}] </span>}
-            {state.message}
-          </p>
+          <p className="text-sm text-amber-400">{state.message}</p>
           {state.installUrl && (
             <>
               <div className="flex flex-wrap items-center gap-2">

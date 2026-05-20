@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { APP_GUARD } from '@nestjs/core';
 import { ScheduleModule } from '@nestjs/schedule';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 
 import { alertmanagerConfig } from './config/alertmanager.config';
 import { backupConfig } from './config/backup.config';
@@ -28,6 +30,11 @@ import { WebhooksModule } from './webhooks/webhooks.module';
       load: [pipelinesConfig, githubConfig, alertmanagerConfig, webhooksConfig, onboardingConfig, backupConfig]
     }),
     ScheduleModule.forRoot(),
+    // Global rate limiter — primary purpose is brute-force protection on
+    // `/api/auth/*` (OAuth callback, consent, logout) and `/api/admin/*`.
+    // 60 req / minute / IP is generous enough that no legitimate user
+    // hits it during a normal session.
+    ThrottlerModule.forRoot([{ ttl: 60_000, limit: 60 }]),
     PipelinesModule,
     AlertsModule,
     MetricsModule,
@@ -37,6 +44,9 @@ import { WebhooksModule } from './webhooks/webhooks.module';
     BackupModule
   ],
   controllers: [HealthController, OverviewController],
-  providers: [OverviewService]
+  providers: [
+    OverviewService,
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
+  ],
 })
 export class AppModule {}

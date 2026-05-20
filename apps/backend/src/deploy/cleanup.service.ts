@@ -44,6 +44,7 @@ export class CleanupService {
     await this.cleanupSoftDeletedUsers();
     await this.cleanupArchivedDeployRepos();
     await this.scan.scanAllActiveUsers();
+    await this.scan.scanOperatorImages();
   }
 
   /** Public for tests / manual triggering. */
