@@ -17,8 +17,16 @@ spec:
           # and `up` returns no series — so we need `absent()` to catch
           # that case. Verified during the 2026-05-20 PVC restore where
           # the original `up == 0` form silently missed a ~3 min outage.
+          #
+          # for: 3m chosen to swallow planned deploy windows. Recreate
+          # strategy on a single-node RWO PVC means every backend deploy
+          # produces ~30-90s of downtime. After the Step 2.2 OCI SDK
+          # init was added, startup got heavier and the previous 1m
+          # threshold started firing on every deploy. 3m clears typical
+          # deploys while keeping real outages within operator response
+          # time (minutes-scale on a friend beta).
           expr: up{job="swkoo-backend"} == 0 or absent(up{job="swkoo-backend"}) == 1
-          for: 1m
+          for: 3m
           labels:
             severity: critical
             namespace: swkoo
