@@ -165,6 +165,14 @@ export class UsersRepository implements OnModuleInit, OnModuleDestroy {
     this.db?.close();
   }
 
+  /** Atomic SQLite snapshot to a file path. Uses better-sqlite3's backup
+   * API which is WAL-aware (consistent even while writes are in-flight)
+   * and copies pages incrementally. Used by the daily backup cron — also
+   * exposed publicly so admin-triggered backups go through the same path. */
+  dumpToFile(destinationPath: string): Promise<void> {
+    return this.db.backup(destinationPath).then(() => undefined);
+  }
+
   private readonly userColumns = `
     id, github_id AS githubId, github_login AS githubLogin,
     name, email, avatar_url AS avatarUrl,

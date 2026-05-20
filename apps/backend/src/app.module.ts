@@ -3,12 +3,14 @@ import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
 
 import { alertmanagerConfig } from './config/alertmanager.config';
+import { backupConfig } from './config/backup.config';
 import { githubConfig } from './config/github.config';
 import { onboardingConfig } from './config/onboarding.config';
 import { pipelinesConfig } from './config/pipelines.config';
 import { webhooksConfig } from './config/webhooks.config';
 
 import { AlertsModule } from './alerts/alerts.module';
+import { BackupModule } from './backup/backup.module';
 import { DeployModule } from './deploy/deploy.module';
 import { HealthController } from './health/health.controller';
 import { MetricsModule } from './metrics/metrics.module';
@@ -23,7 +25,7 @@ import { WebhooksModule } from './webhooks/webhooks.module';
     ConfigModule.forRoot({
       isGlobal: true,
       cache: true,
-      load: [pipelinesConfig, githubConfig, alertmanagerConfig, webhooksConfig, onboardingConfig]
+      load: [pipelinesConfig, githubConfig, alertmanagerConfig, webhooksConfig, onboardingConfig, backupConfig]
     }),
     ScheduleModule.forRoot(),
     PipelinesModule,
@@ -31,7 +33,8 @@ import { WebhooksModule } from './webhooks/webhooks.module';
     MetricsModule,
     WebhooksModule,
     OnboardingModule,
-    DeployModule
+    DeployModule,
+    BackupModule
   ],
   controllers: [HealthController, OverviewController],
   providers: [OverviewService]
