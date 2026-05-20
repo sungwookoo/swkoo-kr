@@ -9,7 +9,7 @@ export function ScopeToggle({
   currentScope,
 }: {
   currentScope: string | null;
-}): JSX.Element | null {
+}): import("react").ReactNode {
   const { me } = useMe();
   if (!me?.isAdmin) return null;
 
@@ -39,7 +39,7 @@ function ToggleLink({
   href: '/observatory' | '/observatory?scope=mine';
   active: boolean;
   children: React.ReactNode;
-}): JSX.Element {
+}): import("react").ReactNode {
   return (
     <Link
       href={href}

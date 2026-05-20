@@ -15,9 +15,10 @@ export { API_BASE_URL };
 // Observatory/pipeline/alert endpoints now apply per-viewer filtering, so we
 // need to forward the session cookie from the incoming request and skip the
 // Next.js fetch cache (which keys by URL only and would leak responses
-// across viewers).
-function serverFetchInit(): RequestInit {
-  const cookieHeader = cookies().toString();
+// across viewers). `cookies()` became async in Next 15+, so this helper has
+// to be awaited at the call site.
+async function serverFetchInit(): Promise<RequestInit> {
+  const cookieHeader = (await cookies()).toString();
   return {
     cache: 'no-store',
     headers: cookieHeader ? { Cookie: cookieHeader } : undefined,
@@ -64,7 +65,7 @@ export async function fetchPipelines(scope?: string): Promise<PipelinesEnvelope>
   try {
     const response = await fetch(
       withScope(`${API_BASE_URL}/pipelines`, scope),
-      serverFetchInit()
+      await serverFetchInit()
     );
 
     if (!response.ok) {
@@ -105,7 +106,7 @@ export async function fetchAlerts(scope?: string): Promise<AlertsEnvelope> {
   try {
     const response = await fetch(
       withScope(`${API_BASE_URL}/alerts`, scope),
-      serverFetchInit()
+      await serverFetchInit()
     );
 
     if (!response.ok) {
@@ -149,7 +150,7 @@ export async function fetchDeployments(
 
   try {
     const url = `${API_BASE_URL}/pipelines/${encodeURIComponent(pipelineName)}/deployments?limit=${limit}`;
-    const response = await fetch(url, serverFetchInit());
+    const response = await fetch(url, await serverFetchInit());
 
     if (!response.ok) {
       console.warn('Failed to load deployments', response.statusText);
@@ -176,7 +177,7 @@ export async function fetchEventSummary(
   if (!API_BASE_URL) return null;
   try {
     const url = `${API_BASE_URL}/pipelines/${encodeURIComponent(pipelineName)}/event-summary?windowDays=${windowDays}`;
-    const response = await fetch(url, serverFetchInit());
+    const response = await fetch(url, await serverFetchInit());
     if (!response.ok) {
       console.warn('Failed to load event summary', response.statusText);
       return null;
@@ -217,7 +218,7 @@ export async function fetchWorkflows(
     const queryString = params.toString();
     const url = `${API_BASE_URL}/pipelines/${encodeURIComponent(pipelineName)}/workflows${queryString ? `?${queryString}` : ''}`;
 
-    const response = await fetch(url, serverFetchInit());
+    const response = await fetch(url, await serverFetchInit());
 
     if (!response.ok) {
       console.warn('Failed to load workflows', response.statusText);

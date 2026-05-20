@@ -44,7 +44,7 @@ export default async function Home() {
 
 /* ─────────────── HERO ─────────────── */
 
-function Hero(): JSX.Element {
+function Hero(): import("react").ReactNode {
   return (
     <section className="relative w-full overflow-hidden px-6 pt-24 pb-32 sm:pt-32 sm:pb-40">
       {/* Single subtle top-center radial — Vercel-style atmospherics */}
@@ -122,7 +122,7 @@ function AnimatedLines({
   text: string;
   startDelay: number;
   step: number;
-}): JSX.Element {
+}): import("react").ReactNode {
   const lines = text.split('\n');
   return (
     <>
@@ -139,7 +139,7 @@ function AnimatedLines({
   );
 }
 
-function SpecCard(): JSX.Element {
+function SpecCard(): import("react").ReactNode {
   return (
     <div className="overflow-hidden rounded-md border border-zinc-900 bg-zinc-950 font-mono text-xs leading-relaxed text-zinc-400">
       <div className="flex items-center gap-1.5 border-b border-zinc-900 px-3 py-2">
@@ -179,7 +179,7 @@ function SpecCard(): JSX.Element {
 
 /* ───────── HOW IT WORKS ───────── */
 
-function HowItWorks(): JSX.Element {
+function HowItWorks(): import("react").ReactNode {
   return (
     <section className="w-full border-t border-zinc-900 px-6 py-24 sm:py-32">
       <div className="mx-auto w-full max-w-6xl">
@@ -231,7 +231,7 @@ function Transparency({
   healthyCount: number;
   activeAlerts: number;
   allHealthy: boolean;
-}): JSX.Element {
+}): import("react").ReactNode {
   return (
     <section className="w-full border-t border-zinc-900 px-6 py-24 sm:py-32">
       <div className="mx-auto grid w-full max-w-6xl grid-cols-12 gap-y-12 lg:gap-x-8">
@@ -292,7 +292,7 @@ function Metric({
   label: string;
   value: string;
   isAlert: boolean;
-}): JSX.Element {
+}): import("react").ReactNode {
   return (
     <div className="flex flex-col gap-1">
       <span
@@ -312,7 +312,7 @@ function Metric({
 
 /* ───────── UNDER THE HOOD ───────── */
 
-function UnderTheHood(): JSX.Element {
+function UnderTheHood(): import("react").ReactNode {
   return (
     <section className="w-full border-t border-zinc-900 px-6 py-24 sm:py-32">
       <div className="mx-auto w-full max-w-6xl">
@@ -363,7 +363,7 @@ function DocLink({
 }: {
   href: string;
   children: React.ReactNode;
-}): JSX.Element {
+}): import("react").ReactNode {
   return (
     <a
       href={href}
@@ -389,7 +389,7 @@ function SectionHeader({
   eyebrow: string;
   title: string;
   subtitle: string;
-}): JSX.Element {
+}): import("react").ReactNode {
   return (
     <div className="max-w-2xl space-y-4">
       <p className="font-mono text-[11px] uppercase tracking-[0.22em] text-zinc-500">

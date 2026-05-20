@@ -3,7 +3,7 @@ export const metadata = {
   description: 'swkoo.kr이 수집·저장하는 정보와 그 용도.',
 };
 
-export default function PrivacyPage(): JSX.Element {
+export default function PrivacyPage(): import("react").ReactNode {
   return (
     <main className="relative isolate w-full px-6 py-20 sm:py-24">
       <div className="mx-auto w-full max-w-3xl space-y-8">
@@ -178,7 +178,7 @@ function Section({
 }: {
   title: string;
   children: React.ReactNode;
-}): JSX.Element {
+}): import("react").ReactNode {
   return (
     <section className="space-y-3 text-sm leading-relaxed text-zinc-400">
       <h2 className="text-base font-semibold text-zinc-200">{title}</h2>

@@ -82,7 +82,7 @@ export function Header() {
   );
 }
 
-function UserMenu(): JSX.Element | null {
+function UserMenu(): import("react").ReactNode {
   const { me, isLoading } = useMe();
   const router = useRouter();
   const { mutate } = useSWRConfig();
@@ -190,7 +190,7 @@ function MenuLink({
   href: '/deploy' | '/admin';
   onClick: () => void;
   children: React.ReactNode;
-}): JSX.Element {
+}): import("react").ReactNode {
   return (
     <Link
       href={href}

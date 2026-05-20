@@ -17,7 +17,7 @@ function safeRedirect(target: string | null): SafeRoute {
     : '/deploy';
 }
 
-export function ConsentPageClient(): JSX.Element {
+export function ConsentPageClient(): import("react").ReactNode {
   const { me, isLoading } = useMe();
   const router = useRouter();
   const params = useSearchParams();
@@ -151,7 +151,7 @@ function PolicyLink({
   href: '/privacy' | '/terms';
   title: string;
   description: string;
-}): JSX.Element {
+}): import("react").ReactNode {
   return (
     <Link
       href={href}
@@ -168,7 +168,7 @@ function PolicyLink({
   );
 }
 
-function Shell({ children }: { children: React.ReactNode }): JSX.Element {
+function Shell({ children }: { children: React.ReactNode }): import("react").ReactNode {
   return (
     <main className="relative isolate min-h-[calc(100vh-12rem)] w-full px-6 py-16 sm:py-20">
       <div className="mx-auto flex w-full justify-center">{children}</div>

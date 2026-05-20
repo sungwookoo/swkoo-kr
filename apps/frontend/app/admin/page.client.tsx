@@ -13,7 +13,7 @@ import {
   useAdminUsers,
 } from '@/lib/admin';
 
-export function AdminPageClient(): JSX.Element {
+export function AdminPageClient(): import("react").ReactNode {
   const { me, isLoading: meLoading } = useMe();
   const router = useRouter();
 
@@ -57,7 +57,7 @@ export function AdminPageClient(): JSX.Element {
   );
 }
 
-function UsersTable(): JSX.Element {
+function UsersTable(): import("react").ReactNode {
   const { users, isLoading, error } = useAdminUsers(true);
 
   if (isLoading) return <p className="text-zinc-500">사용자 목록을 가져오는 중…</p>;
@@ -105,7 +105,7 @@ function UsersTable(): JSX.Element {
   );
 }
 
-function UserRow({ user }: { user: AdminUser }): JSX.Element {
+function UserRow({ user }: { user: AdminUser }): import("react").ReactNode {
   return (
     <tr className="text-zinc-300">
       <td className="px-4 py-3">
@@ -139,7 +139,7 @@ function AllowToggle({
 }: {
   login: string;
   isAllowed: boolean;
-}): JSX.Element {
+}): import("react").ReactNode {
   const { mutate } = useSWRConfig();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -191,7 +191,7 @@ function AllowToggle({
   );
 }
 
-function Shell({ children }: { children: React.ReactNode }): JSX.Element {
+function Shell({ children }: { children: React.ReactNode }): import("react").ReactNode {
   return (
     <main className="relative isolate min-h-[calc(100vh-12rem)] w-full px-6 py-16 sm:py-20">
       <div className="mx-auto flex w-full justify-center">{children}</div>

@@ -1,9 +1,12 @@
 import { StatusClient } from './page.client';
 
-export default function DeployStatusPage({
+// Next 15+: dynamic route params are async. The server component must
+// await the Promise before reading individual fields.
+export default async function DeployStatusPage({
   params,
 }: {
-  params: { login: string; repo: string };
-}): JSX.Element {
-  return <StatusClient login={params.login} repo={params.repo} />;
+  params: Promise<{ login: string; repo: string }>;
+}) {
+  const { login, repo } = await params;
+  return <StatusClient login={login} repo={repo} />;
 }

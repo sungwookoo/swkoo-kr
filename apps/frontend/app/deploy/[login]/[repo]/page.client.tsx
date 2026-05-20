@@ -31,7 +31,7 @@ const STAGE_ORDER: Array<{ key: keyof DeploymentStatus['stages']; label: string 
   { key: 'live', label: '라이브 응답' },
 ];
 
-export function StatusClient({ login, repo }: StatusClientProps): JSX.Element {
+export function StatusClient({ login, repo }: StatusClientProps): import("react").ReactNode {
   const { status, isLoading, error } = useDeploymentStatus(login, repo);
 
   return (
@@ -79,7 +79,7 @@ interface EnvRow {
 
 const KEY_PATTERN = /^[A-Z_][A-Z0-9_]*$/;
 
-function EnvVarsPanel({ login, repo }: { login: string; repo: string }): JSX.Element {
+function EnvVarsPanel({ login, repo }: { login: string; repo: string }): import("react").ReactNode {
   const { vars: serverVars, isLoading, error } = useEnvVars(login, repo);
   const { mutate } = useSWRConfig();
   const [rows, setRows] = useState<EnvRow[]>([]);
@@ -259,7 +259,7 @@ function EnvVarsPanel({ login, repo }: { login: string; repo: string }): JSX.Ele
   );
 }
 
-function ScanPanel(): JSX.Element {
+function ScanPanel(): import("react").ReactNode {
   const { scan, isLoading, error } = useLatestScan(true);
 
   return (
@@ -289,7 +289,7 @@ function ScanPanel(): JSX.Element {
   );
 }
 
-function ScanResult({ scan }: { scan: LatestScan }): JSX.Element {
+function ScanResult({ scan }: { scan: LatestScan }): import("react").ReactNode {
   const hasAction = scan.critical > 0 || scan.high > 0;
   const [open, setOpen] = useState(false);
   const findings = scan.findings ?? [];
@@ -326,7 +326,7 @@ function ScanResult({ scan }: { scan: LatestScan }): JSX.Element {
   );
 }
 
-function FindingsList({ findings }: { findings: ScanFinding[] }): JSX.Element {
+function FindingsList({ findings }: { findings: ScanFinding[] }): import("react").ReactNode {
   return (
     <ul className="space-y-2 border-t border-slate-800 pt-3">
       {findings.map((f, i) => (
@@ -373,7 +373,7 @@ function FindingsList({ findings }: { findings: ScanFinding[] }): JSX.Element {
   );
 }
 
-function SeverityTag({ severity }: { severity: ScanFinding['severity'] }): JSX.Element {
+function SeverityTag({ severity }: { severity: ScanFinding['severity'] }): import("react").ReactNode {
   const cls =
     severity === 'CRITICAL'
       ? 'bg-red-950/60 text-red-300 border-red-800'
@@ -397,7 +397,7 @@ function SeverityChip({
   label: string;
   count: number;
   tone: 'critical' | 'high' | 'medium';
-}): JSX.Element {
+}): import("react").ReactNode {
   const active = count > 0;
   const activeCls =
     tone === 'critical'
@@ -436,7 +436,7 @@ type DeleteState =
   | { kind: 'pending' }
   | { kind: 'error'; message: string };
 
-function DeleteCard({ login, repo }: { login: string; repo: string }): JSX.Element {
+function DeleteCard({ login, repo }: { login: string; repo: string }): import("react").ReactNode {
   const router = useRouter();
   const { mutate } = useSWRConfig();
   const [state, setState] = useState<DeleteState>({ kind: 'idle' });
@@ -516,7 +516,7 @@ function Header({
   login: string;
   repo: string;
   status?: DeploymentStatus;
-}): JSX.Element {
+}): import("react").ReactNode {
   const liveReady = status?.stages.live.status === 'success';
   return (
     <header className="space-y-3">
@@ -545,7 +545,7 @@ function Header({
   );
 }
 
-function Checklist({ status }: { status: DeploymentStatus }): JSX.Element {
+function Checklist({ status }: { status: DeploymentStatus }): import("react").ReactNode {
   return (
     <ol className="space-y-2">
       {STAGE_ORDER.map(({ key, label }) => (
@@ -555,7 +555,7 @@ function Checklist({ status }: { status: DeploymentStatus }): JSX.Element {
   );
 }
 
-function StageRow({ label, stage }: { label: string; stage: StageInfo }): JSX.Element {
+function StageRow({ label, stage }: { label: string; stage: StageInfo }): import("react").ReactNode {
   return (
     <li className="flex items-start gap-4 rounded-md border border-slate-800 bg-slate-900/30 p-4">
       <StatusIcon status={stage.status} />
@@ -584,7 +584,7 @@ function StageRow({ label, stage }: { label: string; stage: StageInfo }): JSX.El
   );
 }
 
-function StatusIcon({ status }: { status: StageStatus }): JSX.Element {
+function StatusIcon({ status }: { status: StageStatus }): import("react").ReactNode {
   const cls =
     status === 'success'
       ? 'border-emerald-500/60 bg-emerald-500/20 text-emerald-300'
@@ -605,7 +605,7 @@ function StatusIcon({ status }: { status: StageStatus }): JSX.Element {
   );
 }
 
-function StatusBadge({ status }: { status: StageStatus }): JSX.Element {
+function StatusBadge({ status }: { status: StageStatus }): import("react").ReactNode {
   const text =
     status === 'success'
       ? '완료'

@@ -39,7 +39,7 @@ const sections = [
   },
 ] as const;
 
-export default function GettingStartedPage(): JSX.Element {
+export default function GettingStartedPage(): import("react").ReactNode {
   return (
     <main className="relative isolate w-full px-6 py-20 sm:py-24">
       <div className="mx-auto w-full max-w-3xl space-y-12">
