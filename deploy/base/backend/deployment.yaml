@@ -42,6 +42,11 @@ spec:
               value: "3000"
             - name: OBSERVATORY_DB_PATH
               value: "/data/observatory.sqlite"
+            # V8 default heap (~256 MB) crashed during backup uploads
+            # because the OCI SDK is RAM-heavy; with the container limit
+            # at 1Gi we can give V8 ~768 MB and leave 256 MB for native.
+            - name: NODE_OPTIONS
+              value: "--max-old-space-size=768"
             # Alertmanager in-cluster URL. Defaults below assume kube-prometheus-stack;
             # confirm actual service name with: kubectl get svc -n monitoring
             # Common candidates:
@@ -69,7 +74,7 @@ spec:
           resources:
             requests:
               cpu: 100m
-              memory: 128Mi
+              memory: 256Mi
             limits:
               cpu: 500m
-              memory: 512Mi
+              memory: 1Gi

@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { ConfigType } from '@nestjs/config';
 import { Cron } from '@nestjs/schedule';
-import { readFileSync, unlinkSync } from 'node:fs';
+import { createReadStream, statSync, unlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import * as common from 'oci-common';
@@ -101,13 +101,16 @@ export class BackupService implements OnModuleInit {
 
     await this.users.dumpToFile(tmpPath);
     try {
-      const data = readFileSync(tmpPath);
+      const sizeBytes = statSync(tmpPath).size;
+      // Stream upload — loading the whole dump as a Buffer crashes V8 on
+      // small containers (256 MB default heap) even for modest DBs once
+      // the OCI SDK's own resident footprint is factored in.
       await this.client.putObject({
         namespaceName: this.config.namespace,
         bucketName: this.config.bucket,
         objectName: key,
-        putObjectBody: data,
-        contentLength: data.length,
+        putObjectBody: createReadStream(tmpPath),
+        contentLength: sizeBytes,
         contentType: 'application/x-sqlite3',
       });
       this.users.audit({
@@ -115,9 +118,9 @@ export class BackupService implements OnModuleInit {
         action: 'BACKUP_UPLOADED',
         target: key,
         reason: null,
-        metaJson: JSON.stringify({ sizeBytes: data.length }),
+        metaJson: JSON.stringify({ sizeBytes }),
       });
-      return { bucket: this.config.bucket, key, sizeBytes: data.length };
+      return { bucket: this.config.bucket, key, sizeBytes };
     } finally {
       try {
         unlinkSync(tmpPath);
