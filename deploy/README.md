@@ -126,27 +126,142 @@ curl -X POST https://swkoo.kr/api/admin/backup/trigger \
 
 ### 복구 절차 (사고 시)
 
-1. OCI 콘솔 → Object Storage → `swkoo-kr-backups` 버킷 → 원하는 날짜의 객체 다운로드
-2. 다운로드한 `observatory.sqlite` 파일을 sqlite3 로 sanity-check:
-   ```bash
-   sqlite3 observatory.sqlite ".tables"   # users, audit_log, scan_results 등 보이면 OK
-   sqlite3 observatory.sqlite "SELECT count(*) FROM users WHERE deleted_at IS NULL;"
-   ```
-3. 백엔드 정지 (PVC 점유 해제):
-   ```bash
-   kubectl scale deployment/swkoo-backend -n swkoo --replicas=0
-   ```
-4. 한 번 디버그 pod 를 띄워 PVC 마운트 + 파일 교체:
-   ```bash
-   kubectl run pvc-restore -n swkoo --rm -it --restart=Never \
-     --image=alpine --overrides='{"spec":{"volumes":[{"name":"data","persistentVolumeClaim":{"claimName":"swkoo-backend-data"}}],"containers":[{"name":"pvc-restore","image":"alpine","stdin":true,"tty":true,"volumeMounts":[{"name":"data","mountPath":"/data"}]}]}}' \
-     -- sh
-   # 다른 터미널에서: kubectl cp ./observatory.sqlite swkoo/pvc-restore:/data/observatory.sqlite
-   # 컨테이너 안: ls -la /data/ 확인 후 exit
-   ```
-5. 백엔드 재시작:
-   ```bash
-   kubectl scale deployment/swkoo-backend -n swkoo --replicas=1
-   kubectl rollout status deployment/swkoo-backend -n swkoo
-   ```
-6. 스모크: `/api/health` 200 응답 + `/admin/users` 목록 확인
+전체 시퀀스는 2026-05-20 dry-run 으로 검증됨 (총 다운타임 ~1분). 외부 도구 (`oci` CLI, `sqlite3` CLI) 설치 불필요 — backend pod 안에 있는 OCI SDK + better-sqlite3 + Instance Principal 인증을 그대로 활용.
+
+**0. 사전: ArgoCD selfHeal 일시 비활성**
+
+`swkoo-portfolio` Application 이 `selfHeal: true` 상태면 수동 `scale --replicas=0` 을 즉시 되돌리므로 먼저 꺼야 함:
+
+```bash
+kubectl patch application swkoo-portfolio -n argocd --type=json \
+  -p='[{"op": "replace", "path": "/spec/syncPolicy/automated/selfHeal", "value": false}]'
+```
+
+복구 종료 후 반드시 `true` 로 복원 (마지막 step).
+
+**1. backend pod 안에서 OCI 백업 다운로드 → pod 임시 파일**
+
+```bash
+kubectl exec -n swkoo deploy/swkoo-backend -- node -e "
+const common = require('oci-common');
+const objectstorage = require('oci-objectstorage');
+const fs = require('fs');
+const { Readable } = require('stream');
+const { pipeline } = require('stream/promises');
+(async () => {
+  const provider = await new common.InstancePrincipalsAuthenticationDetailsProviderBuilder().build();
+  const client = new objectstorage.ObjectStorageClient({ authenticationDetailsProvider: provider });
+  const resp = await client.getObject({
+    namespaceName: 'nrznn4yiltsz',
+    bucketName: 'swkoo-kr-backups',
+    objectName: 'daily/<YYYY-MM-DD>/observatory.sqlite',
+  });
+  await pipeline(Readable.fromWeb(resp.value), fs.createWriteStream('/tmp/restore.sqlite'));
+  console.log('downloaded', fs.statSync('/tmp/restore.sqlite').size, 'bytes');
+})().catch(e => { console.error(e); process.exit(1); });
+"
+```
+
+`<YYYY-MM-DD>` 자리에 복구하려는 백업 날짜.
+
+**2. pod 안에서 sqlite 무결성 검증**
+
+```bash
+kubectl exec -n swkoo deploy/swkoo-backend -- node -e "
+const D = require('better-sqlite3');
+const db = new D('/tmp/restore.sqlite', { readonly: true });
+console.log('tables:', db.prepare(\"SELECT name FROM sqlite_master WHERE type='table' ORDER BY name\").all().map(t=>t.name));
+console.log('users active:', db.prepare('SELECT count(*) AS n FROM users WHERE deleted_at IS NULL').get().n);
+console.log('audit by action:'); db.prepare('SELECT action, count(*) AS n FROM audit_log GROUP BY action ORDER BY n DESC').all().forEach(r => console.log(' ', r.action, r.n));
+db.close();
+"
+```
+
+테이블 ≥ 5개 + 사용자 수 합리적이면 OK.
+
+**3. pod 의 파일을 호스트로 빼기**
+
+```bash
+POD=$(kubectl -n swkoo get pods -l app=swkoo-backend -o jsonpath='{.items[0].metadata.name}')
+kubectl -n swkoo cp swkoo/$POD:/tmp/restore.sqlite /tmp/restore.sqlite
+```
+
+**4. 백엔드 정지 (PVC 점유 해제)**
+
+```bash
+kubectl scale deployment/swkoo-backend -n swkoo --replicas=0
+kubectl -n swkoo wait --for=delete pod -l app=swkoo-backend --timeout=60s
+```
+
+**5. 디버그 pod 띄워 PVC 마운트**
+
+```bash
+cat <<EOF | kubectl apply -f -
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pvc-restore
+  namespace: swkoo
+spec:
+  restartPolicy: Never
+  volumes:
+    - name: data
+      persistentVolumeClaim:
+        claimName: swkoo-backend-data
+  containers:
+    - name: shell
+      image: alpine:3.20
+      command: ["sleep", "600"]
+      volumeMounts:
+        - name: data
+          mountPath: /data
+EOF
+kubectl -n swkoo wait --for=condition=Ready pod/pvc-restore --timeout=60s
+```
+
+**6. 파일 교체 + WAL 부산물 제거 + 권한 복원**
+
+WAL 모드의 `-shm` / `-wal` 파일은 옛 트랜잭션을 가지고 있어 새 DB 와 일관성 안 맞음 — 반드시 같이 삭제.
+
+```bash
+kubectl -n swkoo cp /tmp/restore.sqlite pvc-restore:/data/observatory.sqlite
+kubectl -n swkoo exec pvc-restore -- sh -c '
+  rm -f /data/observatory.sqlite-shm /data/observatory.sqlite-wal &&
+  chmod 666 /data/observatory.sqlite &&
+  chown 100:101 /data/observatory.sqlite &&
+  ls -la /data/
+'
+```
+
+원본 권한: 100:101 (Node alpine 이미지의 `node` 사용자 매핑), 모드 666.
+
+**7. 디버그 pod 삭제 + 백엔드 재기동**
+
+```bash
+kubectl -n swkoo delete pod pvc-restore --wait
+kubectl -n swkoo scale deployment/swkoo-backend --replicas=1
+kubectl -n swkoo wait --for=condition=Ready pod -l app=swkoo-backend --timeout=120s
+```
+
+**8. selfHeal 복원**
+
+```bash
+kubectl patch application swkoo-portfolio -n argocd --type=json \
+  -p='[{"op": "replace", "path": "/spec/syncPolicy/automated/selfHeal", "value": true}]'
+```
+
+**9. 스모크 검증**
+
+```bash
+curl -fsS https://swkoo.kr/api/health
+kubectl exec -n swkoo deploy/swkoo-backend -- node -e "
+const D=require('better-sqlite3'); const db=new D('/data/observatory.sqlite',{readonly:true});
+console.log('active users:', db.prepare('SELECT count(*) FROM users WHERE deleted_at IS NULL').get());
+"
+# 호스트 임시 파일 정리
+rm -f /tmp/restore.sqlite
+```
+
+**10. 운영자 본인 admin 로그인 + 친구 1명에게 "정상 동작 중인가" 확인 요청**
+
+복구 시점 이후 발생했던 *작은* 상태 변경 (audit log 새 행, sign-in lastLoginAt 등) 은 손실. 사용자 환경변수 (k8s Secret) 와 manifest (git) 는 영향 없음.
