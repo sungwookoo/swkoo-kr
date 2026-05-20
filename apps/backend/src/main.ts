@@ -1,3 +1,6 @@
+// build sanity 2026-05-20 — triggers backend job to verify OCIR docker
+// login under the rotated OCI_AUTH_TOKEN. Comment-only change; remove
+// on the next functional commit.
 import { Logger, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import cookieParser from 'cookie-parser';
