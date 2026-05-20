@@ -31,6 +31,7 @@ spec:
           annotations:
             summary: Pod {{ $labels.pod }} is not ready
             description: Pod {{ $labels.pod }} has been in {{ $labels.phase }} state for more than 5 minutes
+            runbook: 'kubectl describe pod -n swkoo {{ $labels.pod }} → Events 섹션에서 ImagePullBackOff / FailedScheduling / CrashLoopBackOff 원인 확인. ResourceQuota 초과면 swkoo-control-plane-quota 사용량 확인.'
 
         - alert: SwkooDeploymentReplicasMismatch
           expr: |
@@ -43,6 +44,7 @@ spec:
           annotations:
             summary: Deployment {{ $labels.deployment }} has replica mismatch
             description: Deployment {{ $labels.deployment }} has {{ $value }} available replicas, expected {{ $labels.spec_replicas }}
+            runbook: 'kubectl rollout status deploy/{{ $labels.deployment }} -n swkoo → pending/failed 원인 추적. PVC ReadWriteOnce 충돌, image pull 실패, readiness probe 실패 등이 흔한 원인.'
 
         - alert: SwkooContainerHighMemory
           expr: |
@@ -55,6 +57,7 @@ spec:
           annotations:
             summary: Container {{ $labels.container }} high memory usage
             description: Container {{ $labels.container }} in pod {{ $labels.pod }} is using {{ $value | printf "%.1f" }}% of memory limit
+            runbook: 'kubectl top pod -n swkoo {{ $labels.pod }} → 추세 확인. 정상 운영 중 80% 도달이면 limit 상향, 누수 의심이면 heap dump (NODE_OPTIONS=--heap-prof). Step 2.2 백업 직후엔 OCI SDK heap spike 정상.'
 
         - alert: SwkooContainerRestarted
           expr: increase(kube_pod_container_status_restarts_total{namespace="swkoo"}[1h]) > 0
@@ -65,3 +68,4 @@ spec:
           annotations:
             summary: Container {{ $labels.container }} restarted
             description: Container {{ $labels.container }} in pod {{ $labels.pod }} has restarted in the last hour
+            runbook: 'severity=info — InfoInhibitor 가 Discord 차단. 운영자 인지 필요 시 kubectl logs -n swkoo {{ $labels.pod }} --previous 로 종료 원인.'

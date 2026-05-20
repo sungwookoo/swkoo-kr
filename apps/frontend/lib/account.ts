@@ -2,6 +2,16 @@ import useSWR from 'swr';
 
 import { API_BASE_URL } from './api-base';
 
+export interface ScanFinding {
+  id: string;
+  pkg: string;
+  installed: string;
+  fixed: string | null;
+  severity: 'CRITICAL' | 'HIGH' | 'MEDIUM';
+  title: string;
+  url: string;
+}
+
 export interface LatestScan {
   id: number;
   userId: number;
@@ -11,6 +21,7 @@ export interface LatestScan {
   medium: number;
   scannedAt: string;
   trivyVersion: string | null;
+  findings: ScanFinding[];
 }
 
 async function fetcher<T>(url: string): Promise<T> {

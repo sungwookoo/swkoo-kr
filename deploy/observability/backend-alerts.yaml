@@ -65,4 +65,4 @@ spec:
           annotations:
             summary: swkoo-backend p95 latency above 1s
             description: P95 request duration has been above 1 second for 5 minutes ({{ $value | printf "%.2fs" }}) — likely upstream (Argo CD / GitHub / Alertmanager) slowness
-            runbook: 'Check upstream API health. Inspect specific routes via http_request_duration_seconds{job="swkoo-backend"}.'
+            runbook: 'curl https://swkoo.kr/api/health → backend 자체 응답 시간. histogram_quantile(0.95, sum by (route) (rate(http_request_duration_seconds_bucket{job="swkoo-backend"}[5m]))) 로 어느 route 가 느린지 분리. ArgoCD / GitHub / Alertmanager API 가 일시 느려진 경우가 흔함.'

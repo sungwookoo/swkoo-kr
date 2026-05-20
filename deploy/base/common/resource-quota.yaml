@@ -1,0 +1,42 @@
+# Control-plane namespace quota — caps the total resource footprint of
+# swkoo-backend + swkoo-frontend (+ any future control-plane sidecars).
+# Without this, a runaway pod can consume the whole node and starve
+# friend apps in user-* namespaces. Limit is sized ~2x of current
+# steady-state to leave room for the OCI SDK heap spikes during backup
+# and short overlap windows during deploys.
+#
+# Sized for OCI A1.Flex (4 vCPU / 24 GiB total):
+#   backend  requests 100m/256Mi · limits 500m/1Gi
+#   frontend requests 150m/256Mi · limits 500m/512Mi
+#   headroom for one debug pod, sidecar additions, future growth
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: swkoo-control-plane-quota
+  namespace: swkoo
+spec:
+  hard:
+    requests.cpu: "1"
+    requests.memory: 1Gi
+    limits.cpu: "3"
+    limits.memory: 4Gi
+    pods: "10"
+---
+# Default requests/limits for any pod that doesn't declare its own.
+# Without this the ResourceQuota above would reject debug pods (e.g.
+# the pvc-restore alpine pod from the backup restore runbook) that
+# leave resources unspecified.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: swkoo-default-resources
+  namespace: swkoo
+spec:
+  limits:
+    - type: Container
+      default:
+        cpu: 200m
+        memory: 256Mi
+      defaultRequest:
+        cpu: 50m
+        memory: 64Mi

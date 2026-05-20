@@ -28,11 +28,33 @@ export class AccountController {
   ) {}
 
   /** Latest Trivy scan for the requesting user, or null if never scanned.
-   * Lightweight (single DB row) — safe to call on page load. The full
-   * record lives in /account/export. */
+   * Lightweight (single DB row) — safe to call on page load. Decodes the
+   * findings JSON for the frontend (it doesn't need to know we stored it
+   * as a string). The full record lives in /account/export. */
   @Get('scan')
   getLatestScan(@Req() req: AuthedRequest): unknown {
-    return this.users.latestScanResultForUser(req.user.id);
+    const row = this.users.latestScanResultForUser(req.user.id);
+    if (!row) return null;
+    let findings: unknown[] = [];
+    if (row.findingsJson) {
+      try {
+        const parsed: unknown = JSON.parse(row.findingsJson);
+        if (Array.isArray(parsed)) findings = parsed;
+      } catch {
+        // legacy or corrupted blob — treat as empty
+      }
+    }
+    return {
+      id: row.id,
+      userId: row.userId,
+      image: row.image,
+      critical: row.critical,
+      high: row.high,
+      medium: row.medium,
+      scannedAt: row.scannedAt,
+      trivyVersion: row.trivyVersion,
+      findings,
+    };
   }
 
   /** GDPR Art.20 / K-PIPA right to data portability. Returns everything the

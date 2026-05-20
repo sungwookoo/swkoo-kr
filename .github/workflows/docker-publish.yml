@@ -32,11 +32,34 @@ jobs:
             frontend:
               - 'apps/frontend/**'
 
-  backend:
+  backend-test:
     needs: changes
+    if: |
+      needs.changes.outputs.backend == 'true' ||
+      github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-22.04-arm
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+          cache-dependency-path: apps/backend/package-lock.json
+      - name: Install backend deps
+        working-directory: apps/backend
+        run: npm ci
+      - name: Run backend tests
+        working-directory: apps/backend
+        run: npm test
+
+  backend:
+    needs: [changes, backend-test]
     # Run on backend code changes, or whenever the workflow is manually dispatched
     # (paths-filter reports "no changes" on workflow_dispatch, which would otherwise
-    # block intentional manual re-runs).
+    # block intentional manual re-runs). Gated on backend-test to prevent
+    # publishing an image whose unit tests are red.
     if: |
       needs.changes.outputs.backend == 'true' ||
       github.event_name == 'workflow_dispatch'

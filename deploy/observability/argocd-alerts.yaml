@@ -28,7 +28,7 @@ spec:
           annotations:
             summary: Argo CD app {{ $labels.name }} health is Degraded
             description: Application {{ $labels.name }} health has been Degraded for more than 10 minutes — Sync may be Synced but resources are unhealthy
-            runbook: 'Inspect: argocd app get {{ $labels.name }}'
+            runbook: 'kubectl get application {{ $labels.name }} -n argocd → status.conditions / status.resources 에서 unhealthy 리소스 식별. Pod 면 kubectl describe pod 로 events 확인.'
 
         - alert: ArgoCdAppHealthMissing
           expr: argocd_app_info{health_status="Missing"} == 1
@@ -38,6 +38,7 @@ spec:
           annotations:
             summary: Argo CD app {{ $labels.name }} has Missing resources
             description: Application {{ $labels.name }} reports Missing resources — manifest references something that doesn't exist in the cluster
+            runbook: 'kubectl get application {{ $labels.name }} -n argocd -o jsonpath=''{.status.resources}'' → status=Missing 인 리소스. 매니페스트의 referenced ConfigMap/Secret/CRD 가 cluster 에 없는 경우가 흔함.'
 
         - alert: ArgoCdAppSyncFailed
           expr: increase(argocd_app_sync_total{phase="Failed"}[10m]) > 0
@@ -57,3 +58,4 @@ spec:
           annotations:
             summary: Argo CD component {{ $labels.job }} is down
             description: Argo CD {{ $labels.job }} has not responded to scrape for 5 minutes — GitOps reconciliation may be stalled
+            runbook: 'kubectl -n argocd get pods | grep -i {{ $labels.job }} → CrashLoopBackOff / NotReady 확인. 전체 ArgoCD 다운이면 kubectl -n argocd describe pod 와 logs --previous. ResourceQuota / 노드 OOM 도 흔한 원인.'

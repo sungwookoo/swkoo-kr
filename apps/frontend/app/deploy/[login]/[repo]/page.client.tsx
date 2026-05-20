@@ -16,7 +16,7 @@ import {
   useDeploymentStatus,
   useEnvVars,
 } from '@/lib/deploy';
-import { LatestScan, useLatestScan } from '@/lib/account';
+import { LatestScan, ScanFinding, useLatestScan } from '@/lib/account';
 
 interface StatusClientProps {
   login: string;
@@ -291,6 +291,8 @@ function ScanPanel(): JSX.Element {
 
 function ScanResult({ scan }: { scan: LatestScan }): JSX.Element {
   const hasAction = scan.critical > 0 || scan.high > 0;
+  const [open, setOpen] = useState(false);
+  const findings = scan.findings ?? [];
   return (
     <>
       <div className="flex flex-wrap items-center gap-2">
@@ -308,7 +310,82 @@ function ScanResult({ scan }: { scan: LatestScan }): JSX.Element {
           현재 결과는 보고용이며, 배포 자체는 차단되지 않습니다.
         </p>
       )}
+      {findings.length > 0 && (
+        <div className="space-y-2 pt-1">
+          <button
+            type="button"
+            onClick={() => setOpen((v) => !v)}
+            className="text-xs text-slate-400 underline-offset-2 hover:text-slate-200 hover:underline"
+          >
+            {open ? '상세 숨기기' : `상세 보기 (${findings.length}건${findings.length < scan.critical + scan.high ? ', critical+high 일부' : ''})`}
+          </button>
+          {open && <FindingsList findings={findings} />}
+        </div>
+      )}
     </>
+  );
+}
+
+function FindingsList({ findings }: { findings: ScanFinding[] }): JSX.Element {
+  return (
+    <ul className="space-y-2 border-t border-slate-800 pt-3">
+      {findings.map((f, i) => (
+        <li
+          key={`${f.id}-${f.pkg}-${i}`}
+          className="space-y-1 rounded-md border border-slate-800 bg-slate-950/40 p-2.5"
+        >
+          <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-xs">
+            <SeverityTag severity={f.severity} />
+            <span className="font-mono text-slate-200">{f.pkg}</span>
+            <span className="text-slate-500">
+              {f.installed}
+              {f.fixed && (
+                <>
+                  <span className="px-1 text-slate-600">→</span>
+                  <span className="text-emerald-300">{f.fixed}</span>
+                </>
+              )}
+              {!f.fixed && (
+                <span className="ml-1 text-slate-600">(fix 미공개)</span>
+              )}
+            </span>
+          </div>
+          {f.title && (
+            <p className="text-xs text-slate-400 leading-relaxed">{f.title}</p>
+          )}
+          <div className="flex flex-wrap gap-2 text-[10px]">
+            {f.url ? (
+              <a
+                href={f.url}
+                target="_blank"
+                rel="noreferrer"
+                className="font-mono text-slate-500 underline-offset-2 hover:text-slate-300 hover:underline"
+              >
+                {f.id} ↗
+              </a>
+            ) : (
+              <span className="font-mono text-slate-500">{f.id}</span>
+            )}
+          </div>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function SeverityTag({ severity }: { severity: ScanFinding['severity'] }): JSX.Element {
+  const cls =
+    severity === 'CRITICAL'
+      ? 'bg-red-950/60 text-red-300 border-red-800'
+      : severity === 'HIGH'
+      ? 'bg-amber-950/60 text-amber-300 border-amber-800'
+      : 'bg-slate-900 text-slate-400 border-slate-800';
+  return (
+    <span
+      className={`inline-flex items-center rounded-sm border px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide ${cls}`}
+    >
+      {severity}
+    </span>
   );
 }
 

@@ -3,6 +3,7 @@ kind: Kustomization
 namespace: swkoo
 resources:
   - common/namespace.yaml
+  - common/resource-quota.yaml
   - backend/serviceaccount.yaml
   - backend/deployment.yaml
   - backend/service.yaml

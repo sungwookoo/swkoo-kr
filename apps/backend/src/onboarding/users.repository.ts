@@ -56,6 +56,9 @@ export interface ScanResultInsert {
   high: number;
   medium: number;
   trivyVersion: string | null;
+  // JSON-encoded array of top vulnerabilities (all CRITICAL + capped HIGH).
+  // Null/empty for legacy rows from before findings storage shipped.
+  findingsJson: string | null;
 }
 
 export interface ScanResultRow {
@@ -67,6 +70,7 @@ export interface ScanResultRow {
   medium: number;
   scannedAt: string;
   trivyVersion: string | null;
+  findingsJson: string | null;
 }
 
 @Injectable()
@@ -150,6 +154,9 @@ export class UsersRepository implements OnModuleInit, OnModuleDestroy {
       `CREATE UNIQUE INDEX IF NOT EXISTS idx_users_subdomain
          ON users(subdomain) WHERE subdomain IS NOT NULL`
     );
+    // Per-scan top-vulnerabilities JSON. Stored on the scan_results row
+    // so the latest scan's details are co-located with its counts.
+    this.addColumnIfMissing('scan_results', 'findings_json', 'TEXT');
     this.logger.log('users + audit_log tables ready');
   }
 
@@ -290,8 +297,8 @@ export class UsersRepository implements OnModuleInit, OnModuleDestroy {
   insertScanResult(entry: ScanResultInsert): void {
     this.db
       .prepare(
-        `INSERT INTO scan_results (user_id, image, critical, high, medium, trivy_version)
-         VALUES (@userId, @image, @critical, @high, @medium, @trivyVersion)`
+        `INSERT INTO scan_results (user_id, image, critical, high, medium, trivy_version, findings_json)
+         VALUES (@userId, @image, @critical, @high, @medium, @trivyVersion, @findingsJson)`
       )
       .run(entry);
   }
@@ -300,7 +307,8 @@ export class UsersRepository implements OnModuleInit, OnModuleDestroy {
     const row = this.db
       .prepare(
         `SELECT id, user_id AS userId, image, critical, high, medium,
-                scanned_at AS scannedAt, trivy_version AS trivyVersion
+                scanned_at AS scannedAt, trivy_version AS trivyVersion,
+                findings_json AS findingsJson
          FROM scan_results WHERE user_id = ?
          ORDER BY scanned_at DESC LIMIT 1`
       )

@@ -16,6 +16,12 @@ const POLL_INTERVAL_MS = 5_000;
 
 interface TrivyVulnerability {
   Severity?: string;
+  VulnerabilityID?: string;
+  PkgName?: string;
+  InstalledVersion?: string;
+  FixedVersion?: string;
+  Title?: string;
+  PrimaryURL?: string;
 }
 interface TrivyTarget {
   Vulnerabilities?: TrivyVulnerability[];
@@ -24,11 +30,27 @@ interface TrivyReport {
   Results?: TrivyTarget[];
 }
 
-interface ScanCounts {
+export interface ScanFinding {
+  id: string;          // CVE-2024-...
+  pkg: string;         // libssl3
+  installed: string;   // 3.0.13-1
+  fixed: string | null; // 3.0.14-1 or null when no fix yet
+  severity: 'CRITICAL' | 'HIGH' | 'MEDIUM';
+  title: string;
+  url: string;
+}
+
+interface ScanResult {
   critical: number;
   high: number;
   medium: number;
+  findings: ScanFinding[];
 }
+
+// Cap stored findings — the UI only renders top ~20 anyway and large
+// scan blobs balloon SQLite. CRITICAL kept entirely, then HIGH up to
+// the cap. MEDIUM is summarized in the counts only.
+const MAX_STORED_FINDINGS = 50;
 
 /**
  * Dispatches Trivy image scans as Kubernetes Jobs in the backend's own
@@ -76,6 +98,7 @@ export class ScanService {
           high: result.high,
           medium: result.medium,
           trivyVersion: TRIVY_VERSION,
+          findingsJson: JSON.stringify(result.findings),
         });
         scanned += 1;
         this.logger.log(
@@ -98,7 +121,7 @@ export class ScanService {
   }
 
   /** Runs a single scan and returns severity counts, or null on failure. */
-  async runScan(login: string, image: string): Promise<ScanCounts | null> {
+  async runScan(login: string, image: string): Promise<ScanResult | null> {
     const jobName = `scan-${login.toLowerCase()}-${Date.now()}`;
     const body = this.buildJobSpec(jobName, login, image);
     try {
@@ -240,7 +263,7 @@ export class ScanService {
   private maybeNotifyScanFindings(
     login: string,
     image: string,
-    current: ScanCounts,
+    current: ScanResult,
     previous: ScanResultRow | null
   ): void {
     const url = this.config.discordScanWebhookUrl;
@@ -272,7 +295,7 @@ export class ScanService {
       });
   }
 
-  private parseTrivyOutput(raw: string): ScanCounts | null {
+  private parseTrivyOutput(raw: string): ScanResult | null {
     // Trivy prefixes some lines with non-JSON log noise depending on version;
     // pluck the first balanced JSON object out of the stream.
     const start = raw.indexOf('{');
@@ -284,14 +307,39 @@ export class ScanService {
       this.logger.warn(`trivy json parse failed: ${(err as Error).message}`);
       return null;
     }
-    const counts: ScanCounts = { critical: 0, high: 0, medium: 0 };
+    const counts = { critical: 0, high: 0, medium: 0 };
+    const criticals: ScanFinding[] = [];
+    const highs: ScanFinding[] = [];
     for (const result of parsed.Results ?? []) {
       for (const v of result.Vulnerabilities ?? []) {
-        if (v.Severity === 'CRITICAL') counts.critical += 1;
-        else if (v.Severity === 'HIGH') counts.high += 1;
-        else if (v.Severity === 'MEDIUM') counts.medium += 1;
+        if (v.Severity === 'CRITICAL') {
+          counts.critical += 1;
+          criticals.push(this.toFinding(v, 'CRITICAL'));
+        } else if (v.Severity === 'HIGH') {
+          counts.high += 1;
+          highs.push(this.toFinding(v, 'HIGH'));
+        } else if (v.Severity === 'MEDIUM') {
+          counts.medium += 1;
+        }
       }
     }
-    return counts;
+    // CRITICAL kept entirely (they're rare and operator wants them).
+    // HIGH filled up to the cap. MEDIUM is counts-only by design.
+    const findings: ScanFinding[] = [...criticals];
+    const highBudget = Math.max(0, MAX_STORED_FINDINGS - findings.length);
+    findings.push(...highs.slice(0, highBudget));
+    return { ...counts, findings };
+  }
+
+  private toFinding(v: TrivyVulnerability, severity: ScanFinding['severity']): ScanFinding {
+    return {
+      id: v.VulnerabilityID ?? '?',
+      pkg: v.PkgName ?? '?',
+      installed: v.InstalledVersion ?? '?',
+      fixed: v.FixedVersion ?? null,
+      severity,
+      title: v.Title ?? '',
+      url: v.PrimaryURL ?? '',
+    };
   }
 }
