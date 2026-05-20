@@ -19,6 +19,22 @@
     --docker-username='<namespace>/<username>' \
     --docker-password='<auth-token>'
   ```
+
+  > **OCI auth token rotation 시 주의**: 같은 token 이 두 곳에 박혀있습니다:
+  > 1. GitHub Actions repo secret `OCI_AUTH_TOKEN` — 빌드 시 push 용
+  > 2. 클러스터 `swkoo/ocir-credentials` Secret — 런타임 pull 용
+  >
+  > **두 곳 모두** 갱신해야 합니다. GHA 만 갱신하면 push 는 통과하지만 새 이미지를 cluster 가 pull 못 해 `ImagePullBackOff` 로 backend 다운. 갱신 명령 (token 노출 최소화):
+  > ```bash
+  > kubectl create secret docker-registry ocir-credentials -n swkoo \
+  >   --docker-server=nrt.ocir.io \
+  >   --docker-username='<namespace>/<username>' \
+  >   --docker-password='<new-auth-token>' \
+  >   --dry-run=client -o yaml | kubectl apply -f -
+  > # 실패 중인 pod 가 있으면:
+  > kubectl -n swkoo delete pod -l app=swkoo-backend
+  > kubectl -n swkoo delete pod -l app=swkoo-frontend
+  > ```
 - 백엔드 환경 변수 시크릿: `swkoo-backend-env` — 백엔드가 `envFrom: secretRef:`로 흡수하는 단일 Secret. 모든 토큰·비밀키·환경 의존 값이 여기에 모임.
 
   ```bash
