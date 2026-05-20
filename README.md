@@ -106,7 +106,9 @@ VISION §3 전체가 여기로 매핑됨. 요약:
 ## 문서 구조
 
 - [`VISION.md`](./VISION.md) — **기준선**. 정체성·고유가치·non-goal·성공 기준.
-- `README.md` (이 파일) — 로드맵의 구체 표현.
+- `README.md` (이 파일) — Observatory 앱 로드맵의 구체 표현.
+- [`BIZ_READINESS.md`](./BIZ_READINESS.md) — 친구 베타 → 유료 SaaS 전환 사전 조건 + 진척 체크리스트.
 - [`docs/INDEX.md`](./docs/INDEX.md) — 기술 문서 인덱스.
+- [`docs/deploy-vision.md`](./docs/deploy-vision.md) — `/deploy` PaaS Phase 표 + 아키텍처 (이 README 의 Observatory 로드맵과 별개).
 - [`docs/REFACTORING_PROMPT.md`](./docs/REFACTORING_PROMPT.md) — 과거 리팩토링 지시서 (VISION에 종속).
-- [`deploy/README.md`](./deploy/README.md) — Kustomize 배포 구조.
+- [`deploy/README.md`](./deploy/README.md) — Kustomize 배포 구조 + 운영자 runbook (Secret · 백업 · 복구 · 알람 라우팅).

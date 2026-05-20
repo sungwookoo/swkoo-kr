@@ -34,7 +34,7 @@ const sections = [
       '본인 repo에 빌드 설정 파일 자동 commit (`main`/`master` 어느 쪽이든 OK)',
       '클러스터 자원 (namespace · 자원 한도 · 네트워크 정책) 자동 생성',
       'GitHub Actions가 이미지 빌드 → 본인 GHCR로 push',
-      '약 5분 안에 `<login>-<repo>.apps.swkoo.kr` 로 라이브 배포',
+      '약 5분 안에 `<slug>.apps.swkoo.kr` 로 라이브 배포 — 슬러그는 Deploy 화면에서 직접 입력 가능, 비우면 `<login>-<repo>` 기본값',
     ],
   },
 ] as const;

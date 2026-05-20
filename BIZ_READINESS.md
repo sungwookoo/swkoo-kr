@@ -133,6 +133,9 @@ Phase 2 빌드 중 적용할 "사업 전환 준비" 패턴:
 - [x] **Observatory per-viewer 데이터 격리** — Phase 2.11. 3-tier 가시성(비로그인=operator만 / 로그인=operator+본인 / admin=전체). 유료 전환 시 multi-tenant SaaS의 기본 전제 충족 ([deploy-vision §6 2.11](./docs/deploy-vision.md))
 - [x] **per-tenant 매니페스트 repo 분리** — Phase 3.1. `swkoo-deploy` GitHub Org에 사용자별 private repo. 기존 §5 결정 항목 1을 이쪽으로 이관 완료.
 - [x] **사용자 데이터 수명주기 (K-PIPA 권리)** — Phase 3.2. `DELETE /account` 익명화 + deploy repo archive + 환경변수 정리. `GET /account/export` 데이터 이동권. `/consent` 게이트 + `policy_version` 추적. 30일 보존 후 자동 hard delete (Phase 3.3 cron).
+- [x] **운영 데이터 복구 능력** — Step 2.2 (2026-05-20). `BackupService` 가 매일 04:00 KST SQLite 전체 스냅샷을 OCI Object Storage 로 업로드 (Instance Principal, lifecycle 90일). PVC 복원 dry-run 으로 runbook 검증 — 다운타임 ~1분. 백업 retention 은 `/privacy` §3 에 명시. *유료 사용자 첫 결제 후 데이터 손실은 신뢰 영구 손상* → 결제 도입 전 사전 조건 충족.
+- [x] **사용자 URL 자율성 — sub-slug** — Step 1 (2026-05-20). `users.subdomain` 컬럼 + 예약어/포맷 검증 + 가용성 체크 endpoint + Deploy 화면 입력 필드. 친구 인터뷰 *"도메인 바꾸고싶다"* ask 의 첫 단계. 다음 단계(사용자 본인 도메인 연결) 가 첫 paid feature 후보.
+- [x] **알람 → 운영자 통로 검증** — Step 2.3 (2026-05-20). Alertmanager → Discord 통로가 22일+ 비어있던 silent failure 발견·해결. 13개 룰 중 `SwkooBackendDown` 표현식 버그 (`up == 0` 만으로는 target-missing 못 잡음) 도 동시 수정. *유료 SLA 약속 전 알람 채널 작동은 필수*.
 
 ---
 
@@ -168,3 +171,4 @@ Phase 2 셀프서비스가 동작하면서 노출된, 사업화 전이라도 손
 | 2026-05-14 | Phase 1 종료(친구 2명 + 본인 부계정 실배포 검증). Phase 2.11 — Observatory per-viewer 데이터 격리 §4 추가. |
 | 2026-05-14 (later) | Phase 3 일괄 반영. §4: per-tenant repo 분리(3.1) · K-PIPA 데이터 권리(3.2) · 실제 Trivy 스캔(3.3) · T&C/Privacy production-tone 항목 추가. §5: per-tenant repo 행 ✅ 해소, K-PIPA 행은 절차적 부분만 잔존으로 분리. |
 | 2026-05-18 | 스캔 UI 노출(`/account/scan` + `<ScanPanel />`) + critical/high 신규 발견 시 운영자 Discord 알림(`DISCORD_SCAN_WEBHOOK_URL`). Phase 3.3 행동 트리거 마무리. repo `swkoo-portfolio` → `swkoo-kr` rename. |
+| 2026-05-20 | Step 1·2 묶음 — paid 진입 전 사전 조건 정리. §4 체크리스트에 *복구 능력 (백업)*, *URL 자율성 (sub-slug)*, *알람 통로 검증* 3건 ✅ 추가. /privacy §3에 백업 retention(최대 90일) 명시 — K-PIPA Art.30 보강. Step 2.3 audit 으로 silent failure 3건 발견·해결 (SwkooBackendDown · null receiver · InfoInhibitor 누수). |

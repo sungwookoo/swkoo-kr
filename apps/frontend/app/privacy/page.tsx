@@ -14,7 +14,7 @@ export default function PrivacyPage(): JSX.Element {
           <h1 className="display-tight text-balance text-3xl font-semibold text-zinc-50 sm:text-4xl">
             개인정보 처리방침
           </h1>
-          <p className="text-xs text-zinc-500">시행일자: 2026-05-14</p>
+          <p className="text-xs text-zinc-500">시행일자: 2026-05-20</p>
         </header>
 
         <section className="space-y-3 text-sm leading-relaxed text-zinc-400">
@@ -67,8 +67,20 @@ export default function PrivacyPage(): JSX.Element {
           <ul className="list-disc space-y-1 pl-5">
             <li>계정 활성 상태: 사용자 본인이 계정을 삭제하기 전까지 보유</li>
             <li>
-              계정 삭제 후: 감사 로그는 30일간 익명화하여 보존 후 완전 삭제.
-              그 외 사용자 식별 정보·환경변수·매니페스트는 즉시 삭제
+              계정 삭제 직후: 사용자 식별 정보(이름·이메일·아바타·OAuth 토큰)·
+              환경변수·매니페스트는 즉시 삭제. 감사 로그는 익명화(개인 식별자 제거)
+              상태로 보존
+            </li>
+            <li>
+              계정 삭제 30일 후: 익명화된 감사 로그도 완전 삭제
+            </li>
+            <li>
+              <strong className="text-zinc-300">일일 백업 스냅샷</strong>:
+              운영 데이터(SQLite)는 매일 1회 OCI Object Storage(일본 도쿄)에
+              스냅샷으로 저장되어 최대 90일 보존 후 자동 삭제됩니다. 계정 삭제 후
+              새로 생성되는 백업은 익명화된 형태만 포함하지만, 삭제 *이전* 에 만들어진
+              백업에는 retention 만료(최대 90일)까지 식별 정보가 잔존할 수 있습니다.
+              백업은 운영자만 접근하며 사고 복구 목적 외에 사용되지 않습니다
             </li>
             <li>
               사용자가 push한 컨테이너 이미지(GHCR): 사용자 본인 GitHub
@@ -94,7 +106,8 @@ export default function PrivacyPage(): JSX.Element {
             </li>
             <li>
               <strong className="text-zinc-300">Oracle Cloud Infrastructure
-              (일본 도쿄 리전)</strong> — 컴퓨트 노드, 컨테이너 이미지 저장(OCIR)
+              (일본 도쿄 리전)</strong> — 컴퓨트 노드, 컨테이너 이미지 저장(OCIR),
+              일일 운영 데이터 백업(Object Storage)
             </li>
             <li>
               <strong className="text-zinc-300">Let&apos;s Encrypt</strong> —

@@ -46,7 +46,8 @@ export const builders = {
     'Argo CD + ApplicationSet + Image Updater (digest 자동 추적)',
     'cert-manager DNS-01 wildcard + per-app TLS',
     'per-tenant ResourceQuota · LimitRange · NetworkPolicy',
-    'Prometheus + Alertmanager → Discord/백엔드 이벤트 스토어',
+    'Prometheus + Alertmanager → 운영자 Discord (arm64 변환 sidecar 자체 구현)',
+    '일일 SQLite 백업 → OCI Object Storage (Instance Principal, 90일 retention)',
   ],
 } as const;
 
