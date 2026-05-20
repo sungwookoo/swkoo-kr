@@ -59,7 +59,13 @@ data:
         body = json.dumps({"content": content, "username": "Alertmanager"}).encode()
         req = urllib.request.Request(
             WEBHOOK, data=body,
-            headers={"Content-Type": "application/json"},
+            headers={
+                "Content-Type": "application/json",
+                # Discord rejects requests without a recognizable
+                # User-Agent (403). The exact value doesn't matter
+                # — just needs to look intentional.
+                "User-Agent": "swkoo-alertmanager-translator/1.0",
+            },
             method="POST",
         )
         with urllib.request.urlopen(req, timeout=5) as resp:
