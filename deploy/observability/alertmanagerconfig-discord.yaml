@@ -26,6 +26,16 @@ spec:
     groupInterval: 5m
     repeatInterval: 4h
     routes:
+      # kube-prometheus-stack ships an InfoInhibitor alert that's only
+      # meant to back inhibit_rules — its own description says "should
+      # be routed to a null receiver". Without this explicit drop it
+      # falls through to the default discord receiver and noises the
+      # operator channel every time any severity=info alert fires.
+      - receiver: drop
+        matchers:
+          - name: alertname
+            value: InfoInhibitor
+        continue: false
       - receiver: discord-heartbeat
         matchers:
           - name: alertname
@@ -33,6 +43,10 @@ spec:
         repeatInterval: 6h
         continue: false
   receivers:
+    - name: drop
+      # No configs = silently consumed. The Prometheus Operator allows
+      # receivers with no webhookConfigs/emailConfigs/etc — they act as
+      # a /dev/null sink.
     - name: discord
       webhookConfigs:
         - url: http://alertmanager-discord.monitoring.svc.cluster.local:9094
