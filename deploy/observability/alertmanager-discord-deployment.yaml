@@ -1,12 +1,96 @@
-# Tiny translator sidecar: Alertmanager doesn't speak Discord's webhook
-# schema natively, and Discord rejects Alertmanager's raw payload as a 400.
-# benjojo/alertmanager-discord receives Alertmanager's webhook payload and
-# reposts it to the actual Discord webhook URL in Discord's expected shape.
+# Tiny translator: Alertmanager doesn't speak Discord's webhook schema
+# natively, and Discord rejects Alertmanager's raw payload with a 400.
+# Most off-the-shelf translators (benjojo/alertmanager-discord,
+# rogerrum/alertmanager-discord) ship amd64-only and `exec format error`
+# on OCI A1's arm64. Rather than chase another fork, we inline a 40-line
+# Python translator backed by python:3-alpine (multi-arch, including
+# arm64).
 #
 # DISCORD_WEBHOOK env is sourced from the `alertmanager-discord-webhook`
-# Secret created out-of-band (kubectl create secret … --from-literal=url=…
-# — see deploy/README.md). Keeping the URL out of git avoids leaking the
-# operator's notification channel.
+# Secret created out-of-band (see deploy/README.md). Keeps the URL out
+# of git.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alertmanager-discord-script
+  namespace: monitoring
+  labels:
+    app: alertmanager-discord
+data:
+  translator.py: |
+    """Tiny Alertmanager → Discord webhook translator.
+
+    Listens on :9094 for Alertmanager webhook posts. For each alert in
+    the payload, builds a short Discord message and forwards to the
+    configured DISCORD_WEBHOOK. Health endpoint at /healthz.
+    """
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+    import json, os, urllib.request, sys
+
+    WEBHOOK = os.environ["DISCORD_WEBHOOK"]
+
+    SEVERITY_PREFIX = {
+        "critical": "🔴",
+        "warning":  "🟠",
+        "info":     "🔵",
+        "heartbeat":"💚",
+    }
+
+    def render(alert: dict) -> str:
+        labels = alert.get("labels", {})
+        annos = alert.get("annotations", {})
+        status = alert.get("status", "firing").upper()
+        sev = labels.get("severity", "unknown")
+        prefix = SEVERITY_PREFIX.get(sev, "❓")
+        head = f"{prefix} [{status}] {labels.get('alertname','?')} (severity={sev})"
+        ns = labels.get("namespace")
+        if ns:
+            head += f" ns={ns}"
+        summary = annos.get("summary", "")
+        desc = annos.get("description", "")
+        runbook = annos.get("runbook", "")
+        lines = [head]
+        if summary: lines.append(summary)
+        if desc and desc != summary: lines.append(desc)
+        if runbook: lines.append(f"runbook: {runbook}")
+        return "\n".join(lines)[:1900]  # Discord 2000-char hard limit
+
+    def post_discord(content: str) -> int:
+        body = json.dumps({"content": content, "username": "Alertmanager"}).encode()
+        req = urllib.request.Request(
+            WEBHOOK, data=body,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            return resp.status
+
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, fmt, *args):
+            sys.stderr.write(("%s - " + fmt + "\n") % (self.address_string(), *args))
+
+        def do_GET(self):
+            if self.path == "/healthz":
+                self.send_response(200); self.end_headers(); self.wfile.write(b"ok"); return
+            self.send_response(404); self.end_headers()
+
+        def do_POST(self):
+            length = int(self.headers.get("Content-Length", "0"))
+            raw = self.rfile.read(length)
+            try:
+                payload = json.loads(raw)
+                for alert in payload.get("alerts", []):
+                    msg = render(alert)
+                    status = post_discord(msg)
+                    sys.stderr.write(f"posted alert={alert.get('labels',{}).get('alertname','?')} status={status}\n")
+                self.send_response(200); self.end_headers(); self.wfile.write(b"ok")
+            except Exception as e:
+                sys.stderr.write(f"ERROR: {e}\n")
+                self.send_response(500); self.end_headers()
+
+    if __name__ == "__main__":
+        HTTPServer(("", 9094), Handler).serve_forever()
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -29,8 +113,9 @@ spec:
     spec:
       containers:
         - name: translator
-          image: benjojo/alertmanager-discord:latest
+          image: python:3.12-alpine
           imagePullPolicy: IfNotPresent
+          command: ["python", "/app/translator.py"]
           ports:
             - containerPort: 9094
               name: http
@@ -40,6 +125,21 @@ spec:
                 secretKeyRef:
                   name: alertmanager-discord-webhook
                   key: url
+          volumeMounts:
+            - name: script
+              mountPath: /app
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 30
           resources:
             requests:
               cpu: 10m
@@ -54,6 +154,10 @@ spec:
             runAsUser: 65534
             capabilities:
               drop: ["ALL"]
+      volumes:
+        - name: script
+          configMap:
+            name: alertmanager-discord-script
 ---
 apiVersion: v1
 kind: Service
