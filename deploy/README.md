@@ -108,6 +108,19 @@ kubectl apply -f deploy/argocd/application.yaml
 
 Argo CD UI에서 `swkoo-kr` 애플리케이션을 Sync하면 K3s 클러스터에 프론트/백엔드가 배포됩니다.
 
+### Bootstrap 디렉토리 vs ArgoCD-managed 디렉토리
+
+운영 시 두 디렉토리의 차이 주의:
+
+| 디렉토리 | 누가 관리 | 변경 적용 방법 |
+|---------|----------|---------------|
+| `deploy/argocd/` | **수동 kubectl apply** (Applications · ApplicationSets · RBAC bootstrap) | git push *만으론 부족*. 변경 후 명시적 `kubectl apply -f <file>` 필요 |
+| `deploy/argocd-config/` | `swkoo-argocd-config` Application 이 자동 sync | git push 만으로 적용 |
+| `deploy/base/` | `swkoo-portfolio` Application 이 자동 sync | git push 만으로 적용 |
+| `deploy/observability/` | `swkoo-observability` Application 이 자동 sync | git push 만으로 적용 |
+
+`deploy/argocd/` 가 *수동* 인 이유: ArgoCD 의 Application·ApplicationSet 정의 자체를 ArgoCD 로 관리하면 chicken-and-egg. 한 번 apply 후 *변경 시마다 명시적 apply* 가 정직한 운영. 2026-05-21 에 ApplicationSet 의 `swkoo.kr/source-repo` annotation 추가 시 이걸 잊고 git push 만 했다가 cluster 반영 안 됐던 사례 — 변경 후 항상 `kubectl apply -f deploy/argocd/<file>`.
+
 ## 커스터마이즈 포인트
 - 도메인/TLS Secret 이름은 `deploy/base/backend/ingress.yaml`, `deploy/base/frontend/ingress.yaml`에서 변경
 - 리플리카 수와 리소스 요청/제한은 각 Deployment에서 조정
