@@ -2,6 +2,7 @@
 login: sungwookoo
 appName: nextjs-sample
 deployRepo: swkoo-deploy/sungwookoo
+sourceRepo: sungwookoo/nextjs-sample
 image:
   repo: ghcr.io/sungwookoo/nextjs-sample
   updateStrategy: digest

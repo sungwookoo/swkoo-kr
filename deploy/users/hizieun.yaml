@@ -2,6 +2,7 @@
 login: hizieun
 appName: portfolio
 deployRepo: swkoo-deploy/hizieun
+sourceRepo: hizieun/portfolio
 image:
   repo: ghcr.io/hizieun/portfolio
   updateStrategy: digest

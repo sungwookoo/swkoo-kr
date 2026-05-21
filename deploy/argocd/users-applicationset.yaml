@@ -42,6 +42,12 @@ spec:
         argocd-image-updater.argoproj.io/image-list: 'app={{ .image.repo }}:latest'
         argocd-image-updater.argoproj.io/app.update-strategy: '{{ .image.updateStrategy }}'
         argocd-image-updater.argoproj.io/write-back-method: argocd
+        # The Application's `spec.source.repoURL` points at the per-user
+        # *deploy* repo (Phase 3.1). The user's actual source repo —
+        # where Dockerfile + GHA workflow live — is recorded here so
+        # Observatory's pipelines.service can find the right workflow
+        # runs without conflating them with deploy-repo commits.
+        swkoo.kr/source-repo: '{{ .sourceRepo }}'
         # Notifications (kept verbatim from the prior version).
         notifications.argoproj.io/subscribe.on-sync-succeeded.swkoo-backend: ""
         notifications.argoproj.io/subscribe.on-sync-failed.swkoo-backend: ""

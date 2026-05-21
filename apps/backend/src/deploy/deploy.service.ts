@@ -283,6 +283,11 @@ export class DeployService {
       port: preview.port,
       uid: 1000,
       deployRepoFullName,
+      // Source repo (where the user's Dockerfile + GHA workflow live)
+      // is distinct from deployRepo after Phase 3.1. Observatory reads
+      // this to find the right GitHub Actions runs.
+      sourceRepo: `${owner}/${repo}`,
+      appsDomain: this.config.appsDomain,
     };
 
     const userRepoFiles = renderUserRepoFiles(params);

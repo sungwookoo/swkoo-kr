@@ -17,6 +17,15 @@ export interface RenderParams {
   // "<deployOwner>/<repoName>" — used in the registration file so
   // ApplicationSet knows which repo to pull manifests from.
   deployRepoFullName: string;
+  // "<ownerLogin>/<repoName>" — the user's *actual source* repo where
+  // their Dockerfile + GHA workflow live. Distinct from deployRepo
+  // (Phase 3.1 split). Observatory uses this to resolve the right
+  // GitHub Actions runs for a friend's app; without it, the lookup
+  // hits the deploy repo and finds no workflows.
+  sourceRepo: string;
+  // e.g., "apps.swkoo.kr". Pulled from APPS_DOMAIN env so the ingress
+  // host doesn't drift from getCurrentDeployment / getDeploymentStatus.
+  appsDomain: string;
 }
 
 const GENERATED_HEADER =
@@ -74,6 +83,7 @@ export function renderUserRegistration(params: RenderParams): string {
   return `${GENERATED_HEADER}login: ${params.login}
 appName: ${params.appName}
 deployRepo: ${params.deployRepoFullName}
+sourceRepo: ${params.sourceRepo}
 image:
   repo: ${params.imageRepo}
   updateStrategy: digest
@@ -361,10 +371,10 @@ spec:
   ingressClassName: traefik
   tls:
     - hosts:
-        - ${params.subdomain}.apps.swkoo.kr
+        - ${params.subdomain}.${params.appsDomain}
       secretName: ${params.appName}-tls
   rules:
-    - host: ${params.subdomain}.apps.swkoo.kr
+    - host: ${params.subdomain}.${params.appsDomain}
       http:
         paths:
           - path: /

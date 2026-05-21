@@ -163,10 +163,26 @@ export class PipelinesService {
       };
     }
 
-    const repoUrl = application.spec.source?.repoURL ?? null;
-    const { owner, repo } = repoUrl
-      ? this.parseGitHubRepoUrl(repoUrl)
-      : { owner: null, repo: null };
+    // Phase 3.1 split: user app's `spec.source.repoURL` points to the
+    // per-user *deploy* repo (just k8s manifests, no GHA workflow). The
+    // user's source repo (where workflow lives) is recorded as the
+    // `swkoo.kr/source-repo` annotation on the Application by the
+    // ApplicationSet template. Prefer that when present; fall back to
+    // repoURL for the swkoo.kr-self app whose source == deploy repo.
+    const sourceAnnotation =
+      application.metadata?.annotations?.['swkoo.kr/source-repo'];
+    let owner: string | null = null;
+    let repo: string | null = null;
+    if (sourceAnnotation && /^[^/]+\/[^/]+$/.test(sourceAnnotation)) {
+      [owner, repo] = sourceAnnotation.split('/');
+    } else {
+      const repoUrl = application.spec.source?.repoURL ?? null;
+      const parsed = repoUrl
+        ? this.parseGitHubRepoUrl(repoUrl)
+        : { owner: null, repo: null };
+      owner = parsed.owner;
+      repo = parsed.repo;
+    }
 
     const ghOwner = this.githubCfg.owner ?? owner;
     const ghRepo = this.githubCfg.repo ?? repo;

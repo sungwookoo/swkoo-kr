@@ -113,6 +113,12 @@ export class DeployController {
     @Param('login') login: string,
     @Param('repo') repo: string
   ): Promise<DeploymentStatus> {
+    // Self-only: status leaks live URL / build state / image digest /
+    // deploy cadence — none individually catastrophic but together
+    // useful for reconnaissance. The peer GET /env/ + PUT /env/
+    // already enforce this, so the GET /status/ gap was asymmetric.
+    // Admin cross-user debugging goes through /admin if needed later.
+    this.assertOwnDeployment(req, login);
     return this.service.getDeploymentStatus(req.user.id, login, repo);
   }
 

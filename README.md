@@ -101,7 +101,7 @@ VISION §3 전체가 여기로 매핑됨. 요약:
 
 - GitHub Actions: `.github/workflows/docker-publish.yml`
   - 기본 브랜치 푸시 시 백/프론트 이미지를 빌드 후 OCIR로 푸시
-  - 시크릿/절차는 [`docs/registry.md`](./docs/registry.md) 참고
+  - 시크릿은 GitHub repo secrets — `OCI_REGISTRY_HOST`, `OCI_TENANCY_NAMESPACE`, `OCI_BACKEND_REPO`, `OCI_FRONTEND_REPO`, `OCI_USERNAME`, `OCI_AUTH_TOKEN` — 운영자가 직접 관리
 
 ## 문서 구조
 

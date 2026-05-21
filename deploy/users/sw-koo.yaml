@@ -2,6 +2,7 @@
 login: sw-koo
 appName: nextjs-sample
 deployRepo: swkoo-deploy/sw-koo
+sourceRepo: sw-koo/nextjs-sample
 image:
   repo: ghcr.io/sw-koo/nextjs-sample
   updateStrategy: digest
