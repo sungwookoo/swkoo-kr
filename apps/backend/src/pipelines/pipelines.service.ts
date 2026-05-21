@@ -168,11 +168,10 @@ export class PipelinesService {
 
     // Phase 3.1 split: user app's `spec.source.repoURL` points to the
     // per-user *deploy* repo (just k8s manifests, no GHA workflow). The
-    // user's source repo (where workflow lives) is recorded as the
-    // `swkoo.kr/source-repo` annotation on the Application by the
-    // ApplicationSet template. Presence of this annotation distinguishes
-    // user apps (use provenance lookup) from the swkoo-self app
-    // (use chore-commit parsing).
+    // `swkoo.kr/source-repo` annotation is a render-time *hint* about
+    // where the user's build workflow lives — used only to classify
+    // user app vs swkoo-self. For actual GHCR + commit + run lookups
+    // we trust the deployed image repo (see buildUserAppDeployments).
     const sourceAnnotation =
       application.metadata?.annotations?.['swkoo.kr/source-repo'];
     const isUserApp = Boolean(
@@ -371,6 +370,26 @@ export class PipelinesService {
     return null;
   }
 
+  /** Like extractDeployedImageInfo but tolerant of images that haven't
+   * been digest-pinned yet (newly-created app pre-first-deploy). Used by
+   * the pipeline summary's repoUrl computation where we need to resolve
+   * to *some* GitHub repo even before the first image lands. */
+  private extractImageRepo(
+    kustomizeImages: string[] | undefined,
+    summaryImages: string[] | undefined
+  ): { owner: string; name: string } | null {
+    const candidates = [kustomizeImages, summaryImages]
+      .filter((arr): arr is string[] => Array.isArray(arr) && arr.length > 0)
+      .flat();
+    // ghcr.io/owner/name[:tag][@sha256:<hex>]
+    const re = /^ghcr\.io\/([^/]+)\/([^:@]+)/i;
+    for (const img of candidates) {
+      const m = img.match(re);
+      if (m) return { owner: m[1], name: m[2] };
+    }
+    return null;
+  }
+
   private extractSourceSha(commitMessage: string): string | null {
     const match = commitMessage.match(/update image tags? to ([0-9a-f]{7,40})/i);
     return match ? match[1] : null;
@@ -498,17 +517,44 @@ export class PipelinesService {
     );
 
     // `repoUrl` flows through to the frontend timeline + into
-    // getWorkflows() which uses it to query GitHub Actions. For
+    // getWorkflows(), which uses it to query GitHub Actions. For
     // user apps the Application's spec.source.repoURL is the per-user
-    // *deploy* repo (manifests only, no GHA). The source repo lives
-    // in the swkoo.kr/source-repo annotation; surface that here so
-    // every downstream consumer sees the right URL.
+    // *deploy* repo (manifests only, no GHA workflow), so we must surface
+    // the *image* repo where the build workflow actually lives.
+    //
+    // Priority (user apps):
+    //   1. Parse from spec.source.kustomize.images / status.summary.images
+    //      — the image-updater-written digest pin is ground truth for
+    //      where the deployed binary actually came from.
+    //   2. swkoo.kr/source-repo annotation — render-time hint from
+    //      swkoo.kr; can drift from reality if the user renames their
+    //      image repo (observed: hizieun annotation=portfolio but real
+    //      image=my-arxiv).
+    //   3. spec.source.repoURL — last resort; for user apps this is the
+    //      deploy repo, not the source. Only correct for self-app.
     const sourceAnnotation =
       application.metadata?.annotations?.['swkoo.kr/source-repo'];
-    const repoUrl =
+    const isUserApp = Boolean(
       sourceAnnotation && /^[^/]+\/[^/]+$/.test(sourceAnnotation)
-        ? `https://github.com/${sourceAnnotation}.git`
-        : application.spec.source?.repoURL ?? null;
+    );
+    let repoUrl: string | null;
+    if (isUserApp) {
+      const imageRepo = this.extractImageRepo(
+        application.spec.source?.kustomize?.images,
+        application.status?.summary?.images
+      );
+      if (imageRepo) {
+        repoUrl = `https://github.com/${imageRepo.owner}/${imageRepo.name}.git`;
+      } else if (sourceAnnotation) {
+        // Pre-first-deploy: no image yet, annotation is our best hint.
+        repoUrl = `https://github.com/${sourceAnnotation}.git`;
+      } else {
+        repoUrl = application.spec.source?.repoURL ?? null;
+      }
+    } else {
+      // Self app: spec.source.repoURL is correct (source == deploy repo).
+      repoUrl = application.spec.source?.repoURL ?? null;
+    }
 
     return {
       name: application.metadata?.name ?? 'unknown',
