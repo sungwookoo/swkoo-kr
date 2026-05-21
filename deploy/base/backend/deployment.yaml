@@ -29,7 +29,7 @@ spec:
             claimName: swkoo-backend-data
       containers:
         - name: backend
-          image: nrt.ocir.io/nrznn4yiltsz/swkoo/backend:c23b42793cc752e2f3542581117e49153f2fe87e
+          image: nrt.ocir.io/nrznn4yiltsz/swkoo/backend:66f6dce05b5c904ede1dca91004e65845482458f
           imagePullPolicy: Always
           ports:
             - containerPort: 3000
