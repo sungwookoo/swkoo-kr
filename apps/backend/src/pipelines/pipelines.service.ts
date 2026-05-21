@@ -360,11 +360,24 @@ export class PipelinesService {
       `Mapped Argo CD application ${application.metadata?.name ?? 'unknown'} to pipeline summary`
     );
 
+    // `repoUrl` flows through to the frontend timeline + into
+    // getWorkflows() which uses it to query GitHub Actions. For
+    // user apps the Application's spec.source.repoURL is the per-user
+    // *deploy* repo (manifests only, no GHA). The source repo lives
+    // in the swkoo.kr/source-repo annotation; surface that here so
+    // every downstream consumer sees the right URL.
+    const sourceAnnotation =
+      application.metadata?.annotations?.['swkoo.kr/source-repo'];
+    const repoUrl =
+      sourceAnnotation && /^[^/]+\/[^/]+$/.test(sourceAnnotation)
+        ? `https://github.com/${sourceAnnotation}.git`
+        : application.spec.source?.repoURL ?? null;
+
     return {
       name: application.metadata?.name ?? 'unknown',
       project: application.spec.project,
       namespace,
-      repoUrl: application.spec.source?.repoURL ?? null,
+      repoUrl,
       targetRevision: application.spec.source?.targetRevision ?? null,
       syncStatus: sync?.status ?? 'Unknown',
       healthStatus: application.status?.health?.status ?? 'Unknown',
