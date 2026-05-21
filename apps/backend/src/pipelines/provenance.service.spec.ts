@@ -102,8 +102,8 @@ describe('ProvenanceService', () => {
     const svc = new ProvenanceService(repo, stubs.githubApp, stubs.githubClient);
 
     const result = await svc.resolve({
-      sourceOwner: 'o',
-      sourceRepo: 'r',
+      imageOwner: 'o',
+      imageName: 'r',
       digest: DIGEST_A,
     });
 
@@ -141,8 +141,8 @@ describe('ProvenanceService', () => {
     const svc = new ProvenanceService(repo, stubs.githubApp, stubs.githubClient);
 
     const result = await svc.resolve({
-      sourceOwner: 'o',
-      sourceRepo: 'r',
+      imageOwner: 'o',
+      imageName: 'r',
       digest: DIGEST_B,
     });
 
@@ -172,8 +172,8 @@ describe('ProvenanceService', () => {
     const svc = new ProvenanceService(repo, stubs.githubApp, stubs.githubClient);
 
     const result = await svc.resolve({
-      sourceOwner: 'o',
-      sourceRepo: 'r',
+      imageOwner: 'o',
+      imageName: 'r',
       digest: DIGEST_A,
       timeContext: { deployedAt: '2026-05-21T00:10:00Z' },
     });
@@ -194,8 +194,8 @@ describe('ProvenanceService', () => {
     const svc = new ProvenanceService(repo, stubs.githubApp, stubs.githubClient);
 
     const result = await svc.resolve({
-      sourceOwner: 'o',
-      sourceRepo: 'r',
+      imageOwner: 'o',
+      imageName: 'r',
       digest: DIGEST_A,
       timeContext: { deployedAt: '2026-05-21T00:00:00Z' },
     });
@@ -220,8 +220,8 @@ describe('ProvenanceService', () => {
     });
     const svc = new ProvenanceService(repo, stubs.githubApp, stubs.githubClient);
 
-    await svc.resolve({ sourceOwner: 'o', sourceRepo: 'r', digest: DIGEST_A });
-    await svc.resolve({ sourceOwner: 'o', sourceRepo: 'r', digest: DIGEST_A });
+    await svc.resolve({ imageOwner: 'o', imageName: 'r', digest: DIGEST_A });
+    await svc.resolve({ imageOwner: 'o', imageName: 'r', digest: DIGEST_A });
 
     // Verified rows are permanent — second call must hit cache, not GitHub.
     expect(stubs.githubApp.listUserPackageVersions).toHaveBeenCalledTimes(1);
@@ -239,8 +239,8 @@ describe('ProvenanceService', () => {
     const svc = new ProvenanceService(repo, stubs.githubApp, stubs.githubClient);
 
     const result = await svc.resolve({
-      sourceOwner: 'o',
-      sourceRepo: 'r',
+      imageOwner: 'o',
+      imageName: 'r',
       digest: DIGEST_A,
     });
     expect(result.confidence).toBe('unknown');

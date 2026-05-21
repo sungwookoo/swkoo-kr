@@ -12,8 +12,8 @@ import { GitHubClient } from './services/github.client';
 const SHA_HEX_40 = /^[0-9a-f]{40}$/i;
 
 export interface ProvenanceResult {
-  sourceOwner: string;
-  sourceRepo: string;
+  imageOwner: string;
+  imageName: string;
   digest: string;
   sourceSha: string | null;
   sourceRunUrl: string | null;
@@ -43,13 +43,13 @@ export class ProvenanceService {
    * `unknown` so the deployments endpoint stays available even if GitHub is
    * down. */
   async resolve(args: {
-    sourceOwner: string;
-    sourceRepo: string;
+    imageOwner: string;
+    imageName: string;
     digest: string;
     timeContext?: DeploymentTimeContext;
   }): Promise<ProvenanceResult> {
-    const { sourceOwner, sourceRepo, digest } = args;
-    const cached = this.repo.find(sourceOwner, sourceRepo, digest);
+    const { imageOwner, imageName, digest } = args;
+    const cached = this.repo.find(imageOwner, imageName, digest);
     if (cached && !this.repo.isStale(cached)) {
       return this.toResult(cached);
     }
@@ -57,12 +57,12 @@ export class ProvenanceService {
       return await this.resolveFresh(args);
     } catch (err) {
       this.logger.warn(
-        `provenance.resolve failed for ${sourceOwner}/${sourceRepo}@${digest.slice(0, 16)}: ${(err as Error).message}`
+        `provenance.resolve failed for ${imageOwner}/${imageName}@${digest.slice(0, 16)}: ${(err as Error).message}`
       );
       // Persist an unknown row so we don't hammer GitHub on every render.
       return this.persistAndReturn({
-        sourceOwner,
-        sourceRepo,
+        imageOwner,
+        imageName,
         digest,
         sourceSha: null,
         sourceRunUrl: null,
@@ -74,28 +74,30 @@ export class ProvenanceService {
   }
 
   private async resolveFresh(args: {
-    sourceOwner: string;
-    sourceRepo: string;
+    imageOwner: string;
+    imageName: string;
     digest: string;
     timeContext?: DeploymentTimeContext;
   }): Promise<ProvenanceResult> {
-    const { sourceOwner, sourceRepo, digest, timeContext } = args;
+    const { imageOwner, imageName, digest, timeContext } = args;
 
     let token: string;
     try {
-      token = await this.githubApp.getInstallationTokenForRepo(sourceOwner, sourceRepo);
+      // The App needs to be installed on the *image* repo (where the build
+      // workflow runs) to query its packages and workflow runs. For most
+      // user apps imageRepo == sourceRepo; the rare case where they diverge
+      // (stale yaml, image renamed) just means we look up the right place.
+      token = await this.githubApp.getInstallationTokenForRepo(imageOwner, imageName);
     } catch (err) {
-      // App not installed on source repo — can't query packages at all.
-      // Fall back to time heuristic if we have workflow_runs access via PAT.
       this.logger.warn(
-        `no App installation for ${sourceOwner}/${sourceRepo}: ${(err as Error).message}`
+        `no App installation for ${imageOwner}/${imageName}: ${(err as Error).message}`
       );
-      return this.timeWindowFallback({ sourceOwner, sourceRepo, digest, timeContext });
+      return this.timeWindowFallback({ imageOwner, imageName, digest, timeContext });
     }
 
     const versions = await this.githubApp.listUserPackageVersions({
-      owner: sourceOwner,
-      packageName: sourceRepo,
+      owner: imageOwner,
+      packageName: imageName,
       token,
       perPage: 50,
     });
@@ -103,13 +105,13 @@ export class ProvenanceService {
     if (versions === null) {
       // 404/403 — package not visible to the App (likely org-owned). Fall
       // back to time heuristic.
-      return this.timeWindowFallback({ sourceOwner, sourceRepo, digest, timeContext });
+      return this.timeWindowFallback({ imageOwner, imageName, digest, timeContext });
     }
 
     const matched = versions.find((v) => v.name === digest);
     if (!matched) {
       // Image GC'd or never reached GHCR. Heuristic is best we can do.
-      return this.timeWindowFallback({ sourceOwner, sourceRepo, digest, timeContext });
+      return this.timeWindowFallback({ imageOwner, imageName, digest, timeContext });
     }
 
     // First 40-char hex tag is the github.sha pushed by the build workflow
@@ -117,19 +119,20 @@ export class ProvenanceService {
     const shaTag = matched.metadata.container.tags.find((t) => SHA_HEX_40.test(t));
     if (!shaTag) {
       // No SHA tag — manual push or workflow change. Heuristic fallback.
-      return this.timeWindowFallback({ sourceOwner, sourceRepo, digest, timeContext });
+      return this.timeWindowFallback({ imageOwner, imageName, digest, timeContext });
     }
 
     // Run URL is informational only — failure to fetch shouldn't degrade
     // confidence below verified, since digest↔SHA mapping is already proven
-    // by GHCR.
+    // by GHCR. SHA belongs to the *image* repo (the one whose workflow
+    // tagged it with github.sha).
     const run = await this.githubClient
-      .fetchWorkflowRunForSha({ owner: sourceOwner, repo: sourceRepo, sha: shaTag })
+      .fetchWorkflowRunForSha({ owner: imageOwner, repo: imageName, sha: shaTag })
       .catch(() => null);
 
     return this.persistAndReturn({
-      sourceOwner,
-      sourceRepo,
+      imageOwner,
+      imageName,
       digest,
       sourceSha: shaTag,
       sourceRunUrl: run?.htmlUrl ?? null,
@@ -140,16 +143,16 @@ export class ProvenanceService {
   }
 
   private async timeWindowFallback(args: {
-    sourceOwner: string;
-    sourceRepo: string;
+    imageOwner: string;
+    imageName: string;
     digest: string;
     timeContext?: DeploymentTimeContext;
   }): Promise<ProvenanceResult> {
-    const { sourceOwner, sourceRepo, digest, timeContext } = args;
+    const { imageOwner, imageName, digest, timeContext } = args;
     if (!timeContext?.deployedAt || !this.githubClient.isConfigured()) {
       return this.persistAndReturn({
-        sourceOwner,
-        sourceRepo,
+        imageOwner,
+        imageName,
         digest,
         sourceSha: null,
         sourceRunUrl: null,
@@ -160,19 +163,16 @@ export class ProvenanceService {
     }
 
     const deployedAt = new Date(timeContext.deployedAt).getTime();
-    // Pick a recent successful run whose updated_at is closest to deployedAt
-    // and not after it. Fetch a small window; widen only if the first page
-    // is empty.
     const candidate = await this.findClosestSuccessRun({
-      owner: sourceOwner,
-      repo: sourceRepo,
+      owner: imageOwner,
+      repo: imageName,
       deployedAt,
     });
 
     if (!candidate) {
       return this.persistAndReturn({
-        sourceOwner,
-        sourceRepo,
+        imageOwner,
+        imageName,
         digest,
         sourceSha: null,
         sourceRunUrl: null,
@@ -183,8 +183,8 @@ export class ProvenanceService {
     }
 
     return this.persistAndReturn({
-      sourceOwner,
-      sourceRepo,
+      imageOwner,
+      imageName,
       digest,
       sourceSha: candidate.headSha,
       sourceRunUrl: candidate.htmlUrl,
@@ -225,8 +225,8 @@ export class ProvenanceService {
   }
 
   private persistAndReturn(row: {
-    sourceOwner: string;
-    sourceRepo: string;
+    imageOwner: string;
+    imageName: string;
     digest: string;
     sourceSha: string | null;
     sourceRunUrl: string | null;
@@ -240,8 +240,8 @@ export class ProvenanceService {
 
   private toResult(row: ProvenanceRow): ProvenanceResult {
     return {
-      sourceOwner: row.sourceOwner,
-      sourceRepo: row.sourceRepo,
+      imageOwner: row.imageOwner,
+      imageName: row.imageName,
       digest: row.digest,
       sourceSha: row.sourceSha,
       sourceRunUrl: row.sourceRunUrl,

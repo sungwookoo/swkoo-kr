@@ -15,8 +15,11 @@ export type ProvenanceMethod =
 export type ProvenanceConfidence = 'verified' | 'estimated' | 'unknown';
 
 export interface ProvenanceRow {
-  sourceOwner: string;
-  sourceRepo: string;
+  /** GHCR package owner — derived from the deployed image string, not from
+   * the `swkoo.kr/source-repo` annotation. Real-world drift (rename,
+   * stale yaml) means the annotation isn't always trustworthy. */
+  imageOwner: string;
+  imageName: string;
   digest: string;
   sourceSha: string | null;
   sourceRunUrl: string | null;
@@ -28,8 +31,8 @@ export interface ProvenanceRow {
 }
 
 export interface ProvenanceUpsert {
-  sourceOwner: string;
-  sourceRepo: string;
+  imageOwner: string;
+  imageName: string;
   digest: string;
   sourceSha: string | null;
   sourceRunUrl: string | null;
@@ -58,8 +61,8 @@ export class ProvenanceRepository implements OnModuleInit, OnModuleDestroy {
     // another's lookup.
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS image_provenance (
-        source_owner    TEXT    NOT NULL,
-        source_repo     TEXT    NOT NULL,
+        image_owner     TEXT    NOT NULL,
+        image_name      TEXT    NOT NULL,
         digest          TEXT    NOT NULL,
         source_sha      TEXT,
         source_run_url  TEXT,
@@ -68,7 +71,7 @@ export class ProvenanceRepository implements OnModuleInit, OnModuleDestroy {
         confidence      TEXT    NOT NULL,
         resolved_at     INTEGER NOT NULL,
         attempts        INTEGER NOT NULL DEFAULT 1,
-        PRIMARY KEY (source_owner, source_repo, digest)
+        PRIMARY KEY (image_owner, image_name, digest)
       );
       CREATE INDEX IF NOT EXISTS idx_image_provenance_resolved
         ON image_provenance (resolved_at DESC);
@@ -81,8 +84,8 @@ export class ProvenanceRepository implements OnModuleInit, OnModuleDestroy {
   }
 
   private readonly cols = `
-    source_owner   AS sourceOwner,
-    source_repo    AS sourceRepo,
+    image_owner    AS imageOwner,
+    image_name     AS imageName,
     digest,
     source_sha     AS sourceSha,
     source_run_url AS sourceRunUrl,
@@ -93,12 +96,12 @@ export class ProvenanceRepository implements OnModuleInit, OnModuleDestroy {
     attempts
   `;
 
-  find(sourceOwner: string, sourceRepo: string, digest: string): ProvenanceRow | undefined {
+  find(imageOwner: string, imageName: string, digest: string): ProvenanceRow | undefined {
     const stmt = this.db.prepare(
       `SELECT ${this.cols} FROM image_provenance
-       WHERE source_owner = ? AND source_repo = ? AND digest = ?`
+       WHERE image_owner = ? AND image_name = ? AND digest = ?`
     );
-    return stmt.get(sourceOwner, sourceRepo, digest) as ProvenanceRow | undefined;
+    return stmt.get(imageOwner, imageName, digest) as ProvenanceRow | undefined;
   }
 
   /** Insert-or-update. Attempts increments on every upsert so we can spot
@@ -107,12 +110,12 @@ export class ProvenanceRepository implements OnModuleInit, OnModuleDestroy {
     const now = Date.now();
     const stmt = this.db.prepare(`
       INSERT INTO image_provenance
-        (source_owner, source_repo, digest, source_sha, source_run_url,
+        (image_owner, image_name, digest, source_sha, source_run_url,
          method, evidence, confidence, resolved_at, attempts)
       VALUES
-        (@sourceOwner, @sourceRepo, @digest, @sourceSha, @sourceRunUrl,
+        (@imageOwner, @imageName, @digest, @sourceSha, @sourceRunUrl,
          @method, @evidence, @confidence, ${now}, 1)
-      ON CONFLICT(source_owner, source_repo, digest) DO UPDATE SET
+      ON CONFLICT(image_owner, image_name, digest) DO UPDATE SET
         source_sha     = excluded.source_sha,
         source_run_url = excluded.source_run_url,
         method         = excluded.method,

@@ -180,13 +180,10 @@ export class PipelinesService {
     );
 
     if (isUserApp) {
-      const [sourceOwner, sourceRepoName] = (sourceAnnotation as string).split('/');
       return this.buildUserAppDeployments({
         name,
         application,
         history,
-        sourceOwner,
-        sourceRepo: sourceRepoName,
       });
     }
 
@@ -269,58 +266,64 @@ export class PipelinesService {
   /** User app: use deployed image digest to look up the source SHA via
    * GitHub Packages. Each history entry carries its own
    * `source.kustomize.images[]` so we get per-deployment provenance, not
-   * just for the latest. */
+   * just for the latest. The `swkoo.kr/source-repo` annotation is only a
+   * hint for what swkoo.kr *thinks* the source is — the deployed image's
+   * own owner/name (parsed from the image string) is what GHCR will know
+   * about and what GHA's `github.sha` refers to. When the two disagree
+   * (stale yaml, renamed repo), trusting the image is more correct. */
   private async buildUserAppDeployments(args: {
     name: string;
     application: ArgoCdApplication;
     history: NonNullable<ArgoCdApplication['status']>['history'];
-    sourceOwner: string;
-    sourceRepo: string;
   }): Promise<DeploymentsEnvelope> {
-    const { name, application, history, sourceOwner, sourceRepo } = args;
+    const { name, application, history } = args;
     const list = history ?? [];
 
+    const perDeployImageInfo = list.map((h) =>
+      this.extractDeployedImageInfo(
+        h.source?.kustomize?.images,
+        application.status?.summary?.images
+      )
+    );
+
     const provenanceResults = await Promise.all(
-      list.map(async (h) => {
-        const digest = this.extractDeployedDigest(
-          h.source?.kustomize?.images,
-          application.status?.summary?.images
-        );
-        if (!digest) {
-          return null;
-        }
+      perDeployImageInfo.map(async (info, i) => {
+        if (!info) return null;
         return this.provenance.resolve({
-          sourceOwner,
-          sourceRepo,
-          digest,
-          timeContext: { deployedAt: h.deployedAt ?? null },
+          imageOwner: info.owner,
+          imageName: info.name,
+          digest: info.digest,
+          timeContext: { deployedAt: list[i].deployedAt ?? null },
         });
       })
     );
 
-    // For each resolved source SHA, fetch the commit + run from the *source*
-    // repo (annotation owner) for the timeline display.
+    // For each resolved source SHA, fetch the commit + run from the *image*
+    // repo — that's where github.sha points (the workflow that built the
+    // tag runs in that repo).
     const sourceCommits = await Promise.all(
-      provenanceResults.map((p) =>
-        p?.sourceSha
+      provenanceResults.map((p, i) => {
+        const info = perDeployImageInfo[i];
+        return p?.sourceSha && info
           ? this.githubClient.fetchCommit({
-              owner: sourceOwner,
-              repo: sourceRepo,
+              owner: info.owner,
+              repo: info.name,
               sha: p.sourceSha,
             })
-          : Promise.resolve(null)
-      )
+          : Promise.resolve(null);
+      })
     );
     const workflowRuns = await Promise.all(
-      provenanceResults.map((p) =>
-        p?.sourceSha
+      provenanceResults.map((p, i) => {
+        const info = perDeployImageInfo[i];
+        return p?.sourceSha && info
           ? this.githubClient.fetchWorkflowRunForSha({
-              owner: sourceOwner,
-              repo: sourceRepo,
+              owner: info.owner,
+              repo: info.name,
               sha: p.sourceSha,
             })
-          : Promise.resolve(null)
-      )
+          : Promise.resolve(null);
+      })
     );
 
     const argocdBaseUrl = this.config.baseUrl ?? null;
@@ -346,24 +349,24 @@ export class PipelinesService {
     };
   }
 
-  /** Pulls the `sha256:<digest>` out of either `spec.source.kustomize.images`
-   * (preferred — written directly by argocd-image-updater) or
-   * `status.summary.images` (fallback). Tolerant of multiple images on an
-   * Application; we only track the first since user apps deploy a single
-   * container. */
-  private extractDeployedDigest(
+  /** Parses `ghcr.io/<owner>/<name>:<tag>@sha256:<64hex>` into the owner,
+   * name, and digest used for provenance lookup. Prefers
+   * `spec.source.kustomize.images` (written directly by
+   * argocd-image-updater) over `status.summary.images` (Argo summary,
+   * eventually consistent). User apps deploy a single container so we
+   * pick the first image with a parseable digest. */
+  private extractDeployedImageInfo(
     kustomizeImages: string[] | undefined,
     summaryImages: string[] | undefined
-  ): string | null {
+  ): { owner: string; name: string; digest: string } | null {
     const candidates = [kustomizeImages, summaryImages]
       .filter((arr): arr is string[] => Array.isArray(arr) && arr.length > 0)
       .flat();
+    // ghcr.io/owner/name:tag@sha256:<64hex>
+    const re = /^ghcr\.io\/([^/]+)\/([^:@]+)(?::[^@]+)?@(sha256:[0-9a-f]{64})$/i;
     for (const img of candidates) {
-      const at = img.indexOf('@sha256:');
-      if (at >= 0) {
-        const digest = img.slice(at + 1);
-        if (/^sha256:[0-9a-f]{64}$/i.test(digest)) return digest;
-      }
+      const m = img.match(re);
+      if (m) return { owner: m[1], name: m[2], digest: m[3] };
     }
     return null;
   }
