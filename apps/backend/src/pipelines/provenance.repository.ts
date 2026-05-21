@@ -55,10 +55,19 @@ export class ProvenanceRepository implements OnModuleInit, OnModuleDestroy {
     mkdirSync(dirname(this.config.dbPath), { recursive: true });
     this.db = new Database(this.config.dbPath);
     this.db.pragma('journal_mode = WAL');
-    // Composite PK (source_owner, source_repo, digest): the same digest can
-    // theoretically appear in distinct user packages (forks, re-pushes).
-    // Keying on source repo prevents one user's resolution from poisoning
-    // another's lookup.
+    // image_provenance is a *cache* — losing rows means we re-resolve on
+    // next read, not data loss. So when the schema has drifted from the
+    // current shape (e.g. earlier `source_owner` keying), drop the table
+    // and let the CREATE below recreate it.
+    const existing = this.db
+      .prepare(`PRAGMA table_info(image_provenance)`)
+      .all() as Array<{ name: string }>;
+    if (existing.length > 0 && !existing.some((c) => c.name === 'image_owner')) {
+      this.logger.warn(
+        'image_provenance schema drift detected — dropping for re-create (cache, safe)'
+      );
+      this.db.exec('DROP TABLE image_provenance');
+    }
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS image_provenance (
         image_owner     TEXT    NOT NULL,
