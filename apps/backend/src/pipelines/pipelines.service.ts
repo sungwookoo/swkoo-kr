@@ -15,8 +15,10 @@ import type { PipelineSummary, PipelinesEnvelope } from './pipelines.types';
 import type {
   DeploymentEvent,
   DeploymentLifecycle,
-  DeploymentsEnvelope
+  DeploymentsEnvelope,
+  RevisionConfidence
 } from './deployments.types';
+import { ProvenanceService } from './provenance.service';
 import { ArgoCdClient } from './services/argo-cd.client';
 import { GitHubClient } from './services/github.client';
 
@@ -39,6 +41,7 @@ export class PipelinesService {
   constructor(
     private readonly argoCdClient: ArgoCdClient,
     private readonly githubClient: GitHubClient,
+    private readonly provenance: ProvenanceService,
     @Inject(pipelinesConfig.KEY)
     private readonly config: ConfigType<typeof pipelinesConfig>,
     @Inject(githubConfig.KEY)
@@ -167,43 +170,57 @@ export class PipelinesService {
     // per-user *deploy* repo (just k8s manifests, no GHA workflow). The
     // user's source repo (where workflow lives) is recorded as the
     // `swkoo.kr/source-repo` annotation on the Application by the
-    // ApplicationSet template. Prefer that when present; fall back to
-    // repoURL for the swkoo.kr-self app whose source == deploy repo.
+    // ApplicationSet template. Presence of this annotation distinguishes
+    // user apps (use provenance lookup) from the swkoo-self app
+    // (use chore-commit parsing).
     const sourceAnnotation =
       application.metadata?.annotations?.['swkoo.kr/source-repo'];
-    let owner: string | null = null;
-    let repo: string | null = null;
-    if (sourceAnnotation && /^[^/]+\/[^/]+$/.test(sourceAnnotation)) {
-      [owner, repo] = sourceAnnotation.split('/');
-    } else {
-      const repoUrl = application.spec.source?.repoURL ?? null;
-      const parsed = repoUrl
-        ? this.parseGitHubRepoUrl(repoUrl)
-        : { owner: null, repo: null };
-      owner = parsed.owner;
-      repo = parsed.repo;
+    const isUserApp = Boolean(
+      sourceAnnotation && /^[^/]+\/[^/]+$/.test(sourceAnnotation)
+    );
+
+    if (isUserApp) {
+      const [sourceOwner, sourceRepoName] = (sourceAnnotation as string).split('/');
+      return this.buildUserAppDeployments({
+        name,
+        application,
+        history,
+        sourceOwner,
+        sourceRepo: sourceRepoName,
+      });
     }
 
-    const ghOwner = this.githubCfg.owner ?? owner;
-    const ghRepo = this.githubCfg.repo ?? repo;
+    return this.buildSelfAppDeployments({ name, application, history });
+  }
 
-    // Argo CD's history.revision is the *manifest* commit (the auto-commit
-    // CI made when it bumped image tags), not the source commit a human
-    // pushed. The manifest commit's message follows the pattern
-    //   "chore: update image tags to <40-char-source-sha>"
-    // so we lift the source SHA out of it. If extraction fails (manifest
-    // edited by hand, different message format), we fall back to the
-    // manifest commit so the lifecycle still shows something.
+  /** Self app (swkoo-portfolio): source repo == deploy repo. Argo history's
+   * `revision` is the chore commit; lift the source SHA out of its message
+   * and resolve commit + run. `verified` only when the source commit itself
+   * exists on GitHub; degrade to `unknown` on parsing/lookup failures. */
+  private async buildSelfAppDeployments(args: {
+    name: string;
+    application: ArgoCdApplication;
+    history: NonNullable<ArgoCdApplication['status']>['history'];
+  }): Promise<DeploymentsEnvelope> {
+    const { name, application, history } = args;
+    const repoUrl = application.spec.source?.repoURL ?? null;
+    const parsed = repoUrl
+      ? this.parseGitHubRepoUrl(repoUrl)
+      : { owner: null, repo: null };
+    const ghOwner = this.githubCfg.owner ?? parsed.owner;
+    const ghRepo = this.githubCfg.repo ?? parsed.repo;
+
+    const list = history ?? [];
     const manifestCommits = await Promise.all(
-      history.map((h) =>
+      list.map((h) =>
         ghOwner && ghRepo && h.revision
           ? this.githubClient.fetchCommit({ owner: ghOwner, repo: ghRepo, sha: h.revision })
           : Promise.resolve(null)
       )
     );
-
-    const sourceShas = manifestCommits.map((mc) => (mc ? this.extractSourceSha(mc.message) : null));
-
+    const sourceShas = manifestCommits.map((mc) =>
+      mc ? this.extractSourceSha(mc.message) : null
+    );
     const sourceCommits = await Promise.all(
       sourceShas.map((sha) =>
         sha && ghOwner && ghRepo
@@ -211,9 +228,6 @@ export class PipelinesService {
           : Promise.resolve(null)
       )
     );
-
-    // For each resolved source commit, find the GitHub Actions run that built
-    // its image. CI is keyed on head_sha so this is a single lookup per entry.
     const workflowRuns = await Promise.all(
       sourceShas.map((sha) =>
         sha && ghOwner && ghRepo
@@ -223,22 +237,135 @@ export class PipelinesService {
     );
 
     const argocdBaseUrl = this.config.baseUrl ?? null;
-    const deployments: DeploymentLifecycle[] = history.map((h, i) =>
-      this.toDeploymentLifecycle(
+    const deployments: DeploymentLifecycle[] = list.map((h, i) => {
+      const sourceSha = sourceShas[i];
+      const sourceCommit = sourceCommits[i];
+      const run = workflowRuns[i];
+      // For self app, `verified` requires us to have actually resolved the
+      // source commit AND run. Either missing → unknown (the surfaced
+      // commit is informational only).
+      const confidence: RevisionConfidence =
+        sourceSha && sourceCommit && run ? 'verified' : 'unknown';
+      return this.toDeploymentLifecycle({
         name,
-        h,
-        sourceCommits[i] ?? manifestCommits[i],
-        workflowRuns[i],
-        argocdBaseUrl
-      )
-    );
+        history: h,
+        commit: sourceCommit ?? manifestCommits[i],
+        workflowRun: run,
+        argocdBaseUrl,
+        revisionConfidence: confidence,
+        sourceSha: sourceSha ?? null,
+        sourceRunUrl: run?.htmlUrl ?? null,
+      });
+    });
 
     return {
       configured: true,
       fetchedAt: new Date().toISOString(),
       pipeline: name,
-      deployments
+      deployments,
     };
+  }
+
+  /** User app: use deployed image digest to look up the source SHA via
+   * GitHub Packages. Each history entry carries its own
+   * `source.kustomize.images[]` so we get per-deployment provenance, not
+   * just for the latest. */
+  private async buildUserAppDeployments(args: {
+    name: string;
+    application: ArgoCdApplication;
+    history: NonNullable<ArgoCdApplication['status']>['history'];
+    sourceOwner: string;
+    sourceRepo: string;
+  }): Promise<DeploymentsEnvelope> {
+    const { name, application, history, sourceOwner, sourceRepo } = args;
+    const list = history ?? [];
+
+    const provenanceResults = await Promise.all(
+      list.map(async (h) => {
+        const digest = this.extractDeployedDigest(
+          h.source?.kustomize?.images,
+          application.status?.summary?.images
+        );
+        if (!digest) {
+          return null;
+        }
+        return this.provenance.resolve({
+          sourceOwner,
+          sourceRepo,
+          digest,
+          timeContext: { deployedAt: h.deployedAt ?? null },
+        });
+      })
+    );
+
+    // For each resolved source SHA, fetch the commit + run from the *source*
+    // repo (annotation owner) for the timeline display.
+    const sourceCommits = await Promise.all(
+      provenanceResults.map((p) =>
+        p?.sourceSha
+          ? this.githubClient.fetchCommit({
+              owner: sourceOwner,
+              repo: sourceRepo,
+              sha: p.sourceSha,
+            })
+          : Promise.resolve(null)
+      )
+    );
+    const workflowRuns = await Promise.all(
+      provenanceResults.map((p) =>
+        p?.sourceSha
+          ? this.githubClient.fetchWorkflowRunForSha({
+              owner: sourceOwner,
+              repo: sourceRepo,
+              sha: p.sourceSha,
+            })
+          : Promise.resolve(null)
+      )
+    );
+
+    const argocdBaseUrl = this.config.baseUrl ?? null;
+    const deployments: DeploymentLifecycle[] = list.map((h, i) => {
+      const prov = provenanceResults[i];
+      return this.toDeploymentLifecycle({
+        name,
+        history: h,
+        commit: sourceCommits[i],
+        workflowRun: workflowRuns[i],
+        argocdBaseUrl,
+        revisionConfidence: prov?.confidence ?? 'unknown',
+        sourceSha: prov?.sourceSha ?? null,
+        sourceRunUrl: prov?.sourceRunUrl ?? null,
+      });
+    });
+
+    return {
+      configured: true,
+      fetchedAt: new Date().toISOString(),
+      pipeline: name,
+      deployments,
+    };
+  }
+
+  /** Pulls the `sha256:<digest>` out of either `spec.source.kustomize.images`
+   * (preferred — written directly by argocd-image-updater) or
+   * `status.summary.images` (fallback). Tolerant of multiple images on an
+   * Application; we only track the first since user apps deploy a single
+   * container. */
+  private extractDeployedDigest(
+    kustomizeImages: string[] | undefined,
+    summaryImages: string[] | undefined
+  ): string | null {
+    const candidates = [kustomizeImages, summaryImages]
+      .filter((arr): arr is string[] => Array.isArray(arr) && arr.length > 0)
+      .flat();
+    for (const img of candidates) {
+      const at = img.indexOf('@sha256:');
+      if (at >= 0) {
+        const digest = img.slice(at + 1);
+        if (/^sha256:[0-9a-f]{64}$/i.test(digest)) return digest;
+      }
+    }
+    return null;
   }
 
   private extractSourceSha(commitMessage: string): string | null {
@@ -246,13 +373,17 @@ export class PipelinesService {
     return match ? match[1] : null;
   }
 
-  private toDeploymentLifecycle(
-    name: string,
-    history: { revision?: string; deployedAt?: string },
-    commit: CommitInfo | null,
-    workflowRun: WorkflowRun | null,
-    argocdBaseUrl: string | null
-  ): DeploymentLifecycle {
+  private toDeploymentLifecycle(args: {
+    name: string;
+    history: { revision?: string; deployedAt?: string };
+    commit: CommitInfo | null;
+    workflowRun: WorkflowRun | null;
+    argocdBaseUrl: string | null;
+    revisionConfidence: RevisionConfidence;
+    sourceSha: string | null;
+    sourceRunUrl: string | null;
+  }): DeploymentLifecycle {
+    const { name, history, commit, workflowRun, argocdBaseUrl } = args;
     // Prefer the commit we actually resolved (source if extractable, manifest
     // if fallback). Keeps shortSha + href + label consistent.
     const sha = commit?.sha ?? history.revision ?? '';
@@ -312,7 +443,10 @@ export class PipelinesService {
       commitHref: commit?.htmlUrl ?? null,
       startedAt,
       endedAt,
-      events
+      events,
+      revisionConfidence: args.revisionConfidence,
+      sourceSha: args.sourceSha,
+      sourceRunUrl: args.sourceRunUrl,
     };
   }
 

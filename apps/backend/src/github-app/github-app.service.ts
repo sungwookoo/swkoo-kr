@@ -9,6 +9,14 @@ interface InstallationResp {
   id: number;
 }
 
+export interface GhcrPackageVersion {
+  /** Version digest, format `sha256:<64hex>`. */
+  name: string;
+  metadata: {
+    container: { tags: string[] };
+  };
+}
+
 interface InstallationTokenResp {
   token: string;
   expires_at: string;
@@ -353,5 +361,38 @@ export class GithubAppService {
       `committed ${blobEntries.length} files (${deletions.length} deletions) to ${owner}/${repo}@${branch}: ${newCommitResp.data.sha.slice(0, 7)} — ${message}`
     );
     return newCommitResp.data.sha;
+  }
+
+  /** Lists GHCR container package versions for a user-owned package, using
+   * the App installation token of the source repo. Spike on 2026-05-21
+   * confirmed the App's metadata:read scope is sufficient — packages:read
+   * is *not* required for user-owned containers when the App is installed
+   * on the package's source repo. Returns null when the token can't see
+   * the package (org-owned packages or App not installed on source repo). */
+  async listUserPackageVersions(args: {
+    owner: string;
+    packageName: string;
+    token: string;
+    perPage?: number;
+  }): Promise<GhcrPackageVersion[] | null> {
+    const { owner, packageName, token, perPage = 30 } = args;
+    try {
+      const resp = await axios.get<GhcrPackageVersion[]>(
+        `https://api.github.com/users/${owner}/packages/container/${encodeURIComponent(packageName)}/versions`,
+        {
+          headers: this.installationAuthHeaders(token),
+          params: { per_page: perPage },
+        }
+      );
+      return resp.data;
+    } catch (err) {
+      const status = (err as { response?: { status?: number } }).response?.status;
+      if (status === 404 || status === 403) {
+        // 404: package doesn't exist or token can't see it.
+        // 403: org-owned package needing different scope. Caller falls back.
+        return null;
+      }
+      throw err;
+    }
   }
 }

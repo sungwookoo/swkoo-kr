@@ -9,7 +9,7 @@ import { KubeClient } from '../kube/kube.client';
 import { AuthService } from '../onboarding/auth.service';
 import { UsersRepository } from '../onboarding/users.repository';
 import { ArgoCdClient } from '../pipelines/services/argo-cd.client';
-import { GithubAppService } from './github-app.service';
+import { GithubAppService } from '../github-app/github-app.service';
 import {
   subdomainErrorMessage,
   validateSubdomainFormat,

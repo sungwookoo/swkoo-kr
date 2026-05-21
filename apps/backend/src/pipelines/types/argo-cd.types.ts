@@ -15,6 +15,11 @@ export interface ArgoCdApplication {
     source?: {
       repoURL?: string;
       targetRevision?: string;
+      kustomize?: {
+        // image-updater write-back-method=argocd writes the digest here as
+        // "<repo>:<tag>@sha256:<digest>". Primary source for deployed digest.
+        images?: string[];
+      };
     };
   };
   status?: {
@@ -40,9 +45,21 @@ export interface ArgoCdApplication {
         revision?: string;
       };
     };
+    // Argo CD-computed summary, populated post-sync. Fallback digest source
+    // when kustomize.images is missing.
+    summary?: {
+      images?: string[];
+      externalURLs?: string[];
+    };
     history?: Array<{
       revision?: string;
       deployedAt?: string;
+      // Argo records per-deployment source snapshot — gives us the digest
+      // for *each* historical deployment, not just the latest.
+      source?: {
+        kustomize?: { images?: string[] };
+        repoURL?: string;
+      };
     }>;
   };
 }

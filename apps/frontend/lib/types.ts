@@ -100,6 +100,8 @@ export interface DeploymentEvent {
   href: string | null;
 }
 
+export type RevisionConfidence = 'verified' | 'estimated' | 'unknown';
+
 export interface DeploymentLifecycle {
   pipeline: string;
   commitSha: string;
@@ -111,6 +113,9 @@ export interface DeploymentLifecycle {
   startedAt: string;
   endedAt: string | null;
   events: DeploymentEvent[];
+  revisionConfidence: RevisionConfidence;
+  sourceSha: string | null;
+  sourceRunUrl: string | null;
 }
 
 export interface DeploymentsEnvelope {

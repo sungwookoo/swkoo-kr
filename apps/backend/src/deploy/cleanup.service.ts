@@ -4,7 +4,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 
 import { onboardingConfig } from '../config/onboarding.config';
 import { UsersRepository } from '../onboarding/users.repository';
-import { GithubAppService } from './github-app.service';
+import { GithubAppService } from '../github-app/github-app.service';
 import { ScanService } from './scan.service';
 
 const RETENTION_DAYS = 30;

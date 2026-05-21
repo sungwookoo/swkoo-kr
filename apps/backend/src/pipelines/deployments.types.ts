@@ -10,6 +10,8 @@ export interface DeploymentEvent {
   href: string | null;
 }
 
+export type RevisionConfidence = 'verified' | 'estimated' | 'unknown';
+
 export interface DeploymentLifecycle {
   pipeline: string;
   commitSha: string;
@@ -21,6 +23,13 @@ export interface DeploymentLifecycle {
   startedAt: string;
   endedAt: string | null;
   events: DeploymentEvent[];
+  /** verified: deployed digest matched a source SHA tag in GHCR;
+   *  estimated: time-window heuristic; unknown: no match. */
+  revisionConfidence: RevisionConfidence;
+  /** Source repo SHA the deployed image was built from (when resolvable). */
+  sourceSha: string | null;
+  /** GitHub Actions run that built the deployed image (when resolvable). */
+  sourceRunUrl: string | null;
 }
 
 export interface DeploymentsEnvelope {

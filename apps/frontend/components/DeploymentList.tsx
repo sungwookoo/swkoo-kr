@@ -1,6 +1,11 @@
 import clsx from 'clsx';
 
-import type { Alert, DeploymentLifecycle, DeploymentEvent } from '@/lib/types';
+import type {
+  Alert,
+  DeploymentLifecycle,
+  DeploymentEvent,
+  RevisionConfidence,
+} from '@/lib/types';
 import { deployments as content } from '@/content/observatory';
 
 interface DeploymentListProps {
@@ -33,6 +38,30 @@ function alertsInWindow(d: DeploymentLifecycle, alerts: Alert[]): Alert[] {
     const t = new Date(a.startsAt).getTime();
     return t >= start && t <= end;
   });
+}
+
+function confidenceBadge(confidence: RevisionConfidence): {
+  label: string;
+  className: string;
+  title: string;
+} | null {
+  // Default 'verified' is the boring case — don't draw attention to it.
+  // Only show badge when something is uncertain, so reviewers know to
+  // double-check before drawing conclusions from the source SHA.
+  if (confidence === 'verified') return null;
+  if (confidence === 'estimated') {
+    return {
+      label: '~ 추정',
+      className: 'border-amber-700/60 bg-amber-900/30 text-amber-200',
+      title:
+        '시간 기반 매칭. 배포 시점과 가장 가까운 성공 빌드를 추정함. GHCR digest 매칭이 안 됐을 때의 fallback.',
+    };
+  }
+  return {
+    label: '? 미확인',
+    className: 'border-slate-700 bg-slate-800/50 text-slate-400',
+    title: 'source commit을 확인하지 못했습니다.',
+  };
 }
 
 function eventColor(e: DeploymentEvent): string {
@@ -147,6 +176,21 @@ export function DeploymentList({ configured, pipeline, namespace, deployments, a
                   ) : (
                     <span className="font-mono text-xs text-slate-400">{d.commitShort}</span>
                   )}
+                  {(() => {
+                    const badge = confidenceBadge(d.revisionConfidence);
+                    if (!badge) return null;
+                    return (
+                      <span
+                        className={clsx(
+                          'rounded border px-1.5 py-0.5 text-[10px] font-mono',
+                          badge.className
+                        )}
+                        title={badge.title}
+                      >
+                        {badge.label}
+                      </span>
+                    );
+                  })()}
                   <span className="text-sm text-slate-100 truncate" title={d.commitMessage}>
                     {d.commitMessage}
                   </span>

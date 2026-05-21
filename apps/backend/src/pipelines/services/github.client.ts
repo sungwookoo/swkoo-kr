@@ -107,6 +107,33 @@ export class GitHubClient {
     }
   }
 
+  /** Recent successful workflow runs for the repo. Used by provenance
+   * time-window fallback when GHCR digest matching isn't possible.
+   * Returns null when GitHub isn't configured at all. */
+  async fetchSuccessfulRunsWithin(options: {
+    owner: string;
+    repo: string;
+    perPage?: number;
+  }): Promise<WorkflowRun[] | null> {
+    const { owner, repo, perPage = 10 } = options;
+    if (!this.isConfigured()) return null;
+    const url = `${this.baseUrl}/repos/${owner}/${repo}/actions/runs`;
+    try {
+      const response = await firstValueFrom(
+        this.httpService.get<GitHubWorkflowRunsResponse>(url, {
+          headers: this.buildHeaders(),
+          params: { status: 'success', per_page: perPage },
+        })
+      );
+      return (response.data?.workflow_runs ?? []).map((r) => this.toWorkflowRun(r));
+    } catch (error: unknown) {
+      this.logger.warn(
+        `Failed to fetch successful runs for ${owner}/${repo}: ${(error as Error).message}`
+      );
+      return null;
+    }
+  }
+
   async fetchCommit(options: FetchCommitOptions): Promise<CommitInfo | null> {
     const { owner, repo, sha } = options;
     if (!this.isConfigured() || !sha) return null;
