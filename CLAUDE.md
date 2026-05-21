@@ -65,6 +65,14 @@ For multi-step tasks, state a brief plan:
 
 Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
 
+## 5. End-to-End Impact Check
+
+Do not stop after fixing the first call site. For every behavioral change, trace the full path:
+
+writer → stored representation → generated manifests/config → backend readers → API response → frontend consumers → runtime smoke test.
+
+If any link is not checked, say so explicitly in the final response.
+
 ---
 
 **These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
