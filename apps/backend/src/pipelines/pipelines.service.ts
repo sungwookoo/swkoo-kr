@@ -7,7 +7,6 @@ import {
 } from '@nestjs/common';
 import { ConfigType } from '@nestjs/config';
 
-import { githubConfig } from '../config/github.config';
 import { pipelinesConfig } from '../config/pipelines.config';
 import type { ArgoCdApplication } from './types/argo-cd.types';
 import type { CommitInfo, WorkflowRun, WorkflowsEnvelope } from './types/github.types';
@@ -43,9 +42,7 @@ export class PipelinesService {
     private readonly githubClient: GitHubClient,
     private readonly provenance: ProvenanceService,
     @Inject(pipelinesConfig.KEY)
-    private readonly config: ConfigType<typeof pipelinesConfig>,
-    @Inject(githubConfig.KEY)
-    private readonly githubCfg: ConfigType<typeof githubConfig>
+    private readonly config: ConfigType<typeof pipelinesConfig>
   ) {}
 
   async getPipelines(): Promise<PipelinesEnvelope> {
@@ -138,8 +135,8 @@ export class PipelinesService {
     }
 
     return this.githubClient.fetchWorkflows({
-      owner: this.githubCfg.owner ?? owner,
-      repo: this.githubCfg.repo ?? repo,
+      owner,
+      repo,
       workflow: options.workflow,
       page: options.page,
       perPage: options.perPage
@@ -203,8 +200,8 @@ export class PipelinesService {
     const parsed = repoUrl
       ? this.parseGitHubRepoUrl(repoUrl)
       : { owner: null, repo: null };
-    const ghOwner = this.githubCfg.owner ?? parsed.owner;
-    const ghRepo = this.githubCfg.repo ?? parsed.repo;
+    const ghOwner = parsed.owner;
+    const ghRepo = parsed.repo;
 
     const list = history ?? [];
     const manifestCommits = await Promise.all(
