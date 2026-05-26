@@ -15,6 +15,7 @@ import { webhooksConfig } from './config/webhooks.config';
 import { AlertsModule } from './alerts/alerts.module';
 import { BackupModule } from './backup/backup.module';
 import { DeployModule } from './deploy/deploy.module';
+import { DomainModule } from './domain/domain.module';
 import { EmailModule } from './email/email.module';
 import { HealthController } from './health/health.controller';
 import { MetricsModule } from './metrics/metrics.module';
@@ -43,6 +44,7 @@ import { WebhooksModule } from './webhooks/webhooks.module';
     WebhooksModule,
     OnboardingModule,
     DeployModule,
+    DomainModule,
     BackupModule,
     EmailModule
   ],
