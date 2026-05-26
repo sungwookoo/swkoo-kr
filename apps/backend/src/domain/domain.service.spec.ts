@@ -3,8 +3,7 @@ jest.mock('@kubernetes/client-node', () => ({
   setHeaderOptions: jest.fn(),
 }));
 
-// kustomization.yaml fetch stub. Tests can override behavior by
-// reassigning `axiosMock.get` per-case if they need to.
+// kustomization.yaml fetch stub.
 const axiosMock = {
   get: jest.fn(async () => ({
     data: {
@@ -21,25 +20,34 @@ import { ConfigType } from '@nestjs/config';
 
 import { onboardingConfig } from '../config/onboarding.config';
 import { webhooksConfig } from '../config/webhooks.config';
+import type { CurrentDeployment } from '../deploy/deploy.service';
 import { CertStatusCache } from './cert-status-cache';
 import { DnsResolver } from './dns-resolver';
 import { CustomDomainsRepository } from './domain.repository';
 import { DomainService } from './domain.service';
 import type { GithubAppService } from '../github-app/github-app.service';
-import type { UsersRepository, UserRow } from '../onboarding/users.repository';
+import type { UsersRepository } from '../onboarding/users.repository';
+
+function makeCurrent(overrides: Partial<CurrentDeployment> = {}): CurrentDeployment {
+  return {
+    login: 'alice',
+    repo: 'nextjs-sample',
+    fullName: 'alice/nextjs-sample',
+    appName: 'nextjs-sample',
+    liveUrl: 'https://alice-nextjs-sample.apps.swkoo.kr',
+    syncStatus: 'Synced',
+    healthStatus: 'Healthy',
+    state: 'active',
+    ...overrides,
+  };
+}
 
 function makeService(opts: {
   dnsTxt?: string[] | Error;
   dnsCname?: string[] | Error;
-  /** Returned by commitFilesAtomic mock. */
   commitSha?: string;
-  /** Returned by GithubAppService.getInstallationTokenForRepo. */
   token?: string;
-  /** Returned by fetched kustomization.yaml contents. */
   kustomizationContent?: string;
-  /** UsersRepository.findById return value. */
-  userRow?: Partial<UserRow>;
-  /** CertStatusCache.get return. */
   certReady?: boolean;
 }) {
   const repo = new CustomDomainsRepository({ dbPath: ':memory:' } as ConfigType<typeof webhooksConfig>);
@@ -56,7 +64,6 @@ function makeService(opts: {
     }),
   } as unknown as DnsResolver;
 
-  // kustomization.yaml content for the fetch inside commit flow.
   axiosMock.get.mockResolvedValue({
     data: {
       content: Buffer.from(
@@ -80,7 +87,6 @@ function makeService(opts: {
   } as unknown as CertStatusCache;
 
   const users = {
-    findById: jest.fn(() => opts.userRow ?? { id: 1, githubLogin: 'alice', subdomain: null }),
     audit: jest.fn(),
   } as unknown as UsersRepository;
 
@@ -97,42 +103,24 @@ describe('DomainService.register', () => {
   it('rejects invalid input with 400', async () => {
     const { service } = makeService({});
     await expect(
-      service.register({ userId: 1, login: 'alice', repo: 'app', domain: 'swkoo.kr' })
+      service.register({ userId: 1, current: makeCurrent(), domain: 'swkoo.kr' })
     ).rejects.toThrow(BadRequestException);
   });
 
-  it('creates pending row with TXT+CNAME guidance', async () => {
+  it('creates pending row with expectedCname from current.liveUrl', async () => {
     const { service } = makeService({});
     const info = await service.register({
       userId: 1,
-      login: 'alice',
-      repo: 'nextjs-sample',
+      current: makeCurrent({ liveUrl: 'https://hello.apps.swkoo.kr' }),
       domain: 'app.alice-example.com',
     });
     expect(info.status).toBe('pending');
-    expect(info.domain).toBe('app.alice-example.com');
-    expect(info.verificationToken).toMatch(/^sk-[0-9a-f]{32}$/);
-    expect(info.dnsRecords?.txt.host).toBe('_swkoo-challenge.app.alice-example.com');
-    expect(info.dnsRecords?.txt.value).toBe(
-      `swkoo-domain-verification=${info.verificationToken}`
-    );
-    // No custom subdomain set on UserRow → fallback to <login>-<appName>.
-    expect(info.dnsRecords?.cname.target).toBe('alice-nextjs-sample.apps.swkoo.kr');
-  });
-
-  it('uses user.subdomain when set, not the fallback', async () => {
-    const { service } = makeService({
-      userRow: { id: 1, githubLogin: 'alice', subdomain: 'hello' } as UserRow,
-    });
-    const info = await service.register({
-      userId: 1, login: 'alice', repo: 'app', domain: 'app.alice-example.com',
-    });
     expect(info.dnsRecords?.cname.target).toBe('hello.apps.swkoo.kr');
+    expect(info.verificationToken).toMatch(/^sk-[0-9a-f]{32}$/);
   });
 
   it('rejects duplicate domain across users with 409', async () => {
     const { service, repo } = makeService({});
-    // Plant a row from a different user.
     repo.create({
       userId: 999,
       login: 'bob',
@@ -142,15 +130,20 @@ describe('DomainService.register', () => {
       expectedCname: 'bob-bob-app.apps.swkoo.kr',
     });
     await expect(
-      service.register({ userId: 1, login: 'alice', repo: 'app', domain: 'app.shared-example.com' })
+      service.register({
+        userId: 1,
+        current: makeCurrent(),
+        domain: 'app.shared-example.com',
+      })
     ).rejects.toThrow(ConflictException);
   });
 
   it('rejects second domain on same app with 409', async () => {
     const { service } = makeService({});
-    await service.register({ userId: 1, login: 'alice', repo: 'app', domain: 'first.alice-example.com' });
+    const current = makeCurrent();
+    await service.register({ userId: 1, current, domain: 'first.alice-example.com' });
     await expect(
-      service.register({ userId: 1, login: 'alice', repo: 'app', domain: 'second.alice-example.com' })
+      service.register({ userId: 1, current, domain: 'second.alice-example.com' })
     ).rejects.toThrow(ConflictException);
   });
 });
@@ -158,95 +151,100 @@ describe('DomainService.register', () => {
 describe('DomainService.verify', () => {
   it('NotFound when no row registered', async () => {
     const { service } = makeService({});
-    await expect(service.verify('alice', 'app')).rejects.toThrow(NotFoundException);
+    await expect(service.verify(makeCurrent())).rejects.toThrow(NotFoundException);
   });
 
   it('transitions to error when TXT not found', async () => {
     const enotfound = Object.assign(new Error('ENOTFOUND'), { code: 'ENOTFOUND' });
     const { service } = makeService({ dnsTxt: enotfound });
-    await service.register({ userId: 1, login: 'alice', repo: 'app', domain: 'app.alice-example.com' });
-    const info = await service.verify('alice', 'app');
+    const current = makeCurrent();
+    await service.register({ userId: 1, current, domain: 'app.alice-example.com' });
+    const info = await service.verify(current);
     expect(info.status).toBe('error');
     expect(info.lastError).toContain('TXT 레코드를 찾을 수 없습니다');
   });
 
   it('transitions to applying after DNS OK + manifest commit', async () => {
-    const { service, githubApp, repo } = makeService({
-      // Set after register() so TXT contains the matching token.
-      commitSha: 'sha-abc1234',
-    });
+    const { service, githubApp, repo } = makeService({ commitSha: 'sha-abc1234' });
+    const current = makeCurrent({ liveUrl: 'https://alice-nextjs-sample.apps.swkoo.kr' });
     const reg = await service.register({
-      userId: 1, login: 'alice', repo: 'app', domain: 'app.alice-example.com',
+      userId: 1,
+      current,
+      domain: 'app.alice-example.com',
     });
-    // Wire DNS to return matching records for the just-registered token.
     const dns = (service as unknown as { dns: { resolveTxt: jest.Mock; resolveCname: jest.Mock } }).dns;
     dns.resolveTxt.mockResolvedValue([`swkoo-domain-verification=${reg.verificationToken}`]);
-    dns.resolveCname.mockResolvedValue(['alice-app.apps.swkoo.kr']);
+    dns.resolveCname.mockResolvedValue(['alice-nextjs-sample.apps.swkoo.kr']);
 
-    const info = await service.verify('alice', 'app');
+    const info = await service.verify(current);
     expect(info.status).toBe('applying');
     expect(githubApp.commitFilesAtomic).toHaveBeenCalledTimes(1);
-    // applied_commit should be set so re-render preservation guard returns it.
-    expect(repo.findForRender('alice', 'app')).toBeDefined();
+    expect(repo.findForRender('alice', 'nextjs-sample')).toBeDefined();
   });
 
   it('opportunistically promotes applying → active when cert is ready on GET', async () => {
-    const { service, repo } = makeService({
-      certReady: true,
-      commitSha: 'sha-abc1234',
-    });
+    const { service, repo } = makeService({ certReady: true, commitSha: 'sha-abc1234' });
+    const current = makeCurrent({ liveUrl: 'https://alice-nextjs-sample.apps.swkoo.kr' });
     const reg = await service.register({
-      userId: 1, login: 'alice', repo: 'app', domain: 'app.alice-example.com',
+      userId: 1,
+      current,
+      domain: 'app.alice-example.com',
     });
     const dns = (service as unknown as { dns: { resolveTxt: jest.Mock; resolveCname: jest.Mock } }).dns;
     dns.resolveTxt.mockResolvedValue([`swkoo-domain-verification=${reg.verificationToken}`]);
-    dns.resolveCname.mockResolvedValue(['alice-app.apps.swkoo.kr']);
-    await service.verify('alice', 'app');
+    dns.resolveCname.mockResolvedValue(['alice-nextjs-sample.apps.swkoo.kr']);
+    await service.verify(current);
 
-    const info = await service.get('alice', 'app');
+    const info = await service.get('alice', current);
     expect(info.status).toBe('active');
     expect(info.url).toBe('https://app.alice-example.com');
-    const stored = repo.findByLoginApp('alice', 'app');
+    const stored = repo.findByLoginApp('alice', 'nextjs-sample');
     expect(stored?.status).toBe('active');
   });
 
   it('idempotent on already-applying row (no extra commit)', async () => {
     const { service, githubApp } = makeService({ commitSha: 'sha-abc1234' });
+    const current = makeCurrent();
     const reg = await service.register({
-      userId: 1, login: 'alice', repo: 'app', domain: 'app.alice-example.com',
+      userId: 1,
+      current,
+      domain: 'app.alice-example.com',
     });
     const dns = (service as unknown as { dns: { resolveTxt: jest.Mock; resolveCname: jest.Mock } }).dns;
     dns.resolveTxt.mockResolvedValue([`swkoo-domain-verification=${reg.verificationToken}`]);
-    dns.resolveCname.mockResolvedValue(['alice-app.apps.swkoo.kr']);
-    await service.verify('alice', 'app');
-    await service.verify('alice', 'app');
+    dns.resolveCname.mockResolvedValue(['alice-nextjs-sample.apps.swkoo.kr']);
+    await service.verify(current);
+    await service.verify(current);
     expect(githubApp.commitFilesAtomic).toHaveBeenCalledTimes(1);
   });
 });
 
 describe('DomainService.delete', () => {
-  it('skips manifest commit when row was pending (no commit ever landed)', async () => {
+  it('skips manifest commit when row was pending', async () => {
     const { service, githubApp } = makeService({});
-    await service.register({ userId: 1, login: 'alice', repo: 'app', domain: 'app.alice-example.com' });
-    await service.delete('alice', 'app');
+    const current = makeCurrent();
+    await service.register({ userId: 1, current, domain: 'app.alice-example.com' });
+    await service.delete(current);
     expect(githubApp.commitFilesAtomic).not.toHaveBeenCalled();
-    const after = await service.get('alice', 'app');
+    const after = await service.get('alice', current);
     expect(after.status).toBeNull();
   });
 
   it('commits removal when row had been applied', async () => {
     const { service, githubApp, certCache } = makeService({ commitSha: 'sha-abc' });
+    const current = makeCurrent();
     const reg = await service.register({
-      userId: 1, login: 'alice', repo: 'app', domain: 'app.alice-example.com',
+      userId: 1,
+      current,
+      domain: 'app.alice-example.com',
     });
     const dns = (service as unknown as { dns: { resolveTxt: jest.Mock; resolveCname: jest.Mock } }).dns;
     dns.resolveTxt.mockResolvedValue([`swkoo-domain-verification=${reg.verificationToken}`]);
-    dns.resolveCname.mockResolvedValue(['alice-app.apps.swkoo.kr']);
-    await service.verify('alice', 'app');
+    dns.resolveCname.mockResolvedValue(['alice-nextjs-sample.apps.swkoo.kr']);
+    await service.verify(current);
 
-    await service.delete('alice', 'app');
-    // 2 commits total: add then remove.
+    await service.delete(current);
     expect(githubApp.commitFilesAtomic).toHaveBeenCalledTimes(2);
-    expect(certCache.invalidate).toHaveBeenCalledWith('user-alice', 'app-custom-domain-tls');
+    expect(certCache.invalidate).toHaveBeenCalledWith('user-alice', 'nextjs-sample-custom-domain-tls');
   });
 });

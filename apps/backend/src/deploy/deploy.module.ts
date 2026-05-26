@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 
 import { emailConfig } from '../config/email.config';
@@ -23,7 +23,8 @@ import { ScanService } from './scan.service';
     KubeModule,
     EmailModule,
     GithubAppModule,
-    DomainModule,
+    // forwardRef matches the cycle declared on the Domain side.
+    forwardRef(() => DomainModule),
     ConfigModule.forFeature(onboardingConfig),
     ConfigModule.forFeature(emailConfig),
   ],

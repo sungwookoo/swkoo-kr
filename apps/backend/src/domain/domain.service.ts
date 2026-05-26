@@ -11,10 +11,8 @@ import axios from 'axios';
 import { randomUUID } from 'node:crypto';
 
 import { onboardingConfig } from '../config/onboarding.config';
-import {
-  getCustomDomainIngressPath,
-  sanitizeName,
-} from '../deploy/templates';
+import { CurrentDeployment } from '../deploy/deploy.service';
+import { getCustomDomainIngressPath } from '../deploy/templates';
 import { GithubAppService } from '../github-app/github-app.service';
 import { UsersRepository } from '../onboarding/users.repository';
 import { CertStatusCache } from './cert-status-cache';
@@ -68,9 +66,8 @@ export class DomainService {
     private readonly config: ConfigType<typeof onboardingConfig>
   ) {}
 
-  async get(login: string, repo: string): Promise<DomainInfo> {
-    const appName = sanitizeName(repo);
-    const row = this.repo.findByLoginApp(login, appName);
+  async get(login: string, current: CurrentDeployment): Promise<DomainInfo> {
+    const row = this.repo.findByLoginApp(login, current.appName);
     if (!row) {
       return this.emptyInfo();
     }
@@ -79,12 +76,12 @@ export class DomainService {
 
   async register(args: {
     userId: number;
-    login: string;
-    repo: string;
+    current: CurrentDeployment;
     domain: string;
   }): Promise<DomainInfo> {
-    const { userId, login, repo, domain } = args;
-    const appName = sanitizeName(repo);
+    const { userId, current, domain } = args;
+    const login = current.login;
+    const appName = current.appName;
 
     const validation = validateCustomDomain(domain);
     if (!validation.ok) {
@@ -113,8 +110,13 @@ export class DomainService {
       });
     }
 
-    const subdomain = this.subdomainForUserApp(userId, login, appName);
-    const expectedCname = `${subdomain}.${this.config.appsDomain}`;
+    // Source the expected CNAME from the *actual* live URL (Argo
+    // Application + registration metadata) — not from a route-repo
+    // derivation. This makes the CNAME shown to the user identical to
+    // their working /api/deploy/current liveUrl, which is what they'd
+    // recognize and what cert-manager will validate against. Source: not
+    // route, not DB-recomputed.
+    const expectedCname = current.liveUrl.replace(/^https?:\/\//, '');
     const token = TOKEN_PREFIX + randomUUID().replace(/-/g, '');
 
     const row = this.repo.create({
@@ -138,8 +140,9 @@ export class DomainService {
   /** Verifies DNS, commits the custom-domain ingress, transitions
    *  pending|error → verified → applying. Idempotent on re-call for the
    *  same row: if already applying|active, no-op. */
-  async verify(login: string, repo: string): Promise<DomainInfo> {
-    const appName = sanitizeName(repo);
+  async verify(current: CurrentDeployment): Promise<DomainInfo> {
+    const login = current.login;
+    const appName = current.appName;
     const row = this.repo.findByLoginApp(login, appName);
     if (!row) {
       throw new NotFoundException({
@@ -208,8 +211,9 @@ export class DomainService {
    *  commit), then drops the DB row. If the manifest commit fails the
    *  row stays — better to leak a deploy-repo file than to claim a
    *  domain is gone while it's still routing traffic. */
-  async delete(login: string, repo: string): Promise<void> {
-    const appName = sanitizeName(repo);
+  async delete(current: CurrentDeployment): Promise<void> {
+    const login = current.login;
+    const appName = current.appName;
     const row = this.repo.findByLoginApp(login, appName);
     if (!row) {
       // Idempotent — caller sees 204 either way.
@@ -441,11 +445,6 @@ spec:
       }
     );
     return Buffer.from(resp.data.content, 'base64').toString('utf8');
-  }
-
-  private subdomainForUserApp(userId: number, login: string, appName: string): string {
-    const user = this.users.findById(userId);
-    return user?.subdomain ?? sanitizeName(`${login}-${appName}`, 53);
   }
 
   private async toInfo(row: CustomDomainRow): Promise<DomainInfo> {
