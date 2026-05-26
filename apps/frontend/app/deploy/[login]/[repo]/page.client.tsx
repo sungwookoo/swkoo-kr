@@ -17,6 +17,7 @@ import {
   useEnvVars,
 } from '@/lib/deploy';
 import { LatestScan, ScanFinding, useLatestScan } from '@/lib/account';
+import { DomainPanel } from '@/components/DomainPanel';
 
 interface StatusClientProps {
   login: string;
@@ -52,6 +53,14 @@ export function StatusClient({ login, repo }: StatusClientProps): import("react"
         {status && <Checklist status={status} />}
 
         {status && <EnvVarsPanel login={login} repo={repo} />}
+
+        {status && (
+          <DomainPanel
+            login={login}
+            repo={repo}
+            fallbackLiveUrl={status.liveUrl}
+          />
+        )}
 
         {status && <ScanPanel />}
 
