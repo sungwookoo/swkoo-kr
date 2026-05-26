@@ -258,6 +258,24 @@ export class DeployService {
       throw new ForbiddenException({ reason: 'INVALID_REPO', message: 'invalid fullName' });
     }
 
+    // Self-only ownership: the JWT identifies *who* is deploying, the body
+    // says *what* — without this check, A could register B's repo by
+    // crafting a request body even though detectStack would later reject
+    // it (defense in depth + clean 403 boundary).
+    if (owner.toLowerCase() !== loginLc) {
+      this.users.audit({
+        actor: userLogin,
+        action: 'ACCESS_DENIED',
+        target: req.fullName,
+        reason: 'NOT_REPO_OWNER',
+        metaJson: null,
+      });
+      throw new ForbiddenException({
+        reason: 'NOT_REPO_OWNER',
+        message: '본인 GitHub 계정 소유의 repo만 배포할 수 있습니다.',
+      });
+    }
+
     // Re-detect stack to make sure preview wasn't stale.
     const preview = await this.detectStack(user.id, owner, repo);
     if (preview.stack !== 'nextjs') {

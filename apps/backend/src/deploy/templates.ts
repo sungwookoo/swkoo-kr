@@ -165,6 +165,17 @@ metadata:
   labels:
     swkoo.kr/user: ${params.login}
     swkoo.kr/tenant: user
+    # Pod Security Admission, restricted profile. Catches new pods that
+    # try to escalate (host network/path/PID, privileged, run as root,
+    # missing seccomp, etc.) at admission time — defense for the
+    # generated Deployment's own securityContext getting weakened later.
+    # Warn level surfaces violations in kubectl output without breaking
+    # rollouts mid-flight; enforce escalates to hard rejection once we
+    # confirm the friend beta apps stay clean.
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/warn-version: latest
 `;
 }
 
@@ -238,9 +249,21 @@ spec:
         - ipBlock:
             cidr: 0.0.0.0/0
             except:
+              # RFC1918 private — block lateral movement to cluster internals.
               - 10.0.0.0/8
               - 172.16.0.0/12
               - 192.168.0.0/16
+              # Link-local incl. cloud metadata service (169.254.169.254).
+              # Blocks IMDSv1/v2 credential exfil from compromised user pod.
+              - 169.254.0.0/16
+              # CGN-NAT shared address space — some node networks (OCI, GCP)
+              # route control-plane reachable IPs through here.
+              - 100.64.0.0/10
+              # Loopback — user pods have no business reaching the node's
+              # own services via 127.x even if a CNI bug routes it there.
+              - 127.0.0.0/8
+              # "This host on this network" reserved block.
+              - 0.0.0.0/8
       ports:
         - protocol: TCP
           port: 443
@@ -318,6 +341,17 @@ spec:
         app: ${params.appName}
         swkoo.kr/user: ${params.login}
     spec:
+      # User pods have no business calling the kube API. The default SA
+      # token would otherwise be mounted at /var/run/secrets/... and any
+      # process inside the container could use it.
+      automountServiceAccountToken: false
+      # Pod-level seccomp baseline. RuntimeDefault blocks the riskiest
+      # kernel calls (clone3 in old kernels, userfaultfd, etc.) while
+      # still allowing every normal HTTP server / Node runtime call.
+      # Container's own securityContext below stays as the harder gate.
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: ${params.appName}
           image: ${params.imageRepo}:latest

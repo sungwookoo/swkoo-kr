@@ -22,6 +22,55 @@ async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
   const logger = new Logger('Bootstrap');
 
+  // Strip the Express advertisement header. Cheap recon prevention —
+  // nothing reads it intentionally, and removing it costs nothing.
+  const expressApp = app.getHttpAdapter().getInstance() as {
+    disable: (name: string) => void;
+  };
+  expressApp.disable('x-powered-by');
+
+  // Security headers applied to every response. HSTS + nosniff are the
+  // load-bearing pair; the rest are policy hints the browser respects
+  // when the API ever returns HTML (error pages, redirects). CSP is in
+  // Report-Only mode so violations log without breaking anything; we
+  // promote to enforce after observing reports.
+  app.use((_req: Request, res: Response, next: NextFunction) => {
+    // 2 years, includeSubDomains, preload — matches hstspreload.org form.
+    // Only safe to set this once apps.swkoo.kr children all run HTTPS,
+    // which they do (cert-manager-issued).
+    res.setHeader(
+      'Strict-Transport-Security',
+      'max-age=63072000; includeSubDomains; preload'
+    );
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    // No camera/mic/geolocation in any swkoo.kr surface; fullscreen via
+    // user gesture only. Trimmed from the long-default Permissions-Policy
+    // to the ones we actively want disabled.
+    res.setHeader(
+      'Permissions-Policy',
+      'camera=(), microphone=(), geolocation=(), fullscreen=(self), payment=()'
+    );
+    // CSP Report-Only — API returns JSON, so most directives don't apply,
+    // but we set the policy so any HTML the API ever serves (Nest error
+    // pages, /admin static) is covered. Promote to `Content-Security-Policy`
+    // after observing reports under prod traffic.
+    res.setHeader(
+      'Content-Security-Policy-Report-Only',
+      [
+        "default-src 'self'",
+        "script-src 'self'",
+        "style-src 'self' 'unsafe-inline'",
+        "img-src 'self' data: https://avatars.githubusercontent.com",
+        "connect-src 'self'",
+        "frame-ancestors 'none'",
+        "base-uri 'self'",
+        "form-action 'self'",
+      ].join('; ')
+    );
+    next();
+  });
+
   app.use(cookieParser());
 
   // Preserve raw body buffer for HMAC signature verification on webhook routes.
