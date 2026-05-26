@@ -2,13 +2,10 @@
 
 import { useState } from 'react';
 
-import { useSWRConfig } from 'swr';
-
 import {
   CustomDomainStatus,
   DomainInfo,
   deleteDomain,
-  domainSwrKey,
   panelErrorText,
   registerDomain,
   useDomain,
@@ -24,19 +21,31 @@ interface DomainPanelProps {
   fallbackLiveUrl: string;
 }
 
+/** Reasons that mean "user can't act here" — show message, no form.
+ *  Distinct from NO_DEPLOYMENT / REPO_NOT_CURRENT which hide the whole
+ *  panel (those are about the wrong page; these are about the wrong
+ *  user). */
+const PERMISSION_REASONS = new Set(['NOT_OWNER', 'NOT_ALLOWED']);
+
 export function DomainPanel({ login, repo, fallbackLiveUrl }: DomainPanelProps): import('react').ReactNode {
-  const { domain, error: loadError } = useDomain(login, repo);
-  const { mutate } = useSWRConfig();
-  const refresh = (): Promise<void> => mutate(domainSwrKey(login, repo)).then(() => undefined);
+  const { domain, error: loadError, refresh } = useDomain(login, repo);
+  // SWR-aware revalidator — used by child components after mutations
+  // so the panel re-reads the row without a hard page reload.
+  const onChanged = (): Promise<void> => refresh().then(() => undefined);
 
   // The current-deployment guard returns 404 NO_DEPLOYMENT pre-deploy
-  // and on the deleting window. We don't want to render the whole panel
-  // in that case — but we DO want to render the default URL even
-  // outside this panel (StatusClient does that in its Header). So when
-  // the guard rejects, hide the panel entirely.
+  // and on the deleting window. Hide the panel entirely — the base URL
+  // is still rendered by StatusClient's Header so the user isn't lost.
   if (loadError?.reason === 'NO_DEPLOYMENT' || loadError?.reason === 'REPO_NOT_CURRENT') {
     return null;
   }
+
+  // 401 has no `reason` field (Nest's auth guard returns plain text);
+  // route by status. Permission errors get a tip-only treatment so the
+  // user doesn't see an empty input that will only ever fail.
+  const isPermissionError =
+    loadError?.status === 401 ||
+    (loadError?.reason !== undefined && PERMISSION_REASONS.has(loadError.reason));
 
   return (
     <div className="space-y-3 rounded-lg border border-slate-800 bg-slate-900/30 p-4">
@@ -53,30 +62,58 @@ export function DomainPanel({ login, repo, fallbackLiveUrl }: DomainPanelProps):
         루트 도메인(<span className="font-mono">example.com</span>)은 v0에서 지원하지 않습니다.
       </p>
 
-      {loadError && (
-        <p className="text-sm text-amber-400">
+      {loadError && isPermissionError && (
+        // Permission errors: message-only. No retry button — the next
+        // refresh of the page will pick up the user's session change.
+        <p className="rounded-md border border-amber-900/40 bg-amber-950/30 px-3 py-2 text-sm text-amber-300">
           {panelErrorText(loadError) ?? loadError.message}
         </p>
       )}
+      {loadError && !isPermissionError && (
+        // Transient errors (502, network, etc.): message + retry. Don't
+        // render the EmptyState form below since we don't know if the
+        // user already has a row.
+        <div className="flex flex-wrap items-center gap-3 rounded-md border border-amber-900/40 bg-amber-950/30 px-3 py-2 text-sm text-amber-300">
+          <span>{panelErrorText(loadError) ?? loadError.message}</span>
+          <button
+            type="button"
+            onClick={() => void refresh()}
+            className="rounded-md border border-amber-700/50 px-2 py-0.5 text-xs text-amber-200 hover:bg-amber-900/40"
+          >
+            다시 시도
+          </button>
+        </div>
+      )}
 
-      {!domain || !domain.status ? (
-        <EmptyState login={login} repo={repo} onChanged={refresh} />
-      ) : domain.status === 'pending' || domain.status === 'error' ? (
-        <PendingState
+      {/* Only render interactive state once GET succeeded. loadError ⇒
+          no domain shape we can trust, so suppress the form/buttons. */}
+      {!loadError && (!domain || !domain.status) && (
+        <EmptyState login={login} repo={repo} onChanged={onChanged} />
+      )}
+      {!loadError && domain && (domain.status === 'pending' || domain.status === 'error') && (
+        <PendingState login={login} repo={repo} info={domain} onChanged={onChanged} />
+      )}
+      {!loadError && domain && domain.status === 'verified' && (
+        // verified = DNS check passed, manifest commit interrupted before
+        // it could land. GET refresh alone won't recover it (no commit
+        // retry on the server side); the user must re-trigger POST /verify
+        // which idempotently re-runs the DNS check + commit. Different
+        // copy + different action from `applying`.
+        <VerifiedNeedsRetryState
           login={login}
           repo={repo}
           info={domain}
-          onChanged={refresh}
+          onChanged={onChanged}
         />
-      ) : domain.status === 'verified' || domain.status === 'applying' ? (
-        <ApplyingState info={domain} onRefresh={refresh} />
-      ) : (
-        <ActiveState
-          login={login}
-          repo={repo}
-          info={domain}
-          onChanged={refresh}
-        />
+      )}
+      {!loadError && domain && domain.status === 'applying' && (
+        // applying = manifest landed, cert-manager working. Just keep
+        // refreshing; useDomain's auto-poll @ 5s handles this without
+        // user action.
+        <ApplyingState info={domain} onRefresh={onChanged} />
+      )}
+      {!loadError && domain && domain.status === 'active' && (
+        <ActiveState login={login} repo={repo} info={domain} onChanged={onChanged} />
       )}
     </div>
   );
@@ -302,7 +339,71 @@ function CopyableField({
   );
 }
 
-// ---------- verified / applying: cert issuing ----------
+// ---------- verified: DNS OK but commit interrupted; explicit retry ----------
+
+/** Scenario this handles: /verify ran, DNS checks passed, the row was
+ *  promoted to `verified`, then the manifest commit step crashed (network
+ *  blip, GitHub 5xx, pod restart between two-step verified→applying).
+ *  The DB row sits at `verified` with applied_commit=null. GET refresh
+ *  alone won't drive forward — the server-side commit retry is bound
+ *  to POST /verify. So this state surfaces a "DNS 완료 · 적용 재시도
+ *  필요" message and a button that re-calls verifyDomain(), which is
+ *  idempotent: it re-runs the DNS check and then re-attempts the
+ *  commit, advancing to applying on success. */
+function VerifiedNeedsRetryState({
+  login,
+  repo,
+  info,
+  onChanged,
+}: {
+  login: string;
+  repo: string;
+  info: DomainInfo;
+  onChanged: () => Promise<void>;
+}): import('react').ReactNode {
+  const [retrying, setRetrying] = useState(false);
+  const [retryErr, setRetryErr] = useState<string | null>(null);
+
+  const handleRetry = async (): Promise<void> => {
+    setRetrying(true);
+    setRetryErr(null);
+    try {
+      await verifyDomain(login, repo);
+      await onChanged();
+    } catch (e) {
+      const reasoned = e as Error & { reason?: string; status?: number };
+      setRetryErr(panelErrorText(reasoned) ?? reasoned.message);
+    } finally {
+      setRetrying(false);
+    }
+  };
+
+  return (
+    <div className="space-y-2 border-t border-slate-900 pt-3">
+      <p className="text-sm text-slate-300">
+        🟦 <span className="font-mono">{info.domain}</span>{' '}
+        <span className="text-slate-500">DNS 확인 완료 · 적용 재시도 필요</span>
+      </p>
+      <p className="text-[11px] text-slate-600">
+        DNS는 확인됐지만 매니페스트 적용 단계가 중단됐습니다. 아래 [적용 재시도]를 누르면
+        DNS를 다시 한 번 확인하고 매니페스트 커밋을 재시도합니다. 보통 즉시 복구됩니다.
+      </p>
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={handleRetry}
+          disabled={retrying}
+          className="rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-emerald-500 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-500"
+        >
+          {retrying ? '재시도 중…' : '적용 재시도'}
+        </button>
+        {retryErr && <span className="text-xs text-amber-400">{retryErr}</span>}
+      </div>
+    </div>
+  );
+}
+
+// ---------- applying: cert issuing ----------
 
 function ApplyingState({
   info,
