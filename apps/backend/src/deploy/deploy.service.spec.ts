@@ -35,8 +35,13 @@ describe('DeployService.registerForUser — ownership check', () => {
     const argo = {} as ArgoCdClient;
     const kube = {} as KubeClient;
     const email = {} as EmailService;
+    // Owner check runs before any DB read on custom_domains, but the
+    // constructor needs *something* for the injected dep.
+    const customDomains = { findForRender: jest.fn() } as never;
     const config = { appsDomain: 'apps.swkoo.kr' } as never;
-    const service = new DeployService(auth, githubApp, users, argo, kube, email, config);
+    const service = new DeployService(
+      auth, githubApp, users, argo, kube, email, customDomains, config
+    );
     return { service, audit, findByLogin };
   }
 

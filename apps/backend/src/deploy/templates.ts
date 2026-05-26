@@ -26,6 +26,12 @@ export interface RenderParams {
   // e.g., "apps.swkoo.kr". Pulled from APPS_DOMAIN env so the ingress
   // host doesn't drift from getCurrentDeployment / getDeploymentStatus.
   appsDomain: string;
+  // v0 custom domain. Injected by deploy.service when the DB has a row
+  // in (applying|active|error-with-applied-commit). When set, the
+  // deploy repo emits an extra custom-domain Ingress and adds it to
+  // kustomization.yaml. When unset (most callers), no custom resources
+  // are emitted — base <slug>.apps.swkoo.kr ingress stays alone.
+  customDomain?: { domain: string };
 }
 
 const GENERATED_HEADER =
@@ -60,9 +66,15 @@ export function renderUserRepoFiles(params: RenderParams): Record<string, string
 
 /** Files committed at the root of `<deployOwner>/<login>` — the per-user
  * deploy repo. ApplicationSet points each Application's source.path at "."
- * so kustomization.yaml at the root references everything. */
+ * so kustomization.yaml at the root references everything.
+ *
+ * When `params.customDomain` is set, an additional Ingress is emitted at
+ * `<appName>/custom-domain-ingress.yaml` and kustomization.yaml includes
+ * it. When unset, the file isn't emitted — and the caller must NOT delete
+ * an existing one from the deploy repo unless explicitly intending to
+ * remove the custom domain (DELETE flow does this via deletePaths). */
 export function renderDeployRepoFiles(params: RenderParams): Record<string, string> {
-  return {
+  const files: Record<string, string> = {
     'namespace.yaml': renderNamespace(params),
     'resource-quota.yaml': renderResourceQuota(params),
     'limit-range.yaml': renderLimitRange(params),
@@ -74,6 +86,18 @@ export function renderDeployRepoFiles(params: RenderParams): Record<string, stri
     [`${params.appName}/service.yaml`]: renderService(params),
     [`${params.appName}/ingress.yaml`]: renderIngress(params),
   };
+  if (params.customDomain) {
+    files[`${params.appName}/custom-domain-ingress.yaml`] =
+      renderCustomDomainIngress(params, params.customDomain.domain);
+  }
+  return files;
+}
+
+/** Path of the custom-domain ingress file. Exported so deploy.service
+ * can include/exclude it in the GithubApp.commitFilesAtomic `deletePaths`
+ * list when toggling the domain off. */
+export function getCustomDomainIngressPath(appName: string): string {
+  return `${appName}/custom-domain-ingress.yaml`;
 }
 
 /** The registration file the ApplicationSet generator reads. Carries
@@ -279,6 +303,9 @@ spec:
 }
 
 function renderKustomization(params: RenderParams): string {
+  const customLine = params.customDomain
+    ? `  - ${params.appName}/custom-domain-ingress.yaml\n`
+    : '';
   return `${GENERATED_HEADER}apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
@@ -291,6 +318,44 @@ resources:
   - ${params.appName}/deployment.yaml
   - ${params.appName}/service.yaml
   - ${params.appName}/ingress.yaml
+${customLine}`;
+}
+
+function renderCustomDomainIngress(params: RenderParams, domain: string): string {
+  // Annotation `cert-manager.io/cluster-issuer: letsencrypt-prod` triggers
+  // cert-manager ingress-shim to create a Certificate named after
+  // tls.secretName. HTTP-01 challenge is solved via Traefik (same
+  // ClusterIssuer the rest of the cluster uses). User namespaces are
+  // PSA restricted; cert-manager's solver pod template is already
+  // compliant (spike 0 on 2026-05-26 confirmed).
+  return `${GENERATED_HEADER}apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${params.appName}-custom-domain
+  namespace: user-${params.login}
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+  labels:
+    app: ${params.appName}
+    swkoo.kr/user: ${params.login}
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - ${domain}
+      secretName: ${params.appName}-custom-domain-tls
+  rules:
+    - host: ${domain}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: ${params.appName}
+                port:
+                  number: 80
 `;
 }
 
@@ -307,6 +372,13 @@ rules:
   - apiGroups: ["apps"]
     resources: ["deployments"]
     verbs: ["get", "patch"]
+  # Custom domain panel: read the cert-manager Certificate that the
+  # custom-domain Ingress provisions. Read-only — cert-manager itself
+  # creates and updates the resource. Without this, GET on the domain
+  # endpoint falls back to certificateReady=false + lastError.
+  - apiGroups: ["cert-manager.io"]
+    resources: ["certificates"]
+    verbs: ["get", "list"]
 `;
 }
 

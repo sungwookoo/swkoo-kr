@@ -4,6 +4,7 @@ import { PatchStrategy, setHeaderOptions } from '@kubernetes/client-node';
 import axios from 'axios';
 
 import { onboardingConfig } from '../config/onboarding.config';
+import { CustomDomainsRepository } from '../domain/domain.repository';
 import { EmailService } from '../email/email.service';
 import { KubeClient } from '../kube/kube.client';
 import { AuthService } from '../onboarding/auth.service';
@@ -130,6 +131,7 @@ export class DeployService {
     private readonly argo: ArgoCdClient,
     private readonly kube: KubeClient,
     private readonly email: EmailService,
+    private readonly customDomains: CustomDomainsRepository,
     @Inject(onboardingConfig.KEY)
     private readonly config: ConfigType<typeof onboardingConfig>
   ) {}
@@ -293,6 +295,13 @@ export class DeployService {
     const subdomain = this.claimSubdomainOrDefault(user, loginLc, appName, req.subdomain);
     const deployRepoName = getUserDeployRepoName(loginLc);
     const deployRepoFullName = `${this.config.deployOwner}/${deployRepoName}`;
+    // Preserve an in-place custom domain across redeploys. The guard in
+    // findForRender returns rows whose manifest commit has already
+    // landed (status in applying|active, OR applied_commit set even on
+    // error) — pending rows are excluded since their ingress is not
+    // yet in the deploy repo. Without this, every redeploy would
+    // silently wipe the custom-domain Ingress + Cert.
+    const existingDomain = this.customDomains.findForRender(loginLc, appName);
     const params = {
       login: loginLc,
       appName,
@@ -306,6 +315,7 @@ export class DeployService {
       // this to find the right GitHub Actions runs.
       sourceRepo: `${owner}/${repo}`,
       appsDomain: this.config.appsDomain,
+      customDomain: existingDomain ? { domain: existingDomain.domain } : undefined,
     };
 
     const userRepoFiles = renderUserRepoFiles(params);
