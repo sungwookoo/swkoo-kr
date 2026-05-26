@@ -36,4 +36,35 @@ export class KubeClient implements OnModuleInit {
   available(): boolean {
     return Boolean(this.core && this.apps && this.custom && this.batch);
   }
+
+  /** cert-manager Certificate is a CRD. Use CustomObjectsApi
+   * `getNamespacedCustomObject` with the cert-manager group/version.
+   * Returns the parsed status (we only need `conditions`); throws on
+   * 404 so the caller can decide whether to treat absence as
+   * "not yet created" vs "error". */
+  async getCertificate(namespace: string, name: string): Promise<CertificateResource | null> {
+    if (!this.custom) return null;
+    const resp = await this.custom.getNamespacedCustomObject({
+      group: 'cert-manager.io',
+      version: 'v1',
+      plural: 'certificates',
+      namespace,
+      name,
+    });
+    return resp as CertificateResource;
+  }
+}
+
+export interface CertificateResource {
+  metadata?: { name?: string; namespace?: string };
+  status?: {
+    conditions?: Array<{
+      type: string;
+      status: 'True' | 'False' | 'Unknown';
+      reason?: string;
+      message?: string;
+      lastTransitionTime?: string;
+    }>;
+    notAfter?: string;
+  };
 }
