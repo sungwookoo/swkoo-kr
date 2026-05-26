@@ -87,8 +87,11 @@ export function renderDeployRepoFiles(params: RenderParams): Record<string, stri
     [`${params.appName}/ingress.yaml`]: renderIngress(params),
   };
   if (params.customDomain) {
-    files[`${params.appName}/custom-domain-ingress.yaml`] =
-      renderCustomDomainIngress(params, params.customDomain.domain);
+    files[`${params.appName}/custom-domain-ingress.yaml`] = renderCustomDomainIngress({
+      login: params.login,
+      appName: params.appName,
+      domain: params.customDomain.domain,
+    });
   }
   return files;
 }
@@ -321,39 +324,50 @@ resources:
 ${customLine}`;
 }
 
-function renderCustomDomainIngress(params: RenderParams, domain: string): string {
-  // Annotation `cert-manager.io/cluster-issuer: letsencrypt-prod` triggers
-  // cert-manager ingress-shim to create a Certificate named after
-  // tls.secretName. HTTP-01 challenge is solved via Traefik (same
-  // ClusterIssuer the rest of the cluster uses). User namespaces are
-  // PSA restricted; cert-manager's solver pod template is already
-  // compliant (spike 0 on 2026-05-26 confirmed).
+export interface CustomDomainIngressArgs {
+  login: string;
+  appName: string;
+  domain: string;
+}
+
+/** Single source of truth for the custom-domain Ingress YAML. Called
+ *  from two places:
+ *    - renderDeployRepoFiles, when the user re-deploys and DB has an
+ *      applied custom-domain row (preservation guard).
+ *    - DomainService.verify, when committing the very first version of
+ *      the file after DNS check passes.
+ *  Annotation `cert-manager.io/cluster-issuer: letsencrypt-prod`
+ *  triggers cert-manager ingress-shim to create a Certificate named
+ *  after tls.secretName. HTTP-01 challenge is solved via Traefik.
+ *  User namespaces are PSA restricted; cert-manager's solver pod
+ *  template is already compliant (spike 0 on 2026-05-26 confirmed). */
+export function renderCustomDomainIngress(args: CustomDomainIngressArgs): string {
   return `${GENERATED_HEADER}apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: ${params.appName}-custom-domain
-  namespace: user-${params.login}
+  name: ${args.appName}-custom-domain
+  namespace: user-${args.login}
   annotations:
     cert-manager.io/cluster-issuer: letsencrypt-prod
     traefik.ingress.kubernetes.io/router.entrypoints: websecure
   labels:
-    app: ${params.appName}
-    swkoo.kr/user: ${params.login}
+    app: ${args.appName}
+    swkoo.kr/user: ${args.login}
 spec:
   ingressClassName: traefik
   tls:
     - hosts:
-        - ${domain}
-      secretName: ${params.appName}-custom-domain-tls
+        - ${args.domain}
+      secretName: ${args.appName}-custom-domain-tls
   rules:
-    - host: ${domain}
+    - host: ${args.domain}
       http:
         paths:
           - path: /
             pathType: Prefix
             backend:
               service:
-                name: ${params.appName}
+                name: ${args.appName}
                 port:
                   number: 80
 `;

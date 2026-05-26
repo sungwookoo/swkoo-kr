@@ -194,4 +194,21 @@ export class CustomDomainsRepository implements OnModuleInit, OnModuleDestroy {
   delete(id: number): void {
     this.db.prepare(`DELETE FROM custom_domains WHERE id = ?`).run(id);
   }
+
+  /** Orphan cleanup helpers called from DeployService.deleteDeployment.
+   * v0 is 1-user-1-app, so we can safely operate on every row for a
+   * login when the user tears down their app. */
+  findByLogin(login: string): CustomDomainRow[] {
+    const stmt = this.db.prepare(
+      `SELECT ${this.cols} FROM custom_domains WHERE login = ?`
+    );
+    return stmt.all(login) as CustomDomainRow[];
+  }
+
+  deleteByLogin(login: string): number {
+    const info = this.db
+      .prepare(`DELETE FROM custom_domains WHERE login = ?`)
+      .run(login);
+    return info.changes;
+  }
 }

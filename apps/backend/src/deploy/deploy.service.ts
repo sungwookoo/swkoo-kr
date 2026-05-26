@@ -558,6 +558,30 @@ export class DeployService {
       throw err;
     }
 
+    // Custom-domain orphan cleanup. Runs *after* the unregister commit
+    // succeeded — if the commit fails the function has already thrown,
+    // so the DB row stays consistent with the deploy-repo state. v0 is
+    // one-app-per-user so cleaning by login is correct; row absence is
+    // a no-op (most users never claim a custom domain).
+    //
+    // Without this cleanup, the row outlives the deployment: subsequent
+    // /api/deploy/domain/:login/:repo calls 404 NO_DEPLOYMENT (can't
+    // self-remove) AND the same domain can't be re-registered later
+    // because of the global UNIQUE index.
+    const orphanRows = this.customDomains.findByLogin(loginLc);
+    for (const row of orphanRows) {
+      this.users.audit({
+        actor: userLogin,
+        action: 'DOMAIN_DELETED_BY_DEPLOY_DELETE',
+        target: `${row.login}/${row.appName}:${row.domain}`,
+        reason: null,
+        metaJson: JSON.stringify({ deployCommit: commit }),
+      });
+    }
+    if (orphanRows.length > 0) {
+      this.customDomains.deleteByLogin(loginLc);
+    }
+
     // Archive the deploy repo. Best-effort: log and continue if it fails —
     // the registration file is already gone so the user view is consistent.
     try {
