@@ -165,13 +165,19 @@ metadata:
   labels:
     swkoo.kr/user: ${params.login}
     swkoo.kr/tenant: user
-    # Pod Security Admission, restricted profile. Catches new pods that
-    # try to escalate (host network/path/PID, privileged, run as root,
-    # missing seccomp, etc.) at admission time — defense for the
-    # generated Deployment's own securityContext getting weakened later.
-    # Warn level surfaces violations in kubectl output without breaking
-    # rollouts mid-flight; enforce escalates to hard rejection once we
-    # confirm the friend beta apps stay clean.
+    # Pod Security Admission, restricted profile, enforced at admission.
+    # New pods that don't set seccompProfile / runAsNonRoot / drop ALL
+    # capabilities / etc. are rejected outright. The Deployment this
+    # template renders is already restricted-compliant (pod-level
+    # seccompProfile, automountServiceAccountToken: false, container
+    # runAsNonRoot + allowPrivilegeEscalation:false + capabilities.drop
+    # ALL). `warn` duplicates the gate at kubectl level for fast
+    # feedback when someone hand-edits the deploy repo.
+    #
+    # Live-verified 2026-05-26 on user-{sungwookoo, sw-koo, hizieun}:
+    # all 3 pass server-side dry-run admission. Surgical patch was
+    # needed on hizieun's pre-template deployment.yaml — full
+    # re-render kept off-limits because of the user's image drift.
     pod-security.kubernetes.io/enforce: restricted
     pod-security.kubernetes.io/enforce-version: latest
     pod-security.kubernetes.io/warn: restricted
