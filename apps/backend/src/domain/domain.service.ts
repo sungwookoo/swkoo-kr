@@ -1,6 +1,8 @@
 import {
   BadRequestException,
   ConflictException,
+  HttpException,
+  HttpStatus,
   Inject,
   Injectable,
   Logger,
@@ -35,6 +37,25 @@ const TXT_PREFIX = '_swkoo-challenge.';
 const TXT_VALUE_PREFIX = 'swkoo-domain-verification=';
 const TOKEN_PREFIX = 'sk-';
 
+/** Per (login, appName, domain) cooldown between /verify attempts.
+ *  Backs the throttle that prevents DNS-resolution-spam: a confused user
+ *  rapidly clicking [확인] would otherwise issue one DNS query per click
+ *  to 1.1.1.1, and (worse) repeatedly retry the GitHub commit when DNS
+ *  passes. Cooldown applies to all states that *attempt* work — not to
+ *  applying/active which are idempotent early-returns. */
+const VERIFY_COOLDOWN_MS = 30_000;
+
+export type FailureStage = 'verify' | 'commit' | 'delete';
+
+export interface OperatorFailureNotice {
+  stage: FailureStage;
+  actor: string;
+  appName: string;
+  domain: string;
+  reason: string;
+  lastError: string | null;
+}
+
 export interface DomainInfo {
   domain: string | null;
   status: CustomDomainStatus | null;
@@ -58,6 +79,10 @@ export interface DomainInfo {
 @Injectable()
 export class DomainService {
   private readonly logger = new Logger(DomainService.name);
+  /** Per-process Map. v0 single replica makes this correct; if we scale
+   * out the worst-case is a user's cooldown round-robins across pods,
+   * which is fine — the DB serializes the actual state transitions. */
+  private readonly lastVerifyAttempt = new Map<string, number>();
 
   constructor(
     private readonly repo: CustomDomainsRepository,
@@ -68,6 +93,38 @@ export class DomainService {
     @Inject(onboardingConfig.KEY)
     private readonly config: ConfigType<typeof onboardingConfig>
   ) {}
+
+  private cooldownKey(login: string, appName: string, domain: string): string {
+    return `${login}|${appName}|${domain}`;
+  }
+
+  /** Fire-and-forget operator notification for custom-domain failures.
+   *  Reuses the existing `DISCORD_BUILD_FAILURE_WEBHOOK_URL` channel —
+   *  same operator audience as deploy-pipeline failures, so no new env
+   *  var. Failures here never throw: the API response must succeed even
+   *  if the webhook is down. */
+  private notifyOperatorOfFailure(notice: OperatorFailureNotice): void {
+    const url = this.config.discordBuildFailureWebhookUrl;
+    if (!url) return; // not configured → silently skip
+    const stageLabel = notice.stage === 'verify'
+      ? 'DNS 확인'
+      : notice.stage === 'commit'
+      ? '매니페스트 커밋'
+      : '삭제';
+    const lines = [
+      '🟠 custom domain 실패',
+      `**${notice.actor}** · ${notice.appName} · ${notice.domain}`,
+      `단계: ${stageLabel} · reason: \`${notice.reason}\``,
+    ];
+    if (notice.lastError) lines.push(`> ${notice.lastError.slice(0, 500)}`);
+    void axios
+      .post(url, { content: lines.join('\n') }, { timeout: 5_000 })
+      .catch((err) => {
+        this.logger.error(
+          `operator webhook failed for ${notice.stage}: ${(err as Error).message}`
+        );
+      });
+  }
 
   async get(login: string, current: CurrentDeployment): Promise<DomainInfo> {
     const row = this.repo.findByLoginApp(login, current.appName);
@@ -154,8 +211,32 @@ export class DomainService {
       });
     }
     if (row.status === 'applying' || row.status === 'active') {
+      // Idempotent early-return — no DNS query, no GitHub call. Don't
+      // burn the cooldown budget on a free read.
       return this.toInfo(row);
     }
+
+    // Cooldown — applies to pending|verified|error (states that trigger
+    // real work below). Includes DNS-failure paths so a misconfigured
+    // CNAME can't be hammered against 1.1.1.1.
+    const key = this.cooldownKey(login, appName, row.domain);
+    const lastAt = this.lastVerifyAttempt.get(key);
+    const now = Date.now();
+    if (lastAt && now - lastAt < VERIFY_COOLDOWN_MS) {
+      const retryAfterSec = Math.ceil((VERIFY_COOLDOWN_MS - (now - lastAt)) / 1000);
+      throw new HttpException(
+        {
+          statusCode: HttpStatus.TOO_MANY_REQUESTS,
+          message: {
+            reason: 'DOMAIN_VERIFY_COOLDOWN',
+            message: `재시도까지 ${retryAfterSec}초 남았습니다. 잠시 후 다시 시도해 주세요.`,
+            retryAfterSec,
+          },
+        },
+        HttpStatus.TOO_MANY_REQUESTS
+      );
+    }
+    this.lastVerifyAttempt.set(key, now);
 
     // DNS step. We surface DNS_NOT_FOUND vs DNS_MISMATCH separately so
     // the panel can guide the user (propagation lag vs wrong target).
@@ -170,6 +251,14 @@ export class DomainService {
         target: `${login}/${appName}:${row.domain}`,
         reason: dnsErr.reason,
         metaJson: null,
+      });
+      this.notifyOperatorOfFailure({
+        stage: 'verify',
+        actor: login,
+        appName,
+        domain: row.domain,
+        reason: dnsErr.reason,
+        lastError: dnsErr.message,
       });
       return this.toInfo(errored ?? row);
     }
@@ -206,6 +295,14 @@ export class DomainService {
         reason: 'COMMIT_FAILED',
         metaJson: JSON.stringify({ error: msg }),
       });
+      this.notifyOperatorOfFailure({
+        stage: 'commit',
+        actor: login,
+        appName,
+        domain: row.domain,
+        reason: 'COMMIT_FAILED',
+        lastError: msg,
+      });
       return this.toInfo(errored ?? row);
     }
   }
@@ -238,6 +335,14 @@ export class DomainService {
           target: `${login}/${appName}:${row.domain}`,
           reason: 'COMMIT_FAILED',
           metaJson: JSON.stringify({ error: msg }),
+        });
+        this.notifyOperatorOfFailure({
+          stage: 'delete',
+          actor: login,
+          appName,
+          domain: row.domain,
+          reason: 'COMMIT_FAILED',
+          lastError: msg,
         });
         throw err;
       }

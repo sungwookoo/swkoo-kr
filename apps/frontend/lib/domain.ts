@@ -165,6 +165,11 @@ export function panelErrorText(
     case 'DNS_CNAME_MISMATCH':
     case 'DNS_CNAME_ERROR':
       return err.message ?? 'DNS 확인 실패';
+    case 'DOMAIN_VERIFY_COOLDOWN':
+      // Backend's message already carries the remaining seconds — keep it
+      // so the user sees the exact wait time, not just a generic
+      // "잠시 후 다시" prompt.
+      return err.message ?? '잠시 후 다시 시도해 주세요. (30초 cooldown)';
     default:
       // Auth gate at /api boundary returns plain 401 (no reason).
       if (err.status === 401) return '로그인이 필요합니다.';
