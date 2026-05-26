@@ -171,8 +171,8 @@ metadata:
     # template renders is already restricted-compliant (pod-level
     # seccompProfile, automountServiceAccountToken: false, container
     # runAsNonRoot + allowPrivilegeEscalation:false + capabilities.drop
-    # ALL). `warn` duplicates the gate at kubectl level for fast
-    # feedback when someone hand-edits the deploy repo.
+    # ALL). The warn label duplicates the gate at kubectl level for
+    # fast feedback when someone hand-edits the deploy repo.
     #
     # Live-verified 2026-05-26 on user-{sungwookoo, sw-koo, hizieun}:
     # all 3 pass server-side dry-run admission. Surgical patch was
