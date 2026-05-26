@@ -160,7 +160,7 @@ function EmptyState({
           spellCheck={false}
           autoComplete="off"
           autoCapitalize="off"
-          className="flex-1 rounded-md border border-slate-800 bg-slate-950 px-3 py-2 font-mono text-sm text-slate-100 placeholder-slate-700 focus:border-slate-600 focus:outline-none"
+          className="min-w-0 flex-1 rounded-md border border-slate-800 bg-slate-950 px-3 py-2 font-mono text-sm text-slate-100 placeholder-slate-700 focus:border-slate-600 focus:outline-none"
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !busy && input.trim()) handleSubmit();
           }}
@@ -177,6 +177,29 @@ function EmptyState({
       <p className="text-[11px] text-slate-600">
         placeholder는 예시입니다. 본인이 소유한 서브도메인을 입력해야 DNS 확인이 통과합니다.
       </p>
+
+      <details className="group rounded-md border border-slate-800/60 bg-slate-950/40 text-xs text-slate-400 open:bg-slate-950/60">
+        <summary className="cursor-pointer list-none px-3 py-2 text-slate-300 hover:text-slate-100 marker:hidden">
+          <span className="select-none">DNS 설정 방법 — 처음 해보시나요?</span>
+          <span className="ml-2 text-slate-600 group-open:hidden">▾</span>
+          <span className="ml-2 hidden text-slate-600 group-open:inline">▴</span>
+        </summary>
+        <ul className="space-y-1.5 border-t border-slate-800/60 px-3 py-2.5 leading-relaxed">
+          <li>
+            도메인을 구매한 곳(또는 네임서버를 관리하는 곳)의 <span className="text-slate-300">DNS 관리</span> 화면에서 TXT/CNAME 레코드를 추가합니다.
+            대표적으로 Cloudflare, Namecheap, GoDaddy, AWS Route 53, 가비아 등이 있습니다.
+          </li>
+          <li>
+            v0는 서브도메인만 지원합니다 — <span className="font-mono text-slate-300">app.example.com</span> ✅,{' '}
+            <span className="font-mono text-slate-500">example.com</span>(루트 도메인) ❌.
+          </li>
+          <li>
+            입력란에 도메인을 넣을 때는 <span className="font-mono">https://</span> 또는 슬래시 없이 도메인만 입력하세요.
+            (예: <span className="font-mono">app.your-domain.com</span>)
+          </li>
+        </ul>
+      </details>
+
       {err && <p className="text-sm text-amber-400">{err}</p>}
     </div>
   );
@@ -245,14 +268,18 @@ function PendingState({
             label="1️⃣ TXT 레코드"
             host={records.txt.host}
             value={records.txt.value}
+            valueLabel="Value"
           />
           <DnsRecordRow
             label="2️⃣ CNAME 레코드"
             host={records.cname.host}
             value={records.cname.target}
+            valueLabel="Target"
           />
         </div>
       )}
+
+      {records && info.domain && <RecordEntryHints domain={info.domain} />}
 
       <p className="text-[11px] text-slate-600">
         DNS 전파는 보통 1-5분, 길게는 수십 분 걸립니다. 추가 후 잠시 뒤에 [확인] 을 눌러주세요.
@@ -285,16 +312,20 @@ function DnsRecordRow({
   label,
   host,
   value,
+  valueLabel,
 }: {
   label: string;
   host: string;
   value: string;
+  /** Display name for the value column — TXT uses "Value", CNAME uses
+   *  "Target". Most DNS providers' UIs use these terms verbatim. */
+  valueLabel: 'Value' | 'Target';
 }): import('react').ReactNode {
   return (
     <div className="space-y-1.5">
       <p className="text-xs font-medium text-slate-300">{label}</p>
       <CopyableField label="Host" content={host} />
-      <CopyableField label="Value" content={value} />
+      <CopyableField label={valueLabel} content={value} />
     </div>
   );
 }
@@ -319,12 +350,16 @@ function CopyableField({
     }
   };
 
+  // Mobile-safety: `break-all` lets long TXT/CNAME values wrap inside
+  // the code block instead of overflowing or being truncated invisibly.
+  // `min-w-0` on the parent flex item prevents flex from refusing to
+  // shrink past the intrinsic content width on narrow screens.
   return (
     <div className="flex items-center gap-2">
       <span className="w-12 shrink-0 text-[10px] uppercase tracking-wide text-slate-600">
         {label}
       </span>
-      <code className="flex-1 truncate rounded-md border border-slate-800 bg-slate-950 px-2 py-1 font-mono text-xs text-slate-200">
+      <code className="min-w-0 flex-1 break-all rounded-md border border-slate-800 bg-slate-950 px-2 py-1 font-mono text-xs text-slate-200">
         {content}
       </code>
       <button
@@ -336,6 +371,66 @@ function CopyableField({
         {copied ? '✓ 복사됨' : '📋 복사'}
       </button>
     </div>
+  );
+}
+
+/** Provider-input hints shown next to the TXT/CNAME guidance. Most DNS
+ *  UIs accept either the leaf label (`app`) or the fully-qualified
+ *  name (`app.my-domain.com`); listing both forms in one place removes
+ *  the trial-and-error that bites non-technical users. Computes the
+ *  leaf label from the user's domain so the example is concrete to
+ *  their case — fallback to generic text if the domain shape is
+ *  unexpected. */
+function RecordEntryHints({ domain }: { domain: string }): import('react').ReactNode {
+  // Conservative leaf extraction: the first label of the subdomain.
+  // For `app.my-domain.com` → `app`. For `service.api.example.co.kr` →
+  // `service`. (We don't have tldts on the frontend; if a user's setup
+  // is deeper, the full Host value in the panel still works — most DNS
+  // providers accept the FQDN form.)
+  const labels = domain.split('.');
+  const leaf = labels.length >= 3 ? labels[0] : null;
+  const txtShort = leaf ? `_swkoo-challenge.${leaf}` : null;
+
+  return (
+    <details className="group rounded-md border border-slate-800/60 bg-slate-950/40 text-xs text-slate-400 open:bg-slate-950/60">
+      <summary className="cursor-pointer list-none px-3 py-2 text-slate-300 hover:text-slate-100 marker:hidden">
+        <span className="select-none">어디에 어떻게 입력하나요?</span>
+        <span className="ml-2 text-slate-600 group-open:hidden">▾</span>
+        <span className="ml-2 hidden text-slate-600 group-open:inline">▴</span>
+      </summary>
+      <ul className="space-y-2 border-t border-slate-800/60 px-3 py-2.5 leading-relaxed">
+        {leaf && txtShort ? (
+          <li>
+            <span className="text-slate-300">Host / Name 칸:</span>{' '}
+            CNAME에는 보통 <span className="font-mono text-slate-200">{leaf}</span>,
+            TXT에는 보통 <span className="font-mono text-slate-200">{txtShort}</span>{' '}
+            를 입력합니다. 일부 DNS 업체는 전체 이름(<span className="font-mono break-all">{domain}</span>)을 요구하니,
+            잘 모르겠으면 위에 표시된 <span className="text-slate-300">전체 Host 값</span>을 그대로 복사해 넣어도 됩니다.
+          </li>
+        ) : (
+          <li>
+            <span className="text-slate-300">Host / Name 칸:</span>{' '}
+            일부 DNS 업체는 짧은 이름(예: <span className="font-mono">app</span>)만, 일부는 전체 이름을 요구합니다.
+            위에 표시된 <span className="text-slate-300">전체 Host 값</span>을 그대로 복사해 넣어도 보통 동작합니다.
+          </li>
+        )}
+        <li>
+          <span className="text-slate-300">Value / Target 칸:</span>{' '}
+          위에 표시된 값을 그대로 복사해 넣습니다. 따옴표나 공백 추가 없이 동일하게 입력하세요.
+        </li>
+        <li>
+          <span className="text-slate-300">Cloudflare 사용 시:</span>{' '}
+          CNAME 레코드는 인증서 발급 전까지 <span className="font-mono">DNS only</span> (프록시 끔, 회색 구름)
+          상태를 권장합니다. 프록시(주황 구름) 상태면 cert-manager가 HTTP-01 challenge를 통과하지 못합니다.
+          인증서 발급이 완료된 뒤 프록시를 다시 켤 수 있습니다.
+        </li>
+        <li>
+          <span className="text-slate-300">전파 시간:</span>{' '}
+          DNS 전파는 보통 1-5분, 경우에 따라 더 오래(수십 분~몇 시간) 걸릴 수 있습니다.
+          [확인]에서 실패하면 잠시 더 기다린 뒤 다시 시도하세요.
+        </li>
+      </ul>
+    </details>
   );
 }
 
