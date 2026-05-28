@@ -42,10 +42,36 @@ export class AuthController {
     private readonly config: ConfigType<typeof onboardingConfig>
   ) {}
 
+  /** Pure OAuth login — for returning users who already installed the
+   * App. Redirects to GitHub's OAuth authorize screen (Authorized GitHub
+   * Apps). Does NOT grant repo access; new users should use /install. */
   @Get('github/login')
   startOauth(@Res() res: Response): void {
     const state = this.auth.generateOauthState();
     const url = this.auth.buildAuthorizeUrl(state);
+
+    res.cookie(OAUTH_STATE_COOKIE, state, {
+      httpOnly: true,
+      secure: true,
+      sameSite: 'lax',
+      maxAge: STATE_MAX_AGE_MS,
+      path: '/',
+    });
+
+    res.redirect(url);
+  }
+
+  /** GitHub App installation — for new users. Redirects to the App's
+   * installations/new screen (Installed GitHub Apps) so the user grants
+   * repo access. The shared OAuth state cookie is set here too: if the
+   * App has "Request user authorization during installation" enabled,
+   * the callback receives `code` + `state` and creates the session in
+   * the same flow; otherwise it gets `setup_action` only and bounces to
+   * /deploy for a follow-up login. */
+  @Get('github/install')
+  startInstall(@Res() res: Response): void {
+    const state = this.auth.generateOauthState();
+    const url = this.auth.buildInstallUrl(state);
 
     res.cookie(OAUTH_STATE_COOKIE, state, {
       httpOnly: true,
@@ -66,10 +92,15 @@ export class AuthController {
       typeof req.query.setup_action === 'string' ? req.query.setup_action : undefined;
     const expectedState = readCookie(req, OAUTH_STATE_COOKIE);
 
-    // Setup callback fired without an OAuth code — usually means the user is
-    // already signed in and just adjusted their installation's repo selection
-    // from GitHub directly. Nothing to exchange; bounce them to /deploy.
+    // Setup callback fired without an OAuth code. Two cases:
+    //  - User adjusted an installation's repo selection from GitHub directly
+    //    while already signed in.
+    //  - User went through /install but the App doesn't request OAuth during
+    //    installation, so only setup_action came back.
+    // Either way there's nothing to exchange; clear the state cookie we may
+    // have set on /install and bounce to /deploy (they sign in there).
     if (!code && setupAction) {
+      res.clearCookie(OAUTH_STATE_COOKIE, { path: '/' });
       res.redirect(`${this.config.appBaseUrl}/deploy`);
       return;
     }

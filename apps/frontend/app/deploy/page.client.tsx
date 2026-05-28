@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useSWRConfig } from 'swr';
 
-import { loginUrl, logout, ME_SWR_KEY, useMe } from '@/lib/auth';
+import { installUrl, loginUrl, logout, ME_SWR_KEY, useMe } from '@/lib/auth';
 import { deleteMyAccount, exportMyData } from '@/lib/account';
 import {
   checkSubdomain,
@@ -64,17 +64,28 @@ export function DeployPageClient(): import("react").ReactNode {
           {oauthError && (
             <p className="text-sm text-amber-400">로그인 실패. 다시 시도해주세요.</p>
           )}
-          <a
-            href={loginUrl()}
-            className="inline-flex items-center gap-2 rounded-md bg-slate-800 px-5 py-2.5 text-sm font-medium text-slate-100 transition-colors hover:bg-slate-700"
-          >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-              <path d={GITHUB_ICON_PATH} />
-            </svg>
-            Connect GitHub
-          </a>
-          <p className="text-xs text-slate-500">
-            클릭 시 GitHub에서 본인 인증 + 사용할 repo에 App 설치를 함께 진행합니다.
+          <div className="flex flex-col items-center gap-3">
+            <a
+              href={installUrl()}
+              className="inline-flex w-full max-w-xs items-center justify-center gap-2 rounded-md bg-emerald-600 px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-emerald-500"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+                <path d={GITHUB_ICON_PATH} />
+              </svg>
+              GitHub App 설치하고 시작
+            </a>
+            <a
+              href={loginUrl()}
+              className="text-sm text-slate-400 underline-offset-2 transition-colors hover:text-slate-200 hover:underline"
+            >
+              이미 설치했다면 로그인
+            </a>
+          </div>
+          <p className="text-xs leading-relaxed text-slate-500">
+            GitHub 로그인 승인(<span className="font-mono">Authorized</span>)과 repo 설치 권한
+            (<span className="font-mono">Installed</span>)은 별도입니다. 배포하려면{' '}
+            <span className="font-mono">swkoo-deploy</span> GitHub App을 배포할 repo에 설치해야 합니다.
+            처음 사용자는 App을 설치해 repo 권한을 부여하고, 이미 설치했다면 로그인만 진행할 수 있습니다.
           </p>
         </div>
       </Shell>

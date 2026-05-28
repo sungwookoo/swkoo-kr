@@ -51,8 +51,16 @@ export function useMe(): {
   return { me: data, isLoading, error };
 }
 
+/** Pure OAuth login — for users who already installed the swkoo-deploy
+ * App on at least one repo. */
 export function loginUrl(): string {
   return `${API_BASE_URL}/auth/github/login`;
+}
+
+/** GitHub App installation — for new users who need to grant repo access.
+ * Lands on GitHub's installation screen, then returns through /callback. */
+export function installUrl(): string {
+  return `${API_BASE_URL}/auth/github/install`;
 }
 
 export async function logout(): Promise<void> {

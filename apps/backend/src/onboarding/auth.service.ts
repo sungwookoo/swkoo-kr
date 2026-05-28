@@ -90,6 +90,29 @@ export class AuthService implements OnApplicationBootstrap {
     return `https://github.com/login/oauth/authorize?${params.toString()}`;
   }
 
+  /**
+   * Builds the GitHub App *installation* URL. New users go through this so
+   * they grant repo-level access (Installed GitHub Apps) — not just the
+   * OAuth authorization (Authorized GitHub Apps) that buildAuthorizeUrl
+   * produces. With "Request user authorization (OAuth) during installation"
+   * enabled on the App, GitHub returns to /callback with `code` + `state`
+   * (alongside `installation_id` + `setup_action=install`), so the same
+   * callback both creates the session AND records the install in one hop.
+   * If that App option is off, the callback gets `setup_action` only and
+   * bounces to /deploy, where the user then signs in via buildAuthorizeUrl.
+   *
+   * Returning users keep using buildAuthorizeUrl (pure OAuth) — sending
+   * them here would re-prompt the installation screen on every login
+   * (the 8d9e9db regression).
+   */
+  buildInstallUrl(state: string): string {
+    if (!this.config.githubAppSlug) {
+      throw new Error('GITHUB_APP_SLUG not configured');
+    }
+    const params = new URLSearchParams({ state });
+    return `https://github.com/apps/${this.config.githubAppSlug}/installations/new?${params.toString()}`;
+  }
+
   async exchangeCodeForUser(code: string): Promise<UserRow> {
     if (!this.config.githubAppClientId || !this.config.githubAppClientSecret) {
       throw new Error('GITHUB_APP_CLIENT_ID/SECRET not configured');
