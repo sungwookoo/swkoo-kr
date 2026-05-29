@@ -11,6 +11,7 @@ import {
 import { ConfigType } from '@nestjs/config';
 import axios from 'axios';
 import { randomUUID } from 'node:crypto';
+import { parse } from 'tldts';
 
 import { onboardingConfig } from '../config/onboarding.config';
 import { CurrentDeployment } from '../deploy/deploy.service';
@@ -435,13 +436,18 @@ export class DomainService {
       return null; // no A record / lookup failed → not a conflict we can assert
     }
     if (aRecords.length === 0) return null;
+    // Registrable domain via the public-suffix list (tldts) so the
+    // "new subdomain" suggestion is correct even for multi-label TLDs
+    // (zieun.co.kr) and deeper subdomains (a.b.zieun.dev → zieun.dev).
+    // Fall back to strip-first-label if tldts can't resolve it.
+    const registrable = parse(domain).domain ?? domain.split('.').slice(1).join('.');
     return {
       reason: 'DNS_CNAME_CONFLICTS_WITH_A',
       message:
-        `${domain} 는 현재 다른 서비스(Vercel 등)로 연결된 A 레코드가 있습니다. ` +
+        `${domain}은 현재 다른 서비스(Vercel 등)로 연결된 A 레코드가 있습니다. ` +
         `DNS 규칙상 한 host는 A 레코드와 CNAME을 동시에 가질 수 없습니다. ` +
-        `기존 서비스를 유지하려면 portfolio.${domain.split('.').slice(1).join('.')} 같은 새 subdomain을 사용하세요. ` +
-        `이 host를 swkoo.kr로 옮기려면 기존 A 레코드를 삭제하고 CNAME을 추가하세요.`,
+        `기존 서비스를 유지하려면 portfolio.${registrable} 같은 새 subdomain을 사용하세요. ` +
+        `${domain}을 swkoo.kr로 옮기려면 기존 A 레코드를 삭제하고 CNAME을 추가하세요.`,
     };
   }
 

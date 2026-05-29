@@ -298,8 +298,32 @@ describe('DomainService.verify — A-record conflict diagnosis', () => {
     const info = await setupWithDns({ dnsCname: enodata, dnsA: ['76.76.21.21'] });
     expect(info.status).toBe('error');
     expect(info.lastError).toContain('A 레코드가 있습니다');
-    // Suggests a new subdomain derived from the registrable domain.
+    // Suggests a new subdomain derived from the registrable domain (tldts).
     expect(info.lastError).toContain('portfolio.zieun-example.dev');
+    // The host itself is named in the "move to swkoo.kr" sentence.
+    expect(info.lastError).toContain('www.zieun-example.dev을 swkoo.kr로 옮기려면');
+  });
+
+  it('multi-level subdomain → registrable domain extracted via tldts (not strip-first-label)', async () => {
+    // a.b.zieun-example.dev: strip-first-label would give b.zieun-example.dev,
+    // but the registrable domain is zieun-example.dev. tldts gets it right.
+    const { service } = makeService({});
+    const current = makeCurrent();
+    const reg = await service.register({
+      userId: 1,
+      current,
+      domain: 'a.b.zieun-example.dev',
+    });
+    const dns = (service as unknown as {
+      dns: { resolveTxt: jest.Mock; resolveCname: jest.Mock; resolveA: jest.Mock };
+    }).dns;
+    dns.resolveTxt.mockResolvedValue([`swkoo-domain-verification=${reg.verificationToken}`]);
+    dns.resolveCname.mockRejectedValue(enodata);
+    dns.resolveA.mockResolvedValue(['76.76.21.21']);
+
+    const info = await service.verify(current);
+    expect(info.lastError).toContain('portfolio.zieun-example.dev');
+    expect(info.lastError).not.toContain('portfolio.b.zieun-example.dev');
   });
 
   it('CNAME not found + no A record → falls back to DNS_CNAME_NOT_FOUND', async () => {
