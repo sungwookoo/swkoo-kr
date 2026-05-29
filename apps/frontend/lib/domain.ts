@@ -25,6 +25,53 @@ export function domainSwrKey(login: string, repo: string): string {
   return `${API_BASE_URL}/deploy/domain/${encodeURIComponent(login)}/${encodeURIComponent(repo)}`;
 }
 
+// ----- BIND zone file generation (provider-agnostic DNS record export) -----
+
+function ensureTrailingDot(s: string): string {
+  return s.endsWith('.') ? s : `${s}.`;
+}
+
+/** BIND TXT values are double-quoted; backslash and double-quote inside the
+ * value must be escaped. Our token format (swkoo-domain-verification=sk-<hex>)
+ * never contains these, but we escape defensively in case the value format
+ * ever changes. */
+function escapeTxtValue(v: string): string {
+  return v.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+}
+
+/** Standard BIND zone-file snippet for the two records the user needs to
+ * add. Uses fully-qualified names (trailing dot) rather than $ORIGIN +
+ * relative names — backend already hands us full hostnames, and FQDN form
+ * sidesteps provider-specific $ORIGIN interpretation differences (the
+ * recommended form for cross-provider zone import). TTL 300 throughout. */
+export function buildZoneFile(records: DomainDnsRecords): string {
+  const txtName = ensureTrailingDot(records.txt.host);
+  const txtValue = escapeTxtValue(records.txt.value);
+  const cnameName = ensureTrailingDot(records.cname.host);
+  const cnameTarget = ensureTrailingDot(records.cname.target);
+  return [
+    '; swkoo.kr custom domain DNS records',
+    '; Import via your DNS provider’s zone-file import, or add manually.',
+    '; A host that already has an A record (e.g. www on Vercel) cannot also',
+    '; take a CNAME — use a fresh subdomain instead.',
+    '$TTL 300',
+    '',
+    `${txtName} 300 IN TXT "${txtValue}"`,
+    `${cnameName} 300 IN CNAME ${cnameTarget}`,
+    '',
+  ].join('\n');
+}
+
+/** Download filename derived from the domain — dots/special chars to
+ * dashes. portfolio.zieun.dev → swkoo-dns-records-portfolio-zieun-dev.txt */
+export function zoneFileName(domain: string): string {
+  const slug = domain
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return `swkoo-dns-records-${slug}.txt`;
+}
+
 async function fetcher<T>(url: string): Promise<T> {
   const response = await fetch(url, { credentials: 'include' });
   if (!response.ok) {

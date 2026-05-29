@@ -4,12 +4,15 @@ import { useState } from 'react';
 
 import {
   CustomDomainStatus,
+  DomainDnsRecords,
   DomainInfo,
+  buildZoneFile,
   deleteDomain,
   panelErrorText,
   registerDomain,
   useDomain,
   verifyDomain,
+  zoneFileName,
 } from '@/lib/domain';
 
 interface DomainPanelProps {
@@ -284,6 +287,10 @@ function PendingState({
         </div>
       )}
 
+      {records && info.domain && (
+        <ZoneFileDownload domain={info.domain} records={records} />
+      )}
+
       {records && info.domain && <RecordEntryHints domain={info.domain} />}
 
       <p className="text-[11px] text-slate-600">
@@ -379,6 +386,48 @@ function CopyableField({
   );
 }
 
+/** Provider-agnostic DNS export: builds a standard BIND zone file from
+ *  the panel's records and triggers a client-side download. Lets users
+ *  with import-capable providers (Cloudflare, Route 53, etc.) skip
+ *  hand-typing. Not a Cloudflare-specific feature — Cloudflare is named
+ *  only as one example. */
+function ZoneFileDownload({
+  domain,
+  records,
+}: {
+  domain: string;
+  records: DomainDnsRecords;
+}): import('react').ReactNode {
+  const handleDownload = (): void => {
+    const content = buildZoneFile(records);
+    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = zoneFileName(domain);
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <div className="space-y-1.5">
+      <button
+        type="button"
+        onClick={handleDownload}
+        className="inline-flex items-center gap-2 rounded-md border border-slate-700 px-3 py-1.5 text-xs text-slate-200 hover:border-slate-600 hover:bg-slate-800/50"
+      >
+        ⬇ DNS 레코드 파일 다운로드
+      </button>
+      <p className="text-[11px] leading-relaxed text-slate-600">
+        Cloudflare, Route 53 등 zone file import를 지원하는 DNS 업체에서 사용할 수 있습니다.
+        지원하지 않는 업체는 위 값을 직접 입력하세요.
+      </p>
+    </div>
+  );
+}
+
 /** Provider-input hints shown next to the TXT/CNAME guidance. Most DNS
  *  UIs accept either the leaf label (`app`) or the fully-qualified
  *  name (`app.my-domain.com`); listing both forms in one place removes
@@ -435,10 +484,17 @@ function RecordEntryHints({ domain }: { domain: string }): import('react').React
           [확인]에서 실패하면 잠시 더 기다린 뒤 다시 시도하세요.
         </li>
         <li>
+          <span className="text-slate-300">DNS 레코드 파일 import:</span>{' '}
+          파일 import를 지원하는 업체라면 위 [DNS 레코드 파일 다운로드]로 받은 파일을 업로드할 수 있습니다.
+          예를 들어 Cloudflare에서는 <span className="font-mono">DNS Records → Import and Export → Import DNS records</span>에서 업로드합니다.
+          (지원하지 않는 업체는 위 TXT/CNAME 값을 직접 입력하세요.)
+        </li>
+        <li>
           <span className="text-slate-300">이미 다른 서비스에 연결된 host:</span>{' '}
           Vercel/Netlify 등에 연결된 <span className="font-mono">www</span> 나 루트 도메인은 그대로 두고,
           <span className="font-mono">portfolio.your-domain.com</span> 같은 새 서브도메인을 쓰는 것을 추천합니다.
-          이미 A 레코드가 있는 host에는 CNAME을 추가할 수 없습니다(DNS 규칙).
+          이미 A 레코드가 있는 <span className="font-mono">www</span>에는 CNAME을 import해도 자동으로 해결되지 않습니다 —
+          기존 서비스를 유지하려면 새 subdomain을 사용하세요(DNS 규칙상 A 레코드와 CNAME 공존 불가).
         </li>
       </ul>
     </details>
