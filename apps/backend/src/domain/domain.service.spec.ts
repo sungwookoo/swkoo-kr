@@ -105,6 +105,7 @@ function makeService(opts: {
   const config = {
     deployOwner: 'swkoo-deploy',
     appsDomain: 'apps.swkoo.kr',
+    domainsBase: 'domains.swkoo.kr',
     discordBuildFailureWebhookUrl: opts.discordBuildFailureWebhookUrl,
   } as ConfigType<typeof onboardingConfig>;
 
@@ -120,7 +121,7 @@ describe('DomainService.register', () => {
     ).rejects.toThrow(BadRequestException);
   });
 
-  it('creates pending row with expectedCname from current.liveUrl', async () => {
+  it('creates pending cname_token row with tokenized CNAME target (no TXT)', async () => {
     const { service } = makeService({});
     const info = await service.register({
       userId: 1,
@@ -128,8 +129,14 @@ describe('DomainService.register', () => {
       domain: 'app.alice-example.com',
     });
     expect(info.status).toBe('pending');
-    expect(info.dnsRecords?.cname.target).toBe('hello.apps.swkoo.kr');
+    expect(info.scheme).toBe('cname_token');
     expect(info.verificationToken).toMatch(/^sk-[0-9a-f]{32}$/);
+    // CNAME target = cd-<token>.domains.swkoo.kr (NOT the app liveUrl).
+    expect(info.dnsRecords?.cname.target).toBe(
+      `cd-${info.verificationToken}.domains.swkoo.kr`
+    );
+    // No TXT record for cname_token — CNAME alone is the proof.
+    expect(info.dnsRecords?.txt).toBeNull();
   });
 
   it('rejects duplicate domain across users with 409', async () => {
@@ -139,8 +146,9 @@ describe('DomainService.register', () => {
       login: 'bob',
       appName: 'bob-app',
       domain: 'app.shared-example.com',
+      scheme: 'cname_token',
       verificationToken: 'tok',
-      expectedCname: 'bob-bob-app.apps.swkoo.kr',
+      expectedCname: 'cd-tok.domains.swkoo.kr',
     });
     await expect(
       service.register({
@@ -167,14 +175,36 @@ describe('DomainService.verify', () => {
     await expect(service.verify(makeCurrent())).rejects.toThrow(NotFoundException);
   });
 
-  it('transitions to error when TXT not found', async () => {
-    const enotfound = Object.assign(new Error('ENOTFOUND'), { code: 'ENOTFOUND' });
-    const { service } = makeService({ dnsTxt: enotfound });
+  it('cname_token: transitions to error on CNAME mismatch (no TXT step)', async () => {
+    // cname_token skips TXT entirely; a wrong/absent CNAME is the failure.
+    // dnsCname default [] → mismatch. dnsTxt is irrelevant here.
+    const { service } = makeService({});
     const current = makeCurrent();
     await service.register({ userId: 1, current, domain: 'app.alice-example.com' });
     const info = await service.verify(current);
     expect(info.status).toBe('error');
+    expect(info.lastErrorReason).toBe('DNS_CNAME_MISMATCH');
+  });
+
+  it('grandfather txt_cname: still requires the TXT challenge', async () => {
+    // A pre-v0.2 row (manually planted as txt_cname) must keep the old
+    // 2-record behavior — TXT missing → DNS_TXT_NOT_FOUND.
+    const enotfound = Object.assign(new Error('ENOTFOUND'), { code: 'ENOTFOUND' });
+    const { service, repo } = makeService({ dnsTxt: enotfound });
+    const current = makeCurrent();
+    repo.create({
+      userId: 1,
+      login: 'alice',
+      appName: 'nextjs-sample',
+      domain: 'legacy.alice-example.com',
+      scheme: 'txt_cname',
+      verificationToken: 'sk-legacy',
+      expectedCname: 'alice-nextjs-sample.apps.swkoo.kr',
+    });
+    const info = await service.verify(current);
+    expect(info.status).toBe('error');
     expect(info.lastError).toContain('TXT 레코드를 찾을 수 없습니다');
+    expect(info.lastErrorReason).toBe('DNS_TXT_NOT_FOUND');
   });
 
   it('transitions to applying after DNS OK + manifest commit', async () => {
@@ -187,7 +217,7 @@ describe('DomainService.verify', () => {
     });
     const dns = (service as unknown as { dns: { resolveTxt: jest.Mock; resolveCname: jest.Mock } }).dns;
     dns.resolveTxt.mockResolvedValue([`swkoo-domain-verification=${reg.verificationToken}`]);
-    dns.resolveCname.mockResolvedValue(['alice-nextjs-sample.apps.swkoo.kr']);
+    dns.resolveCname.mockResolvedValue([`cd-${reg.verificationToken}.domains.swkoo.kr`]);
 
     const info = await service.verify(current);
     expect(info.status).toBe('applying');
@@ -205,7 +235,7 @@ describe('DomainService.verify', () => {
     });
     const dns = (service as unknown as { dns: { resolveTxt: jest.Mock; resolveCname: jest.Mock } }).dns;
     dns.resolveTxt.mockResolvedValue([`swkoo-domain-verification=${reg.verificationToken}`]);
-    dns.resolveCname.mockResolvedValue(['alice-nextjs-sample.apps.swkoo.kr']);
+    dns.resolveCname.mockResolvedValue([`cd-${reg.verificationToken}.domains.swkoo.kr`]);
     await service.verify(current);
 
     const info = await service.get('alice', current);
@@ -225,7 +255,7 @@ describe('DomainService.verify', () => {
     });
     const dns = (service as unknown as { dns: { resolveTxt: jest.Mock; resolveCname: jest.Mock } }).dns;
     dns.resolveTxt.mockResolvedValue([`swkoo-domain-verification=${reg.verificationToken}`]);
-    dns.resolveCname.mockResolvedValue(['alice-nextjs-sample.apps.swkoo.kr']);
+    dns.resolveCname.mockResolvedValue([`cd-${reg.verificationToken}.domains.swkoo.kr`]);
     await service.verify(current);
     await service.verify(current);
     expect(githubApp.commitFilesAtomic).toHaveBeenCalledTimes(1);
@@ -253,12 +283,31 @@ describe('DomainService.delete', () => {
     });
     const dns = (service as unknown as { dns: { resolveTxt: jest.Mock; resolveCname: jest.Mock } }).dns;
     dns.resolveTxt.mockResolvedValue([`swkoo-domain-verification=${reg.verificationToken}`]);
-    dns.resolveCname.mockResolvedValue(['alice-nextjs-sample.apps.swkoo.kr']);
+    dns.resolveCname.mockResolvedValue([`cd-${reg.verificationToken}.domains.swkoo.kr`]);
     await service.verify(current);
 
     await service.delete(current);
     expect(githubApp.commitFilesAtomic).toHaveBeenCalledTimes(2);
     expect(certCache.invalidate).toHaveBeenCalledWith('user-alice', 'nextjs-sample-custom-domain-tls');
+  });
+
+  it('re-register after delete issues a fresh token + target (dangling-CNAME safety)', async () => {
+    const { service } = makeService({});
+    const current = makeCurrent();
+    const first = await service.register({
+      userId: 1, current, domain: 'app.alice-example.com',
+    });
+    await service.delete(current);
+    const second = await service.register({
+      userId: 1, current, domain: 'app.alice-example.com',
+    });
+    // New token → new CNAME target. A dangling CNAME pointing at the old
+    // target can't satisfy the new registration's verification.
+    expect(second.verificationToken).not.toBe(first.verificationToken);
+    expect(second.dnsRecords?.cname.target).not.toBe(first.dnsRecords?.cname.target);
+    expect(second.dnsRecords?.cname.target).toBe(
+      `cd-${second.verificationToken}.domains.swkoo.kr`
+    );
   });
 });
 
@@ -421,7 +470,7 @@ describe('DomainService.verify cooldown', () => {
     });
     const dns = (service as unknown as { dns: { resolveTxt: jest.Mock; resolveCname: jest.Mock } }).dns;
     dns.resolveTxt.mockResolvedValue([`swkoo-domain-verification=${reg.verificationToken}`]);
-    dns.resolveCname.mockResolvedValue(['alice-nextjs-sample.apps.swkoo.kr']);
+    dns.resolveCname.mockResolvedValue([`cd-${reg.verificationToken}.domains.swkoo.kr`]);
 
     await service.verify(current); // → applying
 
@@ -467,7 +516,7 @@ describe('DomainService operator failure notifications', () => {
     // DNS passes, commit throws.
     const dns = (service as unknown as { dns: { resolveTxt: jest.Mock; resolveCname: jest.Mock } }).dns;
     dns.resolveTxt.mockResolvedValue([`swkoo-domain-verification=${reg.verificationToken}`]);
-    dns.resolveCname.mockResolvedValue(['alice-nextjs-sample.apps.swkoo.kr']);
+    dns.resolveCname.mockResolvedValue([`cd-${reg.verificationToken}.domains.swkoo.kr`]);
     (githubApp.commitFilesAtomic as jest.Mock).mockRejectedValueOnce(new Error('GitHub 502'));
 
     await service.verify(current);
@@ -492,7 +541,7 @@ describe('DomainService operator failure notifications', () => {
     });
     const dns = (service as unknown as { dns: { resolveTxt: jest.Mock; resolveCname: jest.Mock } }).dns;
     dns.resolveTxt.mockResolvedValue([`swkoo-domain-verification=${reg.verificationToken}`]);
-    dns.resolveCname.mockResolvedValue(['alice-nextjs-sample.apps.swkoo.kr']);
+    dns.resolveCname.mockResolvedValue([`cd-${reg.verificationToken}.domains.swkoo.kr`]);
     await service.verify(current); // → applying with applied_commit set
 
     // Now make the DELETE commit throw.

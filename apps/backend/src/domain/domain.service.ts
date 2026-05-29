@@ -27,6 +27,7 @@ import {
   CustomDomainRow,
   CustomDomainStatus,
   CustomDomainsRepository,
+  VerificationScheme,
 } from './domain.repository';
 import {
   REJECT_MESSAGES,
@@ -60,13 +61,26 @@ export interface OperatorFailureNotice {
 export interface DomainInfo {
   domain: string | null;
   status: CustomDomainStatus | null;
+  /** Which verification flow this row uses. Drives the panel's record
+   * count (cname_token = CNAME only; txt_cname = TXT + CNAME). */
+  scheme: VerificationScheme | null;
   verificationToken: string | null;
   dnsRecords: {
-    txt: { host: string; value: string };
+    // null for cname_token (CNAME alone is the ownership proof).
+    txt: { host: string; value: string } | null;
     cname: { host: string; target: string };
   } | null;
   verifiedAt: string | null;
   lastError: string | null;
+  /** Machine reason of the last failure — lets the panel render
+   * reason-specific recovery UX (e.g. conflict → prefix picker). */
+  lastErrorReason: string | null;
+  /** Registrable domain of `domain` (e.g. www.zieun.dev → zieun.dev).
+   * Provided so the frontend doesn't have to ship a PSL parser for the
+   * apex/conflict recovery UX. */
+  registrableDomain: string | null;
+  /** Context-specific suggestion: conflict → portfolio.<registrable>. */
+  suggestedSubdomain: string | null;
   certificateReady: boolean;
   certificateError: string | null;
   /** Resolved external URL when status === 'active' and cert is ready. */
@@ -146,6 +160,18 @@ export class DomainService {
 
     const validation = validateCustomDomain(domain);
     if (!validation.ok) {
+      // Apex gets enriched payload so the panel can offer "use www.<domain>"
+      // without shipping a PSL parser. For apex the input IS the registrable
+      // domain (validation rejected it precisely because domain === registrable).
+      if (validation.reason === 'APEX_NOT_SUPPORTED') {
+        const registrable = (domain ?? '').trim().toLowerCase();
+        throw new BadRequestException({
+          reason: 'APEX_NOT_SUPPORTED',
+          message: REJECT_MESSAGES.APEX_NOT_SUPPORTED,
+          registrableDomain: registrable,
+          suggestedSubdomain: `www.${registrable}`,
+        });
+      }
       throw new BadRequestException({
         reason: validation.reason,
         message: REJECT_MESSAGES[validation.reason as RejectReason],
@@ -171,20 +197,22 @@ export class DomainService {
       });
     }
 
-    // Source the expected CNAME from the *actual* live URL (Argo
-    // Application + registration metadata) — not from a route-repo
-    // derivation. This makes the CNAME shown to the user identical to
-    // their working /api/deploy/current liveUrl, which is what they'd
-    // recognize and what cert-manager will validate against. Source: not
-    // route, not DB-recomputed.
-    const expectedCname = current.liveUrl.replace(/^https?:\/\//, '');
+    // v0.2: tokenized CNAME-only. The CNAME target embeds a per-
+    // registration token (cd-<token>.<domainsBase>); pointing the domain
+    // at that exact target is itself the ownership proof, so no TXT
+    // record is needed. The target is a DNS landing pad — *.domainsBase
+    // resolves to the cluster, Host-header routing does the rest (same
+    // as the v0 <app>.apps.swkoo.kr target). New registrations are
+    // always cname_token; existing rows stay txt_cname (grandfathered).
     const token = TOKEN_PREFIX + randomUUID().replace(/-/g, '');
+    const expectedCname = `cd-${token}.${this.config.domainsBase}`;
 
     const row = this.repo.create({
       userId,
       login,
       appName,
       domain: normalized,
+      scheme: 'cname_token',
       verificationToken: token,
       expectedCname,
     });
@@ -245,6 +273,7 @@ export class DomainService {
     if (dnsErr) {
       const errored = this.repo.updateStatus(row.id, 'error', {
         lastError: dnsErr.message,
+        lastErrorReason: dnsErr.reason,
       });
       this.users.audit({
         actor: login,
@@ -364,27 +393,31 @@ export class DomainService {
   private async checkDns(
     row: CustomDomainRow
   ): Promise<{ reason: string; message: string } | null> {
-    const txtHost = TXT_PREFIX + row.domain;
-    const expectedTxt = TXT_VALUE_PREFIX + row.verificationToken;
-
-    let txtRecords: string[] = [];
-    try {
-      txtRecords = await this.dns.resolveTxt(txtHost);
-    } catch (err) {
-      const code = (err as NodeJS.ErrnoException).code;
-      if (code === 'ENOTFOUND' || code === 'ENODATA') {
+    // v0.2 cname_token: the tokenized CNAME target is the whole proof —
+    // no TXT step. v0 txt_cname rows (grandfathered) still require the
+    // TXT challenge before the CNAME check below.
+    if (row.scheme === 'txt_cname') {
+      const txtHost = TXT_PREFIX + row.domain;
+      const expectedTxt = TXT_VALUE_PREFIX + row.verificationToken;
+      let txtRecords: string[] = [];
+      try {
+        txtRecords = await this.dns.resolveTxt(txtHost);
+      } catch (err) {
+        const code = (err as NodeJS.ErrnoException).code;
+        if (code === 'ENOTFOUND' || code === 'ENODATA') {
+          return {
+            reason: 'DNS_TXT_NOT_FOUND',
+            message: `TXT 레코드를 찾을 수 없습니다 (${txtHost}). DNS 전파를 기다리거나 레코드를 다시 확인하세요.`,
+          };
+        }
+        return { reason: 'DNS_TXT_ERROR', message: `TXT 조회 실패: ${(err as Error).message}` };
+      }
+      if (!txtRecords.includes(expectedTxt)) {
         return {
-          reason: 'DNS_TXT_NOT_FOUND',
-          message: `TXT 레코드를 찾을 수 없습니다 (${txtHost}). DNS 전파를 기다리거나 레코드를 다시 확인하세요.`,
+          reason: 'DNS_TXT_MISMATCH',
+          message: `TXT 값이 일치하지 않습니다. 기대값: ${expectedTxt}`,
         };
       }
-      return { reason: 'DNS_TXT_ERROR', message: `TXT 조회 실패: ${(err as Error).message}` };
-    }
-    if (!txtRecords.includes(expectedTxt)) {
-      return {
-        reason: 'DNS_TXT_MISMATCH',
-        message: `TXT 값이 일치하지 않습니다. 기대값: ${expectedTxt}`,
-      };
     }
 
     let cnameRecords: string[] = [];
@@ -583,23 +616,43 @@ export class DomainService {
       });
     }
 
+    // TXT row only for the grandfathered v0 scheme; cname_token rows
+    // surface CNAME alone (the whole point of v0.2).
+    const txtRecord =
+      row2.scheme === 'txt_cname'
+        ? {
+            host: `_swkoo-challenge.${row2.domain}`,
+            value: `swkoo-domain-verification=${row2.verificationToken}`,
+          }
+        : null;
+
+    // registrableDomain + suggestedSubdomain power the conflict-recovery
+    // UX (prefix picker). Computed from the row's domain via PSL so
+    // multi-label TLDs are correct; suggestion is conflict-specific.
+    const registrableDomain = parse(row2.domain).domain ?? null;
+    const suggestedSubdomain =
+      row2.lastErrorReason === 'DNS_CNAME_CONFLICTS_WITH_A' && registrableDomain
+        ? `portfolio.${registrableDomain}`
+        : null;
+
     return {
       domain: row2.domain,
       status: row2.status,
+      scheme: row2.scheme,
       verificationToken: row2.status === 'pending' || row2.status === 'error'
         ? row2.verificationToken
         : null,
       dnsRecords: row2.status !== 'active'
         ? {
-            txt: {
-              host: `_swkoo-challenge.${row2.domain}`,
-              value: `swkoo-domain-verification=${row2.verificationToken}`,
-            },
+            txt: txtRecord,
             cname: { host: row2.domain, target: row2.expectedCname },
           }
         : null,
       verifiedAt: row2.verifiedAt,
       lastError: row2.lastError,
+      lastErrorReason: row2.lastErrorReason,
+      registrableDomain,
+      suggestedSubdomain,
       certificateReady: cert.ready,
       certificateError: cert.fetchError ?? null,
       url: row2.status === 'active' && cert.ready ? `https://${row2.domain}` : null,
@@ -610,10 +663,14 @@ export class DomainService {
     return {
       domain: null,
       status: null,
+      scheme: null,
       verificationToken: null,
       dnsRecords: null,
       verifiedAt: null,
       lastError: null,
+      lastErrorReason: null,
+      registrableDomain: null,
+      suggestedSubdomain: null,
       certificateReady: false,
       certificateError: null,
       url: null,

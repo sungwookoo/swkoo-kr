@@ -38,6 +38,12 @@ export interface OnboardingConfig {
   // unregister.
   deployOwner: string;
   appsDomain: string; // for subdomain construction, e.g. "apps.swkoo.kr"
+  // Custom-domain v0.2: base zone for tokenized CNAME verification targets
+  // (cd-sk-<token>.<domainsBase>). A DNS landing pad only — never a TLS
+  // host — so it needs a `*.domainsBase A <cluster-ip>` wildcard but no
+  // cert. Kept separate from appsDomain so verification tokens don't share
+  // the user-app slug namespace.
+  domainsBase: string; // e.g. "domains.swkoo.kr"
 }
 
 export const onboardingConfig = registerAs(
@@ -66,5 +72,6 @@ export const onboardingConfig = registerAs(
     manifestBranch: process.env.MANIFEST_BRANCH ?? 'main',
     deployOwner: process.env.GITHUB_DEPLOY_OWNER ?? 'swkoo-deploy',
     appsDomain: process.env.APPS_DOMAIN ?? 'apps.swkoo.kr',
+    domainsBase: process.env.DOMAINS_BASE ?? 'domains.swkoo.kr',
   })
 );

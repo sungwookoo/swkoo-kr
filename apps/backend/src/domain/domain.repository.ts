@@ -13,6 +13,13 @@ export type CustomDomainStatus =
   | 'active'
   | 'error';
 
+/** Verification scheme. `txt_cname` is the v0 flow (TXT challenge +
+ * CNAME routing); `cname_token` is the v0.2 flow (single CNAME whose
+ * tokenized target — cd-sk-<token>.domains.swkoo.kr — is itself the
+ * ownership proof). Existing rows default to txt_cname (grandfathered);
+ * new registrations are cname_token. */
+export type VerificationScheme = 'txt_cname' | 'cname_token';
+
 export interface CustomDomainRow {
   id: number;
   userId: number;
@@ -20,6 +27,7 @@ export interface CustomDomainRow {
   appName: string;
   domain: string;
   status: CustomDomainStatus;
+  scheme: VerificationScheme;
   verificationToken: string;
   expectedCname: string;
   /** Set when the manifest commit lands in the deploy repo. NULL while the
@@ -29,6 +37,10 @@ export interface CustomDomainRow {
   appliedCommit: string | null;
   verifiedAt: string | null;
   lastError: string | null;
+  /** Machine reason of the last failure (e.g. DNS_CNAME_CONFLICTS_WITH_A),
+   * so the panel can render reason-specific recovery UX without re-parsing
+   * the human message. NULL when no failure or after clearError. */
+  lastErrorReason: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -38,6 +50,7 @@ export interface CreateCustomDomainInput {
   login: string;
   appName: string;
   domain: string;
+  scheme: VerificationScheme;
   verificationToken: string;
   expectedCname: string;
 }
@@ -77,7 +90,22 @@ export class CustomDomainsRepository implements OnModuleInit, OnModuleDestroy {
       CREATE UNIQUE INDEX IF NOT EXISTS idx_custom_domains_user_app
         ON custom_domains(user_id, app_name);
     `);
+    // v0.2 idempotent column adds. Existing rows default to the v0
+    // verification scheme (txt_cname) — grandfathered, never force-migrated.
+    this.addColumnIfMissing(
+      'verification_scheme',
+      `TEXT NOT NULL DEFAULT 'txt_cname'`
+    );
+    this.addColumnIfMissing('last_error_reason', 'TEXT');
     this.logger.log('custom_domains table ready');
+  }
+
+  private addColumnIfMissing(column: string, type: string): void {
+    const cols = this.db
+      .prepare(`PRAGMA table_info(custom_domains)`)
+      .all() as Array<{ name: string }>;
+    if (cols.some((c) => c.name === column)) return;
+    this.db.exec(`ALTER TABLE custom_domains ADD COLUMN ${column} ${type}`);
   }
 
   onModuleDestroy(): void {
@@ -91,11 +119,13 @@ export class CustomDomainsRepository implements OnModuleInit, OnModuleDestroy {
     app_name           AS appName,
     domain,
     status,
+    verification_scheme AS scheme,
     verification_token AS verificationToken,
     expected_cname     AS expectedCname,
     applied_commit     AS appliedCommit,
     verified_at        AS verifiedAt,
     last_error         AS lastError,
+    last_error_reason  AS lastErrorReason,
     created_at         AS createdAt,
     updated_at         AS updatedAt
   `;
@@ -135,10 +165,10 @@ export class CustomDomainsRepository implements OnModuleInit, OnModuleDestroy {
   create(input: CreateCustomDomainInput): CustomDomainRow {
     const stmt = this.db.prepare(`
       INSERT INTO custom_domains
-        (user_id, login, app_name, domain, status,
+        (user_id, login, app_name, domain, status, verification_scheme,
          verification_token, expected_cname)
       VALUES
-        (@userId, @login, @appName, @domain, 'pending',
+        (@userId, @login, @appName, @domain, 'pending', @scheme,
          @verificationToken, @expectedCname)
       RETURNING ${this.cols}
     `);
@@ -148,14 +178,19 @@ export class CustomDomainsRepository implements OnModuleInit, OnModuleDestroy {
   updateStatus(
     id: number,
     status: CustomDomainStatus,
-    opts: { lastError?: string | null; verifiedAt?: string | null } = {}
+    opts: {
+      lastError?: string | null;
+      lastErrorReason?: string | null;
+      verifiedAt?: string | null;
+    } = {}
   ): CustomDomainRow | undefined {
     const stmt = this.db.prepare(`
       UPDATE custom_domains SET
-        status      = @status,
-        last_error  = COALESCE(@lastError, last_error),
-        verified_at = COALESCE(@verifiedAt, verified_at),
-        updated_at  = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+        status            = @status,
+        last_error        = COALESCE(@lastError, last_error),
+        last_error_reason = COALESCE(@lastErrorReason, last_error_reason),
+        verified_at       = COALESCE(@verifiedAt, verified_at),
+        updated_at        = strftime('%Y-%m-%dT%H:%M:%fZ','now')
       WHERE id = @id
       RETURNING ${this.cols}
     `);
@@ -163,6 +198,7 @@ export class CustomDomainsRepository implements OnModuleInit, OnModuleDestroy {
       id,
       status,
       lastError: opts.lastError ?? null,
+      lastErrorReason: opts.lastErrorReason ?? null,
       verifiedAt: opts.verifiedAt ?? null,
     }) as CustomDomainRow | undefined;
   }
@@ -185,7 +221,7 @@ export class CustomDomainsRepository implements OnModuleInit, OnModuleDestroy {
    * a dedicated method keeps the API explicit. */
   clearError(id: number): void {
     this.db.prepare(
-      `UPDATE custom_domains SET last_error = NULL,
+      `UPDATE custom_domains SET last_error = NULL, last_error_reason = NULL,
          updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
        WHERE id = ?`
     ).run(id);

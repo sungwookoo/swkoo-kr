@@ -3,19 +3,25 @@ import useSWR from 'swr';
 import { API_BASE_URL } from './api-base';
 
 export type CustomDomainStatus = 'pending' | 'verified' | 'applying' | 'active' | 'error';
+export type VerificationScheme = 'txt_cname' | 'cname_token';
 
 export interface DomainDnsRecords {
-  txt: { host: string; value: string };
+  // null for the v0.2 cname_token scheme — CNAME alone is the proof.
+  txt: { host: string; value: string } | null;
   cname: { host: string; target: string };
 }
 
 export interface DomainInfo {
   domain: string | null;
   status: CustomDomainStatus | null;
+  scheme: VerificationScheme | null;
   verificationToken: string | null;
   dnsRecords: DomainDnsRecords | null;
   verifiedAt: string | null;
   lastError: string | null;
+  lastErrorReason: string | null;
+  registrableDomain: string | null;
+  suggestedSubdomain: string | null;
   certificateReady: boolean;
   certificateError: string | null;
   url: string | null;
@@ -45,21 +51,25 @@ function escapeTxtValue(v: string): string {
  * sidesteps provider-specific $ORIGIN interpretation differences (the
  * recommended form for cross-provider zone import). TTL 300 throughout. */
 export function buildZoneFile(records: DomainDnsRecords): string {
-  const txtName = ensureTrailingDot(records.txt.host);
-  const txtValue = escapeTxtValue(records.txt.value);
   const cnameName = ensureTrailingDot(records.cname.host);
   const cnameTarget = ensureTrailingDot(records.cname.target);
-  return [
+  const lines = [
     '; swkoo.kr custom domain DNS records',
     '; Import via your DNS provider’s zone-file import, or add manually.',
     '; A host that already has an A record (e.g. www on Vercel) cannot also',
     '; take a CNAME — use a fresh subdomain instead.',
     '$TTL 300',
     '',
-    `${txtName} 300 IN TXT "${txtValue}"`,
-    `${cnameName} 300 IN CNAME ${cnameTarget}`,
-    '',
-  ].join('\n');
+  ];
+  // TXT only for the legacy txt_cname scheme; cname_token rows emit the
+  // CNAME alone (records.txt === null).
+  if (records.txt) {
+    const txtName = ensureTrailingDot(records.txt.host);
+    const txtValue = escapeTxtValue(records.txt.value);
+    lines.push(`${txtName} 300 IN TXT "${txtValue}"`);
+  }
+  lines.push(`${cnameName} 300 IN CNAME ${cnameTarget}`, '');
+  return lines.join('\n');
 }
 
 /** Download filename derived from the domain — dots/special chars to
@@ -80,11 +90,23 @@ async function fetcher<T>(url: string): Promise<T> {
   return (await response.json()) as T;
 }
 
+export type ReasonedError = Error & {
+  reason?: string;
+  status?: number;
+  /** Apex error payload — registrable domain + the www. suggestion. */
+  registrableDomain?: string;
+  suggestedSubdomain?: string;
+};
+
 /** Backend errors arrive as `{ statusCode, message: { reason, message } }`
  * or as plain strings. We collapse both shapes into an Error carrying the
- * machine `reason` so the panel can branch on it. */
+ * machine `reason` (and apex hint fields) so the panel can branch on it. */
 async function toReasonedError(response: Response, fallback: string): Promise<Error> {
-  let payload: { message?: string | { reason?: string; message?: string } } = {};
+  let payload: {
+    message?:
+      | string
+      | { reason?: string; message?: string; registrableDomain?: string; suggestedSubdomain?: string };
+  } = {};
   try {
     payload = (await response.json()) as typeof payload;
   } catch {
@@ -92,17 +114,16 @@ async function toReasonedError(response: Response, fallback: string): Promise<Er
   }
   const detail = payload.message;
   if (detail && typeof detail === 'object' && 'reason' in detail) {
-    const err = new Error(detail.message ?? detail.reason ?? fallback) as Error & {
-      reason?: string;
-      status?: number;
-    };
+    const err = new Error(detail.message ?? detail.reason ?? fallback) as ReasonedError;
     err.reason = detail.reason;
     err.status = response.status;
+    err.registrableDomain = detail.registrableDomain;
+    err.suggestedSubdomain = detail.suggestedSubdomain;
     return err;
   }
   const err = new Error(
     typeof detail === 'string' ? detail : `${fallback} (${response.status})`
-  ) as Error & { status?: number };
+  ) as ReasonedError;
   err.status = response.status;
   return err;
 }

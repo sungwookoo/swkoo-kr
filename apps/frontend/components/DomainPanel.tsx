@@ -6,6 +6,7 @@ import {
   CustomDomainStatus,
   DomainDnsRecords,
   DomainInfo,
+  ReasonedError,
   buildZoneFile,
   deleteDomain,
   panelErrorText,
@@ -135,22 +136,25 @@ function EmptyState({
 }): import('react').ReactNode {
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
+  const [err, setErr] = useState<ReasonedError | null>(null);
 
-  const handleSubmit = async (): Promise<void> => {
+  const submit = async (value: string): Promise<void> => {
+    const v = value.trim();
+    if (!v) return;
     setBusy(true);
     setErr(null);
     try {
-      await registerDomain(login, repo, input.trim());
+      await registerDomain(login, repo, v);
       await onChanged();
       setInput('');
     } catch (e) {
-      const reasoned = e as Error & { reason?: string; status?: number };
-      setErr(panelErrorText(reasoned) ?? reasoned.message);
+      setErr(e as ReasonedError);
     } finally {
       setBusy(false);
     }
   };
+
+  const isApex = err?.reason === 'APEX_NOT_SUPPORTED';
 
   return (
     <div className="space-y-2 border-t border-slate-900 pt-3">
@@ -165,12 +169,12 @@ function EmptyState({
           autoCapitalize="off"
           className="min-w-0 flex-1 rounded-md border border-slate-800 bg-slate-950 px-3 py-2 font-mono text-sm text-slate-100 placeholder-slate-700 focus:border-slate-600 focus:outline-none"
           onKeyDown={(e) => {
-            if (e.key === 'Enter' && !busy && input.trim()) handleSubmit();
+            if (e.key === 'Enter' && !busy && input.trim()) void submit(input);
           }}
         />
         <button
           type="button"
-          onClick={handleSubmit}
+          onClick={() => void submit(input)}
           disabled={busy || !input.trim()}
           className="rounded-md bg-emerald-600 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-emerald-500 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-500"
         >
@@ -178,7 +182,7 @@ function EmptyState({
         </button>
       </div>
       <p className="text-[11px] text-slate-600">
-        placeholder는 예시입니다. 본인이 소유한 서브도메인을 입력해야 DNS 확인이 통과합니다.
+        placeholder는 예시입니다. 본인이 소유한 서브도메인을 입력해야 연결됩니다. CNAME 한 줄만 추가하면 됩니다.
       </p>
 
       <details className="group rounded-md border border-slate-800/60 bg-slate-950/40 text-xs text-slate-400 open:bg-slate-950/60">
@@ -189,12 +193,13 @@ function EmptyState({
         </summary>
         <ul className="space-y-1.5 border-t border-slate-800/60 px-3 py-2.5 leading-relaxed">
           <li>
-            도메인을 구매한 곳(또는 네임서버를 관리하는 곳)의 <span className="text-slate-300">DNS 관리</span> 화면에서 TXT/CNAME 레코드를 추가합니다.
+            도메인을 구매한 곳(또는 네임서버를 관리하는 곳)의 <span className="text-slate-300">DNS 관리</span> 화면에서 CNAME 레코드를 추가합니다.
             대표적으로 Cloudflare, Namecheap, GoDaddy, AWS Route 53, 가비아 등이 있습니다.
           </li>
           <li>
-            v0는 서브도메인만 지원합니다 — <span className="font-mono text-slate-300">app.example.com</span> ✅,{' '}
+            서브도메인만 지원합니다 — <span className="font-mono text-slate-300">app.example.com</span> ✅,{' '}
             <span className="font-mono text-slate-500">example.com</span>(루트 도메인) ❌.
+            루트 도메인을 입력하면 <span className="font-mono">www.example.com</span> 사용을 안내해 드립니다.
           </li>
           <li>
             입력란에 도메인을 넣을 때는 <span className="font-mono">https://</span> 또는 슬래시 없이 도메인만 입력하세요.
@@ -208,7 +213,41 @@ function EmptyState({
         </ul>
       </details>
 
-      {err && <p className="text-sm text-amber-400">{err}</p>}
+      {err && isApex && (
+        <div className="space-y-2 rounded-md border border-sky-900/40 bg-sky-950/30 px-3 py-2.5 text-sm text-sky-200">
+          <p>
+            {err.registrableDomain ?? '이 도메인'}는 루트 도메인이라 직접 연결할 수 없습니다.
+            보통 웹사이트 주소로는 <span className="font-mono">{err.suggestedSubdomain ?? `www.${err.registrableDomain ?? ''}`}</span>를 사용합니다.
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                const sug = err.suggestedSubdomain ?? `www.${err.registrableDomain ?? ''}`;
+                setInput(sug);
+                void submit(sug);
+              }}
+              className="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-500 disabled:cursor-not-allowed disabled:bg-slate-700"
+            >
+              {err.suggestedSubdomain ?? `www.${err.registrableDomain ?? ''}`} 사용하기
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setErr(null);
+                setInput(err.suggestedSubdomain ?? '');
+              }}
+              className="text-xs text-slate-400 hover:text-slate-200"
+            >
+              다른 이름 직접 입력
+            </button>
+          </div>
+        </div>
+      )}
+      {err && !isApex && (
+        <p className="text-sm text-amber-400">{panelErrorText(err) ?? err.message}</p>
+      )}
     </div>
   );
 }
@@ -270,16 +309,22 @@ function PendingState({
         </p>
       )}
 
+      {records && records.txt === null && (
+        <p className="text-sm font-medium text-emerald-300">CNAME 한 줄만 추가하면 됩니다.</p>
+      )}
+
       {records && (
         <div className="space-y-3">
+          {records.txt && (
+            <DnsRecordRow
+              label="1️⃣ TXT 레코드"
+              host={records.txt.host}
+              value={records.txt.value}
+              valueLabel="Value"
+            />
+          )}
           <DnsRecordRow
-            label="1️⃣ TXT 레코드"
-            host={records.txt.host}
-            value={records.txt.value}
-            valueLabel="Value"
-          />
-          <DnsRecordRow
-            label="2️⃣ CNAME 레코드"
+            label={records.txt ? '2️⃣ CNAME 레코드' : 'CNAME 레코드'}
             host={records.cname.host}
             value={records.cname.target}
             valueLabel="Target"
@@ -291,7 +336,22 @@ function PendingState({
         <ZoneFileDownload domain={info.domain} records={records} />
       )}
 
-      {records && info.domain && <RecordEntryHints domain={info.domain} />}
+      {/* Conflict recovery: existing A record (Vercel/etc.) blocks the
+          CNAME. Offer the recommended subdomain + a free-form prefix so
+          the user can pick their own, then re-register. */}
+      {info.lastErrorReason === 'DNS_CNAME_CONFLICTS_WITH_A' && info.registrableDomain && (
+        <ConflictRecovery
+          login={login}
+          repo={repo}
+          registrable={info.registrableDomain}
+          suggested={info.suggestedSubdomain}
+          onChanged={onChanged}
+        />
+      )}
+
+      {records && info.domain && (
+        <RecordEntryHints domain={info.domain} hasTxt={records.txt !== null} />
+      )}
 
       <p className="text-[11px] text-slate-600">
         DNS 전파는 보통 1-5분, 길게는 수십 분 걸립니다. 추가 후 잠시 뒤에 [확인] 을 눌러주세요.
@@ -316,6 +376,94 @@ function PendingState({
         </button>
         {verifyErr && <span className="text-xs text-amber-400">{verifyErr}</span>}
       </div>
+    </div>
+  );
+}
+
+/** Shown when verify failed with an A-record conflict. Lets the user
+ *  switch to a non-conflicting subdomain: the recommended one, or any
+ *  prefix they type. "Switch" = delete the current row + register the
+ *  new domain (one-app-one-domain, so we free the slot first). Full
+ *  free-form re-entry stays available via the panel's normal delete →
+ *  re-add path, surfaced here as the fallback note. */
+function ConflictRecovery({
+  login,
+  repo,
+  registrable,
+  suggested,
+  onChanged,
+}: {
+  login: string;
+  repo: string;
+  registrable: string;
+  suggested: string | null;
+  onChanged: () => Promise<void>;
+}): import('react').ReactNode {
+  const [prefix, setPrefix] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const switchTo = async (newDomain: string): Promise<void> => {
+    setBusy(true);
+    setErr(null);
+    try {
+      // One domain per app — remove the conflicting registration before
+      // claiming the new one.
+      await deleteDomain(login, repo);
+      await registerDomain(login, repo, newDomain);
+      await onChanged();
+    } catch (e) {
+      const reasoned = e as ReasonedError;
+      setErr(panelErrorText(reasoned) ?? reasoned.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="space-y-2 rounded-md border border-slate-800/60 bg-slate-950/40 px-3 py-2.5 text-xs text-slate-400">
+      <p className="text-slate-300">기존 사이트를 유지하려면 새 주소를 사용하는 것을 추천합니다.</p>
+      {suggested && (
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => void switchTo(suggested)}
+          className="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-500 disabled:cursor-not-allowed disabled:bg-slate-700"
+        >
+          {suggested} 사용하기
+        </button>
+      )}
+      <div className="flex flex-wrap items-center gap-1.5 pt-1">
+        <span className="text-slate-500">또는 원하는 이름:</span>
+        <input
+          type="text"
+          value={prefix}
+          onChange={(e) => setPrefix(e.target.value)}
+          placeholder="app"
+          spellCheck={false}
+          autoComplete="off"
+          autoCapitalize="off"
+          className="w-24 rounded-md border border-slate-800 bg-slate-950 px-2 py-1 font-mono text-xs text-slate-100 placeholder-slate-700 focus:border-slate-600 focus:outline-none"
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !busy && prefix.trim()) {
+              void switchTo(`${prefix.trim()}.${registrable}`);
+            }
+          }}
+        />
+        <span className="font-mono text-slate-500">.{registrable}</span>
+        <button
+          type="button"
+          disabled={busy || !prefix.trim()}
+          onClick={() => void switchTo(`${prefix.trim()}.${registrable}`)}
+          className="rounded-md border border-slate-700 px-2 py-1 text-xs text-slate-200 hover:border-slate-600 hover:bg-slate-800/50 disabled:cursor-not-allowed disabled:text-slate-600"
+        >
+          이 주소로 시도
+        </button>
+      </div>
+      <p className="text-[11px] text-slate-600">
+        다른 도메인을 쓰려면 [삭제] 후 전체 주소로 다시 추가하세요.
+      </p>
+      {err && <p className="text-amber-400">{err}</p>}
     </div>
   );
 }
@@ -435,7 +583,13 @@ function ZoneFileDownload({
  *  leaf label from the user's domain so the example is concrete to
  *  their case — fallback to generic text if the domain shape is
  *  unexpected. */
-function RecordEntryHints({ domain }: { domain: string }): import('react').ReactNode {
+function RecordEntryHints({
+  domain,
+  hasTxt,
+}: {
+  domain: string;
+  hasTxt: boolean;
+}): import('react').ReactNode {
   // Conservative leaf extraction: the first label of the subdomain.
   // For `app.my-domain.com` → `app`. For `service.api.example.co.kr` →
   // `service`. (We don't have tldts on the frontend; if a user's setup
@@ -443,7 +597,8 @@ function RecordEntryHints({ domain }: { domain: string }): import('react').React
   // providers accept the FQDN form.)
   const labels = domain.split('.');
   const leaf = labels.length >= 3 ? labels[0] : null;
-  const txtShort = leaf ? `_swkoo-challenge.${leaf}` : null;
+  // TXT shorthand only relevant for the legacy txt_cname scheme.
+  const txtShort = hasTxt && leaf ? `_swkoo-challenge.${leaf}` : null;
 
   return (
     <details className="group rounded-md border border-slate-800/60 bg-slate-950/40 text-xs text-slate-400 open:bg-slate-950/60">
@@ -487,7 +642,7 @@ function RecordEntryHints({ domain }: { domain: string }): import('react').React
           <span className="text-slate-300">DNS 레코드 파일 import:</span>{' '}
           파일 import를 지원하는 업체라면 위 [DNS 레코드 파일 다운로드]로 받은 파일을 업로드할 수 있습니다.
           예를 들어 Cloudflare에서는 <span className="font-mono">DNS Records → Import and Export → Import DNS records</span>에서 업로드합니다.
-          (지원하지 않는 업체는 위 TXT/CNAME 값을 직접 입력하세요.)
+          (지원하지 않는 업체는 위 레코드 값을 직접 입력하세요.)
         </li>
         <li>
           <span className="text-slate-300">이미 다른 서비스에 연결된 host:</span>{' '}

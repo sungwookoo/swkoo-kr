@@ -22,8 +22,9 @@ function seed(repo: CustomDomainsRepository, overrides: Partial<{
     login: overrides.login ?? 'alice',
     appName: overrides.appName ?? 'nextjs-sample',
     domain: overrides.domain ?? 'app.alice-example.com',
+    scheme: 'cname_token',
     verificationToken: 'tok-123',
-    expectedCname: 'alice-nextjs-sample.apps.swkoo.kr',
+    expectedCname: 'cd-tok-123.domains.swkoo.kr',
   });
 }
 
