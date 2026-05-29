@@ -26,7 +26,7 @@ import type { CurrentDeployment } from '../deploy/deploy.service';
 import { CertStatusCache } from './cert-status-cache';
 import { DnsResolver } from './dns-resolver';
 import { CustomDomainsRepository } from './domain.repository';
-import { DomainService } from './domain.service';
+import { DomainService, DomainInfo } from './domain.service';
 import type { GithubAppService } from '../github-app/github-app.service';
 import type { UsersRepository } from '../onboarding/users.repository';
 
@@ -47,6 +47,7 @@ function makeCurrent(overrides: Partial<CurrentDeployment> = {}): CurrentDeploym
 function makeService(opts: {
   dnsTxt?: string[] | Error;
   dnsCname?: string[] | Error;
+  dnsA?: string[] | Error;
   commitSha?: string;
   token?: string;
   kustomizationContent?: string;
@@ -68,6 +69,10 @@ function makeService(opts: {
     resolveCname: jest.fn(async () => {
       if (opts.dnsCname instanceof Error) throw opts.dnsCname;
       return opts.dnsCname ?? [];
+    }),
+    resolveA: jest.fn(async () => {
+      if (opts.dnsA instanceof Error) throw opts.dnsA;
+      return opts.dnsA ?? [];
     }),
   } as unknown as DnsResolver;
 
@@ -254,6 +259,61 @@ describe('DomainService.delete', () => {
     await service.delete(current);
     expect(githubApp.commitFilesAtomic).toHaveBeenCalledTimes(2);
     expect(certCache.invalidate).toHaveBeenCalledWith('user-alice', 'nextjs-sample-custom-domain-tls');
+  });
+});
+
+/** A-record conflict diagnosis — when the CNAME can't be found, an A
+ *  record on the same host (Vercel/Netlify/etc.) is the usual cause
+ *  since DNS forbids CNAME+A on one name. Turns "CNAME 없음" into an
+ *  actionable conflict message. */
+describe('DomainService.verify — A-record conflict diagnosis', () => {
+  const enodata = Object.assign(new Error('ENODATA'), { code: 'ENODATA' });
+
+  async function setupWithDns(opts: {
+    dnsCname: Error;
+    dnsA?: string[] | Error;
+  }): Promise<DomainInfo> {
+    const { service } = makeService({});
+    const current = makeCurrent();
+    const reg = await service.register({
+      userId: 1,
+      current,
+      domain: 'www.zieun-example.dev',
+    });
+    const dns = (service as unknown as {
+      dns: { resolveTxt: jest.Mock; resolveCname: jest.Mock; resolveA: jest.Mock };
+    }).dns;
+    // TXT must pass so checkDns reaches the CNAME branch.
+    dns.resolveTxt.mockResolvedValue([`swkoo-domain-verification=${reg.verificationToken}`]);
+    dns.resolveCname.mockRejectedValue(opts.dnsCname);
+    if (opts.dnsA instanceof Error) {
+      dns.resolveA.mockRejectedValue(opts.dnsA);
+    } else {
+      dns.resolveA.mockResolvedValue(opts.dnsA ?? []);
+    }
+    return service.verify(current);
+  }
+
+  it('CNAME not found + A record present → DNS_CNAME_CONFLICTS_WITH_A', async () => {
+    const info = await setupWithDns({ dnsCname: enodata, dnsA: ['76.76.21.21'] });
+    expect(info.status).toBe('error');
+    expect(info.lastError).toContain('A 레코드가 있습니다');
+    // Suggests a new subdomain derived from the registrable domain.
+    expect(info.lastError).toContain('portfolio.zieun-example.dev');
+  });
+
+  it('CNAME not found + no A record → falls back to DNS_CNAME_NOT_FOUND', async () => {
+    const info = await setupWithDns({ dnsCname: enodata, dnsA: [] });
+    expect(info.status).toBe('error');
+    expect(info.lastError).toContain('CNAME 레코드를 찾을 수 없습니다');
+    expect(info.lastError).not.toContain('A 레코드가 있습니다');
+  });
+
+  it('CNAME not found + A lookup itself throws → falls back to DNS_CNAME_NOT_FOUND (verify intact)', async () => {
+    const atimeout = Object.assign(new Error('ETIMEOUT'), { code: 'ETIMEOUT' });
+    const info = await setupWithDns({ dnsCname: enodata, dnsA: atimeout });
+    expect(info.status).toBe('error');
+    expect(info.lastError).toContain('CNAME 레코드를 찾을 수 없습니다');
   });
 });
 

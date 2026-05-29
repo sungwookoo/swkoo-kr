@@ -158,6 +158,10 @@ export function panelErrorText(
     case 'TOO_LONG':
     case 'EMPTY':
       return '도메인 형식이 올바르지 않습니다.';
+    case 'DNS_CNAME_CONFLICTS_WITH_A':
+      // Backend message names the exact host + the two resolution paths
+      // (new subdomain vs delete-A-then-CNAME); pass it through verbatim.
+      return err.message ?? 'CNAME과 충돌하는 A 레코드가 있습니다.';
     case 'DNS_TXT_NOT_FOUND':
     case 'DNS_TXT_MISMATCH':
     case 'DNS_TXT_ERROR':

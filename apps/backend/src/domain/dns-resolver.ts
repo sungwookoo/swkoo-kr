@@ -55,6 +55,18 @@ export class DnsResolver {
     });
   }
 
+  /** Returns the A (IPv4) records for a name. Used to diagnose the
+   * common "host already points at another service" case: a name with
+   * an A record can't also hold a CNAME (RFC 1034), which is why adding
+   * our CNAME fails. Same retry/timeout as the other lookups; NXDOMAIN/
+   * NODATA throw (caller treats as "no A record"). */
+  async resolveA(name: string): Promise<string[]> {
+    return this.withRetry('A', name, async () => {
+      const r = this.makeResolver();
+      return r.resolve4(name);
+    });
+  }
+
   private async withRetry<T>(
     kind: string,
     name: string,

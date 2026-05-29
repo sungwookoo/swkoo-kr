@@ -392,6 +392,14 @@ export class DomainService {
     } catch (err) {
       const code = (err as NodeJS.ErrnoException).code;
       if (code === 'ENOTFOUND' || code === 'ENODATA') {
+        // No CNAME. Before reporting plain "not found", check whether the
+        // host already holds an A record — the usual reason a CNAME can't
+        // be added (RFC 1034: a name can't have both). This turns a
+        // confusing "CNAME 없음" into an actionable "기존 서비스와 충돌"
+        // message. A-lookup failure must NOT break verify — fall back to
+        // the plain not-found reason.
+        const aConflict = await this.detectAConflict(row.domain);
+        if (aConflict) return aConflict;
         return {
           reason: 'DNS_CNAME_NOT_FOUND',
           message: `CNAME 레코드를 찾을 수 없습니다 (${row.domain}).`,
@@ -409,6 +417,32 @@ export class DomainService {
       };
     }
     return null;
+  }
+
+  /** When a CNAME can't be found, an A record on the same host is the
+   * usual culprit (the domain already points at Vercel/Netlify/etc., and
+   * DNS won't allow a CNAME alongside an A record). Returns the conflict
+   * reason when an A record exists, else null. Swallows resolveA failures
+   * (timeout/NXDOMAIN/NODATA) — diagnosis is best-effort and must never
+   * break the verify flow; the caller falls back to DNS_CNAME_NOT_FOUND. */
+  private async detectAConflict(
+    domain: string
+  ): Promise<{ reason: string; message: string } | null> {
+    let aRecords: string[] = [];
+    try {
+      aRecords = await this.dns.resolveA(domain);
+    } catch {
+      return null; // no A record / lookup failed → not a conflict we can assert
+    }
+    if (aRecords.length === 0) return null;
+    return {
+      reason: 'DNS_CNAME_CONFLICTS_WITH_A',
+      message:
+        `${domain} 는 현재 다른 서비스(Vercel 등)로 연결된 A 레코드가 있습니다. ` +
+        `DNS 규칙상 한 host는 A 레코드와 CNAME을 동시에 가질 수 없습니다. ` +
+        `기존 서비스를 유지하려면 portfolio.${domain.split('.').slice(1).join('.')} 같은 새 subdomain을 사용하세요. ` +
+        `이 host를 swkoo.kr로 옮기려면 기존 A 레코드를 삭제하고 CNAME을 추가하세요.`,
+    };
   }
 
   private async commitCustomDomainIngress(row: CustomDomainRow): Promise<string> {

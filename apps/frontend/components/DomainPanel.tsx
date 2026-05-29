@@ -197,6 +197,11 @@ function EmptyState({
             입력란에 도메인을 넣을 때는 <span className="font-mono">https://</span> 또는 슬래시 없이 도메인만 입력하세요.
             (예: <span className="font-mono">app.your-domain.com</span>)
           </li>
+          <li>
+            이미 Vercel/Netlify 등에 연결된 <span className="font-mono">www</span> 또는 루트 도메인은
+            그대로 두고, <span className="font-mono">portfolio.your-domain.com</span> 같은 새 서브도메인을
+            쓰는 것을 추천합니다. 기존 서비스와 충돌하지 않습니다.
+          </li>
         </ul>
       </details>
 
@@ -428,6 +433,12 @@ function RecordEntryHints({ domain }: { domain: string }): import('react').React
           <span className="text-slate-300">전파 시간:</span>{' '}
           DNS 전파는 보통 1-5분, 경우에 따라 더 오래(수십 분~몇 시간) 걸릴 수 있습니다.
           [확인]에서 실패하면 잠시 더 기다린 뒤 다시 시도하세요.
+        </li>
+        <li>
+          <span className="text-slate-300">이미 다른 서비스에 연결된 host:</span>{' '}
+          Vercel/Netlify 등에 연결된 <span className="font-mono">www</span> 나 루트 도메인은 그대로 두고,
+          <span className="font-mono">portfolio.your-domain.com</span> 같은 새 서브도메인을 쓰는 것을 추천합니다.
+          이미 A 레코드가 있는 host에는 CNAME을 추가할 수 없습니다(DNS 규칙).
         </li>
       </ul>
     </details>
