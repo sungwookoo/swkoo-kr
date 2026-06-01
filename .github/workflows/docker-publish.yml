@@ -8,6 +8,13 @@ on:
       - 'deploy/base/**'
   workflow_dispatch:
 
+# Cancel in-progress runs of the same workflow on the same ref. A
+# rapid follow-up push (typo fix, dependent commit) supersedes the
+# older run instead of paying runner minutes on a now-stale build.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   REGISTRY_HOST: ${{ secrets.OCI_REGISTRY_HOST }}
   NAMESPACE: ${{ secrets.OCI_TENANCY_NAMESPACE }}
@@ -54,6 +61,35 @@ jobs:
         working-directory: apps/backend
         run: npm test
 
+  frontend-test:
+    # Mirrors backend-test. Vitest + jsdom runs in ~3s headless — no
+    # browser binary, no Playwright. Runs the production build too so
+    # the same job that gates the image push also confirms Next.js can
+    # compile the same code.
+    needs: changes
+    if: |
+      needs.changes.outputs.frontend == 'true' ||
+      github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-22.04-arm
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+          cache-dependency-path: apps/frontend/package-lock.json
+      - name: Install frontend deps
+        working-directory: apps/frontend
+        run: npm ci
+      - name: Run frontend tests
+        working-directory: apps/frontend
+        run: npm test
+      - name: Build frontend (next build)
+        working-directory: apps/frontend
+        run: npm run build
+
   backend:
     needs: [changes, backend-test]
     # Run on backend code changes, or whenever the workflow is manually dispatched
@@ -98,7 +134,10 @@ jobs:
           cache-to: type=gha,mode=max,scope=backend,ignore-error=true
 
   frontend:
-    needs: changes
+    needs: [changes, frontend-test]
+    # Same shape as `backend`: gated on the test job via `needs`. If
+    # frontend-test fails or is skipped because it wasn't relevant,
+    # this job won't run and no broken image gets pushed.
     if: |
       needs.changes.outputs.frontend == 'true' ||
       github.event_name == 'workflow_dispatch'
