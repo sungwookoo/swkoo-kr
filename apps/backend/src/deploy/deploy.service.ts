@@ -788,9 +788,21 @@ export class DeployService {
       }
       if (run.status === 'completed') {
         this.maybeNotifyBuildFailure(owner, repo, run);
+        // Heuristic hint: GHCR rejects uppercase image-repo paths
+        // (`invalid tag ... repository name must be lowercase`). The
+        // pre-fix renderBuildWorkflow tagged with `${{ github.repository }}`
+        // which preserved GitHub casing, so any user with uppercase in
+        // their repo (e.g. hatbann/PocketPlan) saw silent buildx failures.
+        // We can't read the GHA log line from here, but a failed run on a
+        // mixed-case repo is overwhelmingly likely this issue. Phrased as
+        // "가능성이 큽니다" — not asserted, since other failures (test
+        // failures, dependency errors) on uppercase repos exist too.
+        const hint = /[A-Z]/.test(repo)
+          ? ' — repo 이름에 대문자가 있어 GHCR 태그 규칙(소문자만 허용)을 위반했을 가능성이 큽니다. swkoo.kr에서 [배포 시작]을 다시 누르면 workflow가 자동 갱신되어 다음 빌드부터 정상 동작합니다.'
+          : '';
         return {
           status: 'failed',
-          message: `빌드 실패: ${run.conclusion ?? 'unknown'}`,
+          message: `빌드 실패: ${run.conclusion ?? 'unknown'}${hint}`,
           link: run.html_url,
         };
       }
