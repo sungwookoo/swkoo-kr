@@ -146,10 +146,36 @@ export interface RegisterError {
 
 export type StageStatus = 'pending' | 'running' | 'success' | 'failed';
 
+/** Mirrors backend StageReason — kept as a string union so unknown
+ * values from older/newer backends still parse as `string`. The UI
+ * matches against known values only; everything else falls back to the
+ * message. */
+export type StageReason =
+  | 'GITHUB_APP_NOT_INSTALLED'
+  | 'WORKFLOW_OLD_TEMPLATE'
+  | 'BUILD_SCRIPT_MISSING'
+  | 'PACKAGE_LOCK_MISSING'
+  | 'NPM_INSTALL_FAILED'
+  | 'DOCKER_BUILD_FAILED'
+  | 'GHCR_PUSH_FAILED'
+  | 'IMAGE_UPDATER_PENDING'
+  | 'ARGO_SYNC_FAILED'
+  | 'LIVE_HEALTHCHECK_FAILED'
+  | 'UNKNOWN_BUILD_FAILURE';
+
+export interface StageAction {
+  label: string;
+  href?: string;
+  kind?: 'link' | 'retry' | 'docs';
+}
+
 export interface StageInfo {
   status: StageStatus;
   message: string;
   link?: string;
+  reason?: StageReason;
+  userAction?: StageAction;
+  operatorHint?: string;
 }
 
 export interface DeploymentStatus {

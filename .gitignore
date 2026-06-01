@@ -16,3 +16,9 @@ out/
 # Environment files
 .env
 .env.*
+
+# Playwright (e2e smoke). Specs themselves live under apps/frontend/e2e
+# and ARE committed — only the run artefacts are ignored.
+test-results/
+playwright-report/
+playwright/.cache/

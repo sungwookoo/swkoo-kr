@@ -14,7 +14,9 @@ export default defineConfig({
     setupFiles: ['./vitest.setup.ts'],
     include: ['**/*.test.{ts,tsx}'],
     // Next's own folders contain runtime code that mustn't be scanned.
-    exclude: ['node_modules', '.next', 'dist'],
+    // `e2e/` holds Playwright specs — those use a different runner
+    // (`@playwright/test`) and crash Vitest if loaded here.
+    exclude: ['node_modules', '.next', 'dist', 'e2e', 'test-results', 'playwright-report'],
     css: false,
   },
 });

@@ -564,7 +564,12 @@ function Checklist({ status }: { status: DeploymentStatus }): import("react").Re
   );
 }
 
-function StageRow({ label, stage }: { label: string; stage: StageInfo }): import("react").ReactNode {
+export function StageRow({ label, stage }: { label: string; stage: StageInfo }): import("react").ReactNode {
+  // Don't double-render the same link: when userAction.href matches
+  // stage.link we render only the userAction (more specific copy).
+  const showStageLink =
+    stage.link && (!stage.userAction?.href || stage.userAction.href !== stage.link);
+
   return (
     <li className="flex items-start gap-4 rounded-md border border-slate-800 bg-slate-900/30 p-4">
       <StatusIcon status={stage.status} />
@@ -574,7 +579,21 @@ function StageRow({ label, stage }: { label: string; stage: StageInfo }): import
           <StatusBadge status={stage.status} />
         </div>
         <p className="text-xs text-slate-400">{stage.message}</p>
-        {stage.link && (
+
+        {stage.userAction && (
+          <div className="pt-1.5">
+            <p className="text-[10px] uppercase tracking-wide text-slate-500">다음 조치</p>
+            <UserActionLink action={stage.userAction} />
+          </div>
+        )}
+
+        {stage.operatorHint && (
+          <p className="pt-1.5 text-[11px] italic text-slate-500">
+            <span className="font-mono not-italic text-slate-600">[운영자 확인]</span> {stage.operatorHint}
+          </p>
+        )}
+
+        {showStageLink && stage.link && (
           <a
             href={stage.link}
             target="_blank"
@@ -590,6 +609,38 @@ function StageRow({ label, stage }: { label: string; stage: StageInfo }): import
         )}
       </div>
     </li>
+  );
+}
+
+function UserActionLink({ action }: { action: NonNullable<StageInfo['userAction']> }): import("react").ReactNode {
+  // External (absolute http(s) URLs) opens in a new tab; internal
+  // ("/deploy") is a plain anchor — userAction.href is a runtime
+  // string from the backend, so it can't satisfy Next's typedRoutes
+  // contract on <Link>. A full reload back to /deploy is actually
+  // desirable here (it clears SWR cache + refreshes auth state).
+  const isExternal = action.href?.startsWith('http://') || action.href?.startsWith('https://');
+  if (!action.href) {
+    return <p className="text-xs text-amber-300/90">{action.label}</p>;
+  }
+  if (isExternal) {
+    return (
+      <a
+        href={action.href}
+        target="_blank"
+        rel="noreferrer"
+        className="text-xs text-emerald-300 underline-offset-2 hover:text-emerald-200 hover:underline"
+      >
+        {action.label} ↗
+      </a>
+    );
+  }
+  return (
+    <a
+      href={action.href}
+      className="text-xs text-emerald-300 underline-offset-2 hover:text-emerald-200 hover:underline"
+    >
+      {action.label}
+    </a>
   );
 }
 

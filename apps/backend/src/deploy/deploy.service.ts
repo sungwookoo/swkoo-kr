@@ -98,10 +98,41 @@ export interface RegisterResponse {
 
 export type StageStatus = 'pending' | 'running' | 'success' | 'failed';
 
+/** Machine-readable failure category for a stage. Frontend uses this to
+ * select a userAction CTA and to keep copy stable across releases. New
+ * values are additive — frontends ignore unknowns and fall through to
+ * the message field. */
+export type StageReason =
+  | 'GITHUB_APP_NOT_INSTALLED'
+  | 'WORKFLOW_OLD_TEMPLATE'
+  | 'BUILD_SCRIPT_MISSING'
+  | 'PACKAGE_LOCK_MISSING'
+  | 'NPM_INSTALL_FAILED'
+  | 'DOCKER_BUILD_FAILED'
+  | 'GHCR_PUSH_FAILED'
+  | 'IMAGE_UPDATER_PENDING'
+  | 'ARGO_SYNC_FAILED'
+  | 'LIVE_HEALTHCHECK_FAILED'
+  | 'UNKNOWN_BUILD_FAILURE';
+
+export interface StageAction {
+  label: string;
+  href?: string;
+  kind?: 'link' | 'retry' | 'docs';
+}
+
 export interface StageInfo {
   status: StageStatus;
   message: string;
   link?: string;
+  // New in Phase 3: structured failure cause + actionable CTA. All
+  // optional — existing API consumers ignore unknown fields. Only set
+  // when we have a deterministic signal; ambiguous build failures stay
+  // as UNKNOWN_BUILD_FAILURE rather than guessing.
+  reason?: StageReason;
+  userAction?: StageAction;
+  // Tone: shown subtly to non-developers, more prominent on Observatory.
+  operatorHint?: string;
 }
 
 export interface CurrentDeployment {
@@ -974,22 +1005,14 @@ export class DeployService {
       }
       if (run.status === 'completed') {
         this.maybeNotifyBuildFailure(owner, repo, run);
-        // Heuristic hint: GHCR rejects uppercase image-repo paths
-        // (`invalid tag ... repository name must be lowercase`). The
-        // pre-fix renderBuildWorkflow tagged with `${{ github.repository }}`
-        // which preserved GitHub casing, so any user with uppercase in
-        // their repo (e.g. hatbann/PocketPlan) saw silent buildx failures.
-        // We can't read the GHA log line from here, but a failed run on a
-        // mixed-case repo is overwhelmingly likely this issue. Phrased as
-        // "가능성이 큽니다" — not asserted, since other failures (test
-        // failures, dependency errors) on uppercase repos exist too.
-        const hint = /[A-Z]/.test(repo)
-          ? ' — repo 이름에 대문자가 있어 GHCR 태그 규칙(소문자만 허용)을 위반했을 가능성이 큽니다. swkoo.kr에서 [배포 시작]을 다시 누르면 workflow가 자동 갱신되어 다음 빌드부터 정상 동작합니다.'
-          : '';
+        const classified = await this.classifyBuildFailure(accessToken, owner, repo, run);
         return {
           status: 'failed',
-          message: `빌드 실패: ${run.conclusion ?? 'unknown'}${hint}`,
+          message: classified.message,
           link: run.html_url,
+          reason: classified.reason,
+          userAction: classified.userAction,
+          operatorHint: classified.operatorHint,
         };
       }
       return { status: 'running', message: `이미지 빌드 중 (${run.status})`, link: run.html_url };
@@ -997,6 +1020,147 @@ export class DeployService {
       this.logger.warn(`checkBuildStage failed: ${(err as Error).message}`);
       return { status: 'pending', message: '빌드 상태 확인 중' };
     }
+  }
+
+  /** Best-effort classification of a *completed-but-failed* GHA run.
+   * Two probes:
+   *   1. The user's build.yml — if it still uses the legacy
+   *      `${{ github.repository }}` tag (pre c98b452 fix), the build
+   *      will fail with "repository name must be lowercase" on any
+   *      mixed-case repo. Re-running register on swkoo.kr regenerates
+   *      the workflow with `params.imageRepo` (already lower-cased).
+   *   2. The run's jobs endpoint — failed step name carries enough
+   *      signal to classify without downloading the log zip. Step
+   *      names come from our generated workflow (renderBuildWorkflow)
+   *      so they're stable; users who hand-edit the workflow can fall
+   *      through to UNKNOWN_BUILD_FAILURE.
+   * Any classification failure (token issue, jobs 404, regex miss)
+   * returns UNKNOWN_BUILD_FAILURE so the UI still surfaces a useful
+   * "open the log" link. */
+  private async classifyBuildFailure(
+    accessToken: string,
+    owner: string,
+    repo: string,
+    run: GhaRunSummary
+  ): Promise<{
+    message: string;
+    reason: StageReason;
+    userAction?: StageAction;
+    operatorHint?: string;
+  }> {
+    const headers = {
+      Authorization: `token ${accessToken}`,
+      Accept: 'application/vnd.github+json',
+    };
+    const conclusion = run.conclusion ?? 'unknown';
+
+    // ---- Probe 1: legacy workflow template ----
+    // Only the failure surface is interesting — a "matched" template
+    // means we know the workflow needs regenerating. We narrow further
+    // for the mixed-case repo case (the original symptom). Other
+    // legacy quirks may exist but we don't enumerate them here.
+    try {
+      const wfResp = await axios.get<GithubContent>(
+        `https://api.github.com/repos/${owner}/${repo}/contents/.github/workflows/build.yml`,
+        { headers }
+      );
+      const wfContent = Buffer.from(wfResp.data.content, 'base64').toString('utf8');
+      const legacyTagPattern = /ghcr\.io\/\$\{\{\s*github\.repository\s*\}\}/;
+      const hasLegacyTag = legacyTagPattern.test(wfContent);
+      if (hasLegacyTag) {
+        const mixedCase = /[A-Z]/.test(repo);
+        const mixedCaseSuffix = mixedCase
+          ? ' (repo 이름에 대문자가 포함되어 있어 lowercase GHCR 태그 규칙을 위반합니다)'
+          : '';
+        return {
+          message: `빌드 실패: ${conclusion} — 구버전 workflow 템플릿을 사용 중입니다${mixedCaseSuffix}.`,
+          reason: 'WORKFLOW_OLD_TEMPLATE',
+          userAction: {
+            label: 'swkoo.kr에서 다시 배포 시작 (workflow 자동 갱신)',
+            href: '/deploy',
+            kind: 'link',
+          },
+        };
+      }
+    } catch (err) {
+      // Workflow file unreadable — possibly the user deleted it or
+      // the install token is missing. Skip this probe and try step
+      // classification.
+      this.logger.warn(
+        `classifyBuildFailure workflow probe failed for ${owner}/${repo}: ${(err as Error).message}`
+      );
+    }
+
+    // ---- Probe 2: failed step name ----
+    // The jobs endpoint is cheap relative to the log zip and carries
+    // step-level conclusions. We look for the *first* failed step and
+    // match against a small set of patterns tied to our generated
+    // template (checkout/buildx/login-action/build-push-action).
+    interface GhaJobStep {
+      name: string;
+      status: string;
+      conclusion: string | null;
+    }
+    interface GhaJob {
+      name: string;
+      status: string;
+      conclusion: string | null;
+      steps?: GhaJobStep[];
+    }
+    try {
+      const jobsResp = await axios.get<{ jobs: GhaJob[] }>(
+        `https://api.github.com/repos/${owner}/${repo}/actions/runs/${run.id}/jobs`,
+        { headers }
+      );
+      const failedStep = jobsResp.data.jobs
+        .flatMap((j) => j.steps ?? [])
+        .find((s) => s.conclusion === 'failure');
+      const stepName = failedStep?.name.toLowerCase() ?? '';
+
+      // login-action failure → token / packages: write missing.
+      if (stepName.includes('login') && stepName.includes('ghcr')) {
+        return {
+          message: `빌드 실패: ${conclusion} — GHCR 로그인 단계 실패.`,
+          reason: 'GHCR_PUSH_FAILED',
+          userAction: {
+            label: 'GitHub Actions 로그 보기',
+            href: run.html_url,
+            kind: 'link',
+          },
+          operatorHint: 'workflow의 permissions.packages 또는 GITHUB_TOKEN 권한 확인이 필요할 수 있습니다.',
+        };
+      }
+      // build-push-action / Build and push → docker build failed.
+      if (
+        stepName.includes('build') &&
+        (stepName.includes('push') || stepName.includes('docker'))
+      ) {
+        return {
+          message: `빌드 실패: ${conclusion} — Docker 빌드/푸시 단계 실패.`,
+          reason: 'DOCKER_BUILD_FAILED',
+          userAction: {
+            label: 'GitHub Actions 로그 보기',
+            href: run.html_url,
+            kind: 'link',
+          },
+        };
+      }
+    } catch (err) {
+      this.logger.warn(
+        `classifyBuildFailure jobs probe failed for ${owner}/${repo}#${run.id}: ${(err as Error).message}`
+      );
+    }
+
+    // ---- Fallback ----
+    return {
+      message: `빌드 실패: ${conclusion}`,
+      reason: 'UNKNOWN_BUILD_FAILURE',
+      userAction: {
+        label: 'GitHub Actions 로그 보기',
+        href: run.html_url,
+        kind: 'link',
+      },
+    };
   }
 
   private maybeNotifyBuildFailure(
@@ -1050,7 +1214,17 @@ export class DeployService {
       return { status: 'success', message: '배포 완료 (Synced / Healthy)' };
     }
     if (health === 'Degraded') {
-      return { status: 'failed', message: `배포 실패 (Health=${health})` };
+      return {
+        status: 'failed',
+        message: `배포 실패 (Health=${health})`,
+        reason: 'ARGO_SYNC_FAILED',
+        userAction: {
+          label: 'GitHub Actions 로그로 빌드 결과 먼저 확인',
+          kind: 'docs',
+        },
+        operatorHint:
+          'Pod 이벤트(kubectl describe / kubectl logs)로 ImagePullBackOff, CrashLoopBackOff 여부를 확인하세요.',
+      };
     }
     return {
       status: 'running',
@@ -1068,6 +1242,13 @@ export class DeployService {
       if (resp.status >= 200 && resp.status < 400) {
         return { status: 'success', message: `${liveUrl} 응답 정상`, link: liveUrl };
       }
+      // 5xx (or persistent non-success) is treated as pending here on
+      // purpose — the live URL flips through 5xx briefly while the
+      // ingress + new pod are settling, and we don't want to flash a
+      // hard 'failed' state during a normal rollout. Only mark failed
+      // if the Argo deploy stage has settled as Degraded (handled in
+      // checkDeployStage) — the live row stays in pending until either
+      // a 2xx-3xx response or the operator intervenes.
       return {
         status: 'pending',
         message: `${liveUrl} HTTP ${resp.status}`,

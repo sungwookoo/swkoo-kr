@@ -388,3 +388,321 @@ describe('DeployService.detectStack — pre-deploy checks', () => {
     expect(r.checks).toHaveLength(1);
   });
 });
+
+/** Phase 3 — structured failure reasons on the deployment status feed.
+ *  We test the *classification path* of checkBuildStage and the deploy
+ *  stage degraded path. We don't fully exercise getDeploymentStatus
+ *  (Promise.all of four probes); the classifier is the new logic and
+ *  callers wire its return through unchanged. */
+describe('DeployService.checkBuildStage — failure classification', () => {
+  type AxiosGet = jest.Mock<Promise<{ data: unknown }>, [string, unknown]>;
+
+  // ---- shared service factory (mirrors detectStack tests but adds
+  // an auth mock since checkBuildStage calls getValidAccessToken) ----
+  function makeService() {
+    const auth = {
+      getValidAccessToken: jest.fn(async () => 'fake-token'),
+    } as unknown as AuthService;
+    const users = {} as UsersRepository;
+    const githubApp = {} as GithubAppService;
+    const argo = {} as ArgoCdClient;
+    const kube = {} as KubeClient;
+    const email = {} as EmailService;
+    const customDomains = { findForRender: jest.fn() } as never;
+    const config = {
+      appsDomain: 'apps.swkoo.kr',
+      discordBuildFailureWebhookUrl: undefined,
+    } as never;
+    return new DeployService(
+      auth, githubApp, users, argo, kube, email, customDomains, config
+    );
+  }
+
+  function wireAxios(responses: Array<{
+    pattern: RegExp;
+    data?: unknown;
+    error?: { response?: { status?: number } };
+  }>): void {
+    const mock = axios.get as unknown as AxiosGet;
+    mock.mockReset();
+    mock.mockImplementation(async (url: string) => {
+      const hit = responses.find((r) => r.pattern.test(url));
+      if (!hit) throw new Error(`unmatched URL in test: ${url}`);
+      if (hit.error) {
+        throw Object.assign(new Error('axios error'), hit.error);
+      }
+      return { data: hit.data };
+    });
+  }
+
+  function encode(text: string): string {
+    return Buffer.from(text, 'utf8').toString('base64');
+  }
+
+  function callCheckBuildStage(
+    service: DeployService,
+    owner: string,
+    repo: string
+  ) {
+    return (service as unknown as {
+      checkBuildStage: (uid: number, o: string, r: string) => Promise<{
+        status: string;
+        message: string;
+        link?: string;
+        reason?: string;
+        userAction?: { label: string; href?: string; kind?: string };
+        operatorHint?: string;
+      }>;
+    }).checkBuildStage(1, owner, repo);
+  }
+
+  // Legacy workflow template — `${{ github.repository }}` in the tag.
+  // This is the pre-c98b452 shape that breaks mixed-case repos.
+  const LEGACY_WORKFLOW = [
+    'name: Build',
+    'jobs:',
+    '  build:',
+    '    steps:',
+    '      - uses: docker/build-push-action@v6',
+    '        with:',
+    '          tags: ghcr.io/${{ github.repository }}:${{ github.sha }}',
+  ].join('\n');
+
+  const MODERN_WORKFLOW = [
+    'name: Build',
+    'jobs:',
+    '  build:',
+    '    steps:',
+    '      - uses: docker/build-push-action@v6',
+    '        with:',
+    '          tags: ghcr.io/alice/sample:${{ github.sha }}',
+  ].join('\n');
+
+  const FAILED_RUN = {
+    id: 999,
+    status: 'completed',
+    conclusion: 'failure',
+    html_url: 'https://github.com/o/r/actions/runs/999',
+    head_sha: 'deadbeef',
+    created_at: '2026-06-01T00:00:00Z',
+  };
+
+  it('legacy workflow template + mixed-case repo → WORKFLOW_OLD_TEMPLATE with casing note', async () => {
+    wireAxios([
+      {
+        pattern: /\/actions\/runs(?!\/)/,
+        data: { workflow_runs: [FAILED_RUN] },
+      },
+      {
+        pattern: /\/contents\/\.github\/workflows\/build\.yml/,
+        data: { content: encode(LEGACY_WORKFLOW) },
+      },
+    ]);
+    const r = await callCheckBuildStage(makeService(), 'hatbann', 'PocketPlan');
+    expect(r.status).toBe('failed');
+    expect(r.reason).toBe('WORKFLOW_OLD_TEMPLATE');
+    expect(r.message).toMatch(/구버전 workflow/);
+    expect(r.message).toMatch(/대문자/);
+    expect(r.userAction?.label).toMatch(/swkoo\.kr/);
+    expect(r.userAction?.href).toBe('/deploy');
+  });
+
+  it('legacy workflow template + lowercase repo → WORKFLOW_OLD_TEMPLATE without casing note', async () => {
+    wireAxios([
+      {
+        pattern: /\/actions\/runs(?!\/)/,
+        data: { workflow_runs: [FAILED_RUN] },
+      },
+      {
+        pattern: /\/contents\/\.github\/workflows\/build\.yml/,
+        data: { content: encode(LEGACY_WORKFLOW) },
+      },
+    ]);
+    const r = await callCheckBuildStage(makeService(), 'alice', 'sample');
+    expect(r.reason).toBe('WORKFLOW_OLD_TEMPLATE');
+    // The mixed-case suffix is omitted for lowercase repos so the user
+    // doesn't see an irrelevant hint.
+    expect(r.message).not.toMatch(/대문자/);
+  });
+
+  it('modern workflow + failed "Build and push" step → DOCKER_BUILD_FAILED', async () => {
+    wireAxios([
+      {
+        pattern: /\/actions\/runs(?!\/)/,
+        data: { workflow_runs: [FAILED_RUN] },
+      },
+      {
+        pattern: /\/contents\/\.github\/workflows\/build\.yml/,
+        data: { content: encode(MODERN_WORKFLOW) },
+      },
+      {
+        pattern: /\/actions\/runs\/999\/jobs/,
+        data: {
+          jobs: [
+            {
+              name: 'build',
+              status: 'completed',
+              conclusion: 'failure',
+              steps: [
+                { name: 'Checkout', status: 'completed', conclusion: 'success' },
+                { name: 'Build and push', status: 'completed', conclusion: 'failure' },
+              ],
+            },
+          ],
+        },
+      },
+    ]);
+    const r = await callCheckBuildStage(makeService(), 'alice', 'sample');
+    expect(r.reason).toBe('DOCKER_BUILD_FAILED');
+    expect(r.message).toMatch(/Docker 빌드/);
+    expect(r.userAction?.href).toBe(FAILED_RUN.html_url);
+  });
+
+  it('modern workflow + failed "Login to GHCR" step → GHCR_PUSH_FAILED with operatorHint', async () => {
+    wireAxios([
+      {
+        pattern: /\/actions\/runs(?!\/)/,
+        data: { workflow_runs: [FAILED_RUN] },
+      },
+      {
+        pattern: /\/contents\/\.github\/workflows\/build\.yml/,
+        data: { content: encode(MODERN_WORKFLOW) },
+      },
+      {
+        pattern: /\/actions\/runs\/999\/jobs/,
+        data: {
+          jobs: [
+            {
+              name: 'build',
+              status: 'completed',
+              conclusion: 'failure',
+              steps: [
+                { name: 'Checkout', status: 'completed', conclusion: 'success' },
+                { name: 'Login to GHCR', status: 'completed', conclusion: 'failure' },
+              ],
+            },
+          ],
+        },
+      },
+    ]);
+    const r = await callCheckBuildStage(makeService(), 'alice', 'sample');
+    expect(r.reason).toBe('GHCR_PUSH_FAILED');
+    expect(r.operatorHint).toMatch(/packages/);
+  });
+
+  it('modern workflow + no matching step → UNKNOWN_BUILD_FAILURE (still links the log)', async () => {
+    wireAxios([
+      {
+        pattern: /\/actions\/runs(?!\/)/,
+        data: { workflow_runs: [FAILED_RUN] },
+      },
+      {
+        pattern: /\/contents\/\.github\/workflows\/build\.yml/,
+        data: { content: encode(MODERN_WORKFLOW) },
+      },
+      {
+        pattern: /\/actions\/runs\/999\/jobs/,
+        data: {
+          jobs: [
+            {
+              name: 'build',
+              status: 'completed',
+              conclusion: 'failure',
+              steps: [
+                // No step is failed — defensive against an upstream
+                // edge case (e.g. job-level failure without a single
+                // failed step). The classifier should not invent a
+                // category for this — pure fallback.
+                { name: 'Checkout', status: 'completed', conclusion: 'success' },
+              ],
+            },
+          ],
+        },
+      },
+    ]);
+    const r = await callCheckBuildStage(makeService(), 'alice', 'sample');
+    expect(r.reason).toBe('UNKNOWN_BUILD_FAILURE');
+    expect(r.userAction?.label).toBe('GitHub Actions 로그 보기');
+    expect(r.userAction?.href).toBe(FAILED_RUN.html_url);
+  });
+
+  it('successful run → success, no reason field', async () => {
+    wireAxios([
+      {
+        pattern: /\/actions\/runs(?!\/)/,
+        data: { workflow_runs: [{ ...FAILED_RUN, conclusion: 'success' }] },
+      },
+    ]);
+    const r = await callCheckBuildStage(makeService(), 'alice', 'sample');
+    expect(r.status).toBe('success');
+    expect(r.reason).toBeUndefined();
+    expect(r.userAction).toBeUndefined();
+  });
+
+  it('no workflow run yet → pending, no reason field', async () => {
+    wireAxios([
+      {
+        pattern: /\/actions\/runs(?!\/)/,
+        data: { workflow_runs: [] },
+      },
+    ]);
+    const r = await callCheckBuildStage(makeService(), 'alice', 'sample');
+    expect(r.status).toBe('pending');
+    expect(r.reason).toBeUndefined();
+  });
+});
+
+/** Phase 3 — deploy stage Degraded carries ARGO_SYNC_FAILED. */
+describe('DeployService.checkDeployStage — ARGO_SYNC_FAILED', () => {
+  function makeService() {
+    const auth = {} as AuthService;
+    const users = {} as UsersRepository;
+    const githubApp = {} as GithubAppService;
+    const argo = {} as ArgoCdClient;
+    const kube = {} as KubeClient;
+    const email = {} as EmailService;
+    const customDomains = { findForRender: jest.fn() } as never;
+    const config = { appsDomain: 'apps.swkoo.kr' } as never;
+    return new DeployService(
+      auth, githubApp, users, argo, kube, email, customDomains, config
+    );
+  }
+
+  function callCheckDeployStage(service: DeployService, app: unknown) {
+    return (service as unknown as {
+      checkDeployStage: (a: unknown) => {
+        status: string;
+        message: string;
+        reason?: string;
+        userAction?: { label: string; kind?: string };
+        operatorHint?: string;
+      };
+    }).checkDeployStage(app);
+  }
+
+  it('Degraded health → failed + ARGO_SYNC_FAILED + operatorHint', () => {
+    const app = {
+      status: { sync: { status: 'Synced' }, health: { status: 'Degraded' } },
+    };
+    const r = callCheckDeployStage(makeService(), app);
+    expect(r.status).toBe('failed');
+    expect(r.reason).toBe('ARGO_SYNC_FAILED');
+    expect(r.operatorHint).toMatch(/ImagePullBackOff|CrashLoopBackOff/);
+  });
+
+  it('Healthy + Synced → success, no reason', () => {
+    const r = callCheckDeployStage(makeService(), {
+      status: { sync: { status: 'Synced' }, health: { status: 'Healthy' } },
+    });
+    expect(r.status).toBe('success');
+    expect(r.reason).toBeUndefined();
+  });
+
+  it('In-progress (Progressing health) → running, no reason', () => {
+    const r = callCheckDeployStage(makeService(), {
+      status: { sync: { status: 'OutOfSync' }, health: { status: 'Progressing' } },
+    });
+    expect(r.status).toBe('running');
+    expect(r.reason).toBeUndefined();
+  });
+});
