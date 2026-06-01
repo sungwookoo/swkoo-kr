@@ -36,9 +36,34 @@ export interface RepoSummary {
   isPrivate: boolean;
 }
 
+/** Pre-deploy check surfaced to the user as part of /api/deploy/preview.
+ * Non-developers shouldn't see raw API errors on first build — they should
+ * see a checklist describing what's ready and what's missing. `userAction`
+ * is the actionable suggestion shown next to a warn/fail row. */
+export interface PreviewCheck {
+  key:
+    | 'repo_access'
+    | 'default_branch'
+    | 'package_json'
+    | 'next_dep'
+    | 'build_script'
+    | 'package_lockfile'
+    | 'repo_casing';
+  status: 'pass' | 'warn' | 'fail';
+  label: string;
+  message: string;
+  userAction?: string;
+}
+
 export type StackPreview =
-  | { stack: 'nextjs'; packageName: string | null; port: number; nodeEngine: string | null }
-  | { stack: 'unsupported'; reason: string };
+  | {
+      stack: 'nextjs';
+      packageName: string | null;
+      port: number;
+      nodeEngine: string | null;
+      checks: PreviewCheck[];
+    }
+  | { stack: 'unsupported'; reason: string; checks: PreviewCheck[] };
 
 interface GithubRepo {
   name: string;
@@ -170,28 +195,71 @@ export class DeployService {
       Accept: 'application/vnd.github+json',
     };
 
-    // Default branch must be 'main' — the generated workflow triggers on
-    // pushes to main, so non-main repos would never build. Catch it here so
-    // the preview surfaces the issue before the user clicks Deploy.
+    const checks: PreviewCheck[] = [];
+
+    // ----- 1. Repo access + default branch -----
+    let defaultBranch: string | null = null;
     try {
       const repoResp = await axios.get<{ default_branch: string }>(
         `https://api.github.com/repos/${owner}/${repo}`,
         { headers }
       );
-      if (repoResp.data.default_branch !== 'main') {
-        return {
-          stack: 'unsupported',
-          reason: `기본 브랜치가 'main'이어야 합니다 (현재: '${repoResp.data.default_branch}'). repo Settings → Branches에서 변경 후 다시 시도해주세요.`,
-        };
-      }
+      defaultBranch = repoResp.data.default_branch;
+      checks.push({
+        key: 'repo_access',
+        status: 'pass',
+        label: 'GitHub repo 접근',
+        message: '읽기 권한이 확인됐어요.',
+      });
     } catch (err) {
       this.logger.warn(
         `detectStack repo metadata failed for ${owner}/${repo}: ${(err as Error).message}`
       );
-      return { stack: 'unsupported', reason: 'repo metadata를 읽을 수 없습니다.' };
+      checks.push({
+        key: 'repo_access',
+        status: 'fail',
+        label: 'GitHub repo 접근',
+        message: 'repo metadata를 읽을 수 없습니다.',
+        userAction:
+          'swkoo-deploy GitHub App이 이 repo에 설치되어 있는지 확인해 주세요. 우상단 [Install on repo]에서 추가할 수 있어요.',
+      });
+      return {
+        stack: 'unsupported',
+        reason: 'repo metadata를 읽을 수 없습니다.',
+        checks,
+      };
     }
 
-    let pkg: { name?: string; dependencies?: Record<string, string>; devDependencies?: Record<string, string>; engines?: { node?: string } };
+    // Strict "main only" — matches the existing behavior and keeps the
+    // user gate aligned with what registerForUser actually deploys.
+    // (The workflow templates listen on main *and* master, but other
+    // automation assumes main.)
+    if (defaultBranch === 'main') {
+      checks.push({
+        key: 'default_branch',
+        status: 'pass',
+        label: '기본 브랜치',
+        message: "기본 브랜치가 'main'이에요.",
+      });
+    } else {
+      checks.push({
+        key: 'default_branch',
+        status: 'fail',
+        label: '기본 브랜치',
+        message: `기본 브랜치가 'main'이 아닙니다 (현재: '${defaultBranch}').`,
+        userAction:
+          "GitHub repo Settings → Branches → Default branch에서 'main'으로 변경 후 다시 시도해 주세요.",
+      });
+    }
+
+    // ----- 2. package.json existence + parse -----
+    let pkg: {
+      name?: string;
+      dependencies?: Record<string, string>;
+      devDependencies?: Record<string, string>;
+      scripts?: Record<string, string>;
+      engines?: { node?: string };
+    } | null = null;
     try {
       const resp = await axios.get<GithubContent>(
         `https://api.github.com/repos/${owner}/${repo}/contents/package.json`,
@@ -199,30 +267,148 @@ export class DeployService {
       );
       const content = Buffer.from(resp.data.content, 'base64').toString('utf8');
       pkg = JSON.parse(content);
+      checks.push({
+        key: 'package_json',
+        status: 'pass',
+        label: 'package.json',
+        message: 'repo 루트에 package.json이 있어요.',
+      });
+    } catch (err) {
+      const status = (err as { response?: { status?: number } }).response?.status;
+      const msg =
+        status === 404
+          ? 'repo 루트에 package.json이 없어요.'
+          : 'package.json을 읽을 수 없어요.';
+      if (status !== 404) {
+        this.logger.warn(`detectStack failed for ${owner}/${repo}: ${(err as Error).message}`);
+      }
+      checks.push({
+        key: 'package_json',
+        status: 'fail',
+        label: 'package.json',
+        message: msg,
+        userAction:
+          '프로젝트 최상단에 package.json을 두어 주세요. monorepo라면 Next.js 앱이 repo 루트에 있어야 해요.',
+      });
+    }
+
+    // ----- 3. Next dependency + 4. build script (depend on pkg) -----
+    if (pkg) {
+      const hasNext = Boolean(
+        pkg.dependencies?.['next'] ?? pkg.devDependencies?.['next']
+      );
+      checks.push(
+        hasNext
+          ? {
+              key: 'next_dep',
+              status: 'pass',
+              label: 'Next.js 의존성',
+              message: 'package.json에 next가 포함돼 있어요.',
+            }
+          : {
+              key: 'next_dep',
+              status: 'fail',
+              label: 'Next.js 의존성',
+              message: 'package.json에 next 의존성이 없습니다 (v0는 Next.js만 지원).',
+              userAction: 'npm install next react react-dom 으로 의존성을 추가해 주세요.',
+            }
+      );
+
+      const hasBuildScript = Boolean(pkg.scripts?.['build']);
+      // Mark as warn (not fail) — Next.js's create-next-app sets this by
+      // default, so missing it is recoverable; we don't want to block
+      // someone with an intentionally custom build setup at preview.
+      // The build will still fail at GHA if missing, but the userAction
+      // copy here is loud enough.
+      checks.push(
+        hasBuildScript
+          ? {
+              key: 'build_script',
+              status: 'pass',
+              label: 'scripts.build',
+              message: 'package.json에 build 스크립트가 있어요.',
+            }
+          : {
+              key: 'build_script',
+              status: 'warn',
+              label: 'scripts.build',
+              message:
+                'package.json에 "build" 스크립트가 없어요. swkoo.kr 자동 빌드는 npm run build를 호출하므로 빌드가 실패할 가능성이 큽니다.',
+              userAction:
+                'package.json의 scripts에 "build": "next build"를 추가해 주세요.',
+            }
+      );
+    }
+
+    // ----- 5. package-lock.json existence (best-effort) -----
+    let hasLockfile: boolean | null = null;
+    try {
+      await axios.get<GithubContent>(
+        `https://api.github.com/repos/${owner}/${repo}/contents/package-lock.json`,
+        { headers }
+      );
+      hasLockfile = true;
     } catch (err) {
       const status = (err as { response?: { status?: number } }).response?.status;
       if (status === 404) {
-        return { stack: 'unsupported', reason: 'package.json not found in repo root' };
+        hasLockfile = false;
+      } else {
+        // Don't fail the whole preview on a transient error here.
+        this.logger.warn(
+          `lockfile check failed for ${owner}/${repo}: ${(err as Error).message}`
+        );
       }
-      this.logger.warn(`detectStack failed for ${owner}/${repo}: ${(err as Error).message}`);
-      return { stack: 'unsupported', reason: 'package.json could not be read' };
     }
+    if (hasLockfile === true) {
+      checks.push({
+        key: 'package_lockfile',
+        status: 'pass',
+        label: 'package-lock.json',
+        message: 'lockfile이 커밋돼 있어요.',
+      });
+    } else if (hasLockfile === false) {
+      // Warn (not fail) per spec preference, but the userAction states
+      // explicitly that this is likely-fatal so the user knows to act.
+      checks.push({
+        key: 'package_lockfile',
+        status: 'warn',
+        label: 'package-lock.json',
+        message:
+          'package-lock.json이 없어요. swkoo.kr의 자동 빌드는 npm ci를 사용하기 때문에 lockfile이 없으면 빌드가 실패합니다.',
+        userAction:
+          '로컬에서 npm install 후 생성된 package-lock.json을 커밋해 주세요.',
+      });
+    }
+    // hasLockfile === null → transient API error; skip the row entirely.
 
-    const hasNext = Boolean(
-      pkg.dependencies?.['next'] ?? pkg.devDependencies?.['next']
-    );
-    if (!hasNext) {
+    // ----- 6. Repo casing (informational pass) -----
+    const hasUpper = /[A-Z]/.test(repo);
+    checks.push({
+      key: 'repo_casing',
+      status: 'pass',
+      label: 'Repo 이름 casing',
+      message: hasUpper
+        ? `GitHub repo 이름(${repo})의 대소문자는 유지되고, GHCR image tag는 자동으로 소문자로 변환됩니다.`
+        : 'lowercase repo 이름이에요. 별도 처리 필요 없어요.',
+    });
+
+    // ----- Final classification -----
+    const firstFail = checks.find((c) => c.status === 'fail');
+    if (firstFail) {
       return {
         stack: 'unsupported',
-        reason: 'No Next.js dependency detected (v0 supports Next.js only)',
+        reason: firstFail.message,
+        checks,
       };
     }
-
+    // pkg is guaranteed non-null in the success branch (a missing
+    // package.json would have fail'd the package_json check above).
     return {
       stack: 'nextjs',
-      packageName: pkg.name ?? null,
+      packageName: pkg?.name ?? null,
       port: 3000,
-      nodeEngine: pkg.engines?.node ?? null,
+      nodeEngine: pkg?.engines?.node ?? null,
+      checks,
     };
   }
 

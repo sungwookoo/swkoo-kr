@@ -59,7 +59,7 @@ export function DeployPageClient(): import("react").ReactNode {
           <p className="text-slate-400">
             GitHub repo만 있으면 swkoo.kr 인프라에 자동 배포합니다.
             <br />
-            Next.js / Node 앱을 지원합니다.
+            Next.js 앱을 지원합니다.
           </p>
           {oauthError && (
             <p className="text-sm text-amber-400">로그인 실패. 다시 시도해주세요.</p>
@@ -615,6 +615,10 @@ function PreviewPanel({ fullName }: { fullName: string }): import("react").React
   );
 }
 
+/** Exported under a test-only alias so PreviewResult.test.tsx can render
+ *  it directly without spinning up the page's auth/SWR machinery. */
+export { PreviewResult as _PreviewResultForTest };
+
 function PreviewResult({
   fullName,
   preview,
@@ -624,9 +628,10 @@ function PreviewResult({
 }): import("react").ReactNode {
   if (preview.stack === 'unsupported') {
     return (
-      <div className="space-y-2">
+      <div className="space-y-3">
         <p className="text-amber-400">⚠️ 지원하지 않는 스택</p>
         <p className="text-sm text-slate-400">{preview.reason}</p>
+        {preview.checks.length > 0 && <PreviewChecks checks={preview.checks} />}
         <Link
           href="/deploy/getting-started"
           className="inline-block text-xs text-slate-500 underline-offset-2 hover:text-slate-300 hover:underline"
@@ -636,6 +641,7 @@ function PreviewResult({
       </div>
     );
   }
+  const hasFail = preview.checks.some((c) => c.status === 'fail');
   return (
     <div className="space-y-4">
       <p className="text-emerald-400">✓ Next.js 앱으로 감지</p>
@@ -655,9 +661,51 @@ function PreviewResult({
           </>
         )}
       </dl>
-      <DeployTrigger fullName={fullName} />
+      <PreviewChecks checks={preview.checks} />
+      <DeployTrigger fullName={fullName} blocked={hasFail} />
     </div>
   );
+}
+
+function PreviewChecks({ checks }: { checks: import('@/lib/deploy').PreviewCheck[] }): import("react").ReactNode {
+  // Hidden when there's nothing to surface — the unsupported branch
+  // already shows `preview.reason` so an empty list there is fine.
+  if (checks.length === 0) return null;
+  return (
+    <section className="space-y-2 rounded-md border border-slate-800 bg-slate-900/40 p-3">
+      <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
+        배포 전 점검
+      </p>
+      <ul className="space-y-1.5 text-sm">
+        {checks.map((c) => (
+          <li key={c.key} className="flex items-start gap-2 leading-relaxed">
+            <CheckIcon status={c.status} />
+            <div className="min-w-0 flex-1">
+              <p className="text-slate-200">
+                <span className="text-slate-400">{c.label}:</span>{' '}
+                <span className={c.status === 'fail' ? 'text-amber-300' : c.status === 'warn' ? 'text-amber-400/90' : 'text-slate-300'}>
+                  {c.message}
+                </span>
+              </p>
+              {c.userAction && (
+                <p className="text-xs text-slate-500">→ {c.userAction}</p>
+              )}
+            </div>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+function CheckIcon({ status }: { status: 'pass' | 'warn' | 'fail' }): import("react").ReactNode {
+  if (status === 'pass') {
+    return <span className="mt-0.5 text-emerald-400" aria-label="pass">✓</span>;
+  }
+  if (status === 'warn') {
+    return <span className="mt-0.5 text-amber-400" aria-label="warn">⚠</span>;
+  }
+  return <span className="mt-0.5 text-red-400" aria-label="fail">✕</span>;
 }
 
 type DeployState =
@@ -674,7 +722,17 @@ function deriveDefaultSlug(fullName: string): string {
     .slice(0, 53);
 }
 
-function DeployTrigger({ fullName }: { fullName: string }): import("react").ReactNode {
+function DeployTrigger({
+  fullName,
+  blocked = false,
+}: {
+  fullName: string;
+  /** Set true when one or more preview checks failed. We disable the
+   *  Deploy button rather than just warn — clicking would burn GHA
+   *  minutes on a known-broken config (e.g. non-main branch, missing
+   *  Next.js dep). User must fix the underlying issue first. */
+  blocked?: boolean;
+}): import("react").ReactNode {
   const router = useRouter();
   const [state, setState] = useState<DeployState>({ kind: 'idle' });
   const [slug, setSlug] = useState('');
@@ -718,7 +776,7 @@ function DeployTrigger({ fullName }: { fullName: string }): import("react").Reac
   };
 
   const slugUnusable = slugCheck && !slugCheck.available;
-  const canDeploy = state.kind !== 'pending' && !checking && !slugUnusable;
+  const canDeploy = state.kind !== 'pending' && !checking && !slugUnusable && !blocked;
 
   return (
     <div className="space-y-3 border-t border-slate-800 pt-4">
@@ -800,6 +858,11 @@ function DeployTrigger({ fullName }: { fullName: string }): import("react").Reac
       >
         {state.kind === 'pending' ? '배포 시작 중…' : 'Deploy →'}
       </button>
+      {blocked && (
+        <p className="text-xs text-amber-400">
+          위 점검에서 ✕ 항목이 있어 배포를 시작할 수 없습니다. 해당 항목을 수정한 뒤 다시 시도해 주세요.
+        </p>
+      )}
       <p className="text-xs text-slate-500">
         Dockerfile + GitHub Actions workflow를 본인 repo에 commit하고, swkoo-kr에
         매니페스트를 추가합니다. 한 사용자당 1개 앱만 등록 가능 (v0).

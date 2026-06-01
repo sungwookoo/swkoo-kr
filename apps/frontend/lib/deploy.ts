@@ -14,9 +14,30 @@ export interface RepoSummary {
   isPrivate: boolean;
 }
 
+export interface PreviewCheck {
+  key:
+    | 'repo_access'
+    | 'default_branch'
+    | 'package_json'
+    | 'next_dep'
+    | 'build_script'
+    | 'package_lockfile'
+    | 'repo_casing';
+  status: 'pass' | 'warn' | 'fail';
+  label: string;
+  message: string;
+  userAction?: string;
+}
+
 export type StackPreview =
-  | { stack: 'nextjs'; packageName: string | null; port: number; nodeEngine: string | null }
-  | { stack: 'unsupported'; reason: string };
+  | {
+      stack: 'nextjs';
+      packageName: string | null;
+      port: number;
+      nodeEngine: string | null;
+      checks: PreviewCheck[];
+    }
+  | { stack: 'unsupported'; reason: string; checks: PreviewCheck[] };
 
 async function fetcher<T>(url: string): Promise<T> {
   const response = await fetch(url, { credentials: 'include' });

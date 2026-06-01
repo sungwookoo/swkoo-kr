@@ -56,7 +56,7 @@ export function DomainPanel({ login, repo, fallbackLiveUrl }: DomainPanelProps):
       <header className="flex items-baseline justify-between gap-2">
         <h3 className="text-sm font-medium text-slate-300">커스텀 도메인</h3>
         <span className="font-mono text-[10px] uppercase tracking-wide text-slate-600">
-          v0 · subdomain only
+          v0.2 · CNAME 1줄
         </span>
       </header>
 
