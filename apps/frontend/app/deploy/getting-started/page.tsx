@@ -37,6 +37,20 @@ const sections = [
       '약 5분 안에 `<slug>.apps.swkoo.kr` 로 라이브 배포 — 슬러그는 Deploy 화면에서 직접 입력 가능, 비우면 `<login>-<repo>` 기본값',
     ],
   },
+  {
+    n: 4,
+    title: '본인 도메인 연결 (선택) — CNAME 한 줄',
+    body: '기본 URL은 그대로 두고, 본인 소유 도메인의 서브도메인을 추가로 연결할 수 있습니다. 배포 후 /deploy/<login>/<repo> 페이지의 "커스텀 도메인" 패널에서 진행합니다.',
+    bullets: [
+      '연결은 CNAME 한 줄로 끝납니다 — DNS 관리 화면에서 패널에 표시된 Host/Target 값을 그대로 추가하면 됩니다. 1-5분 안에 인증서까지 자동 발급',
+      '루트 도메인(`example.com`)은 직접 연결을 지원하지 않습니다 — 입력 시 `www.example.com` 같은 서브도메인 사용을 안내해 드립니다',
+      '이미 Vercel/Netlify 등에 연결된 `www`는 그대로 두고 `portfolio.your-domain.com` 같은 새 서브도메인을 쓰는 걸 추천합니다 — 같은 host에 A 레코드와 CNAME은 공존할 수 없습니다',
+      'DNS 업체별로 zone file import를 지원하면 [DNS 레코드 파일 다운로드]로 한 번에 적용할 수 있습니다 (Cloudflare, Route 53 등). 미지원이면 패널의 값을 그대로 복사해 직접 입력',
+      'Cloudflare를 쓴다면 인증서 발급 전까지 CNAME은 DNS only(회색 구름) 권장',
+    ],
+    after:
+      '기존에 TXT+CNAME 두 레코드로 연결돼 있는 도메인은 자동으로 계속 동작합니다. 새 등록은 CNAME 한 줄이면 됩니다.',
+  },
 ] as const;
 
 export default function GettingStartedPage(): import("react").ReactNode {

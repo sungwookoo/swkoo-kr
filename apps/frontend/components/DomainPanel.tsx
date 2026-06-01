@@ -158,12 +158,16 @@ function EmptyState({
 
   return (
     <div className="space-y-2 border-t border-slate-900 pt-3">
+      <p className="text-sm text-slate-200">
+        도메인 앞에 붙일 이름을 정하세요.
+        <span className="text-slate-400"> DNS 관리 화면에서 CNAME 한 줄만 추가하면 됩니다.</span>
+      </p>
       <div className="flex flex-col gap-2 sm:flex-row">
         <input
           type="text"
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder="app.your-domain.com"
+          placeholder="www.your-domain.com 또는 portfolio.your-domain.com"
           spellCheck={false}
           autoComplete="off"
           autoCapitalize="off"
@@ -182,7 +186,9 @@ function EmptyState({
         </button>
       </div>
       <p className="text-[11px] text-slate-600">
-        placeholder는 예시입니다. 본인이 소유한 서브도메인을 입력해야 연결됩니다. CNAME 한 줄만 추가하면 됩니다.
+        예시는 placeholder일 뿐입니다. 본인이 소유한 도메인의 서브도메인을 입력하세요.
+        루트 도메인(<span className="font-mono">example.com</span>)을 입력하면{' '}
+        &lsquo;www 사용하기&rsquo;를 안내해 드립니다.
       </p>
 
       <details className="group rounded-md border border-slate-800/60 bg-slate-950/40 text-xs text-slate-400 open:bg-slate-950/60">
@@ -219,7 +225,7 @@ function EmptyState({
             {err.registrableDomain ?? '이 도메인'}는 루트 도메인이라 직접 연결할 수 없습니다.
             보통 웹사이트 주소로는 <span className="font-mono">{err.suggestedSubdomain ?? `www.${err.registrableDomain ?? ''}`}</span>를 사용합니다.
           </p>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-start gap-2">
             <button
               type="button"
               disabled={busy}
@@ -228,9 +234,12 @@ function EmptyState({
                 setInput(sug);
                 void submit(sug);
               }}
-              className="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-500 disabled:cursor-not-allowed disabled:bg-slate-700"
+              className="max-w-full rounded-md bg-emerald-600 px-3 py-1.5 text-left text-xs font-medium text-white hover:bg-emerald-500 disabled:cursor-not-allowed disabled:bg-slate-700"
             >
-              {err.suggestedSubdomain ?? `www.${err.registrableDomain ?? ''}`} 사용하기
+              <span className="break-all font-mono">
+                {err.suggestedSubdomain ?? `www.${err.registrableDomain ?? ''}`}
+              </span>{' '}
+              사용하기
             </button>
             <button
               type="button"
@@ -428,9 +437,9 @@ function ConflictRecovery({
           type="button"
           disabled={busy}
           onClick={() => void switchTo(suggested)}
-          className="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-500 disabled:cursor-not-allowed disabled:bg-slate-700"
+          className="max-w-full rounded-md bg-emerald-600 px-3 py-1.5 text-left text-xs font-medium text-white hover:bg-emerald-500 disabled:cursor-not-allowed disabled:bg-slate-700"
         >
-          {suggested} 사용하기
+          <span className="break-all font-mono">{suggested}</span> 사용하기
         </button>
       )}
       <div className="flex flex-wrap items-center gap-1.5 pt-1">
