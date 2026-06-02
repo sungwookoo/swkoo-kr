@@ -1,0 +1,79 @@
+name: Frontend Smoke (Playwright)
+
+# Mock-only Playwright smoke — exercises the /deploy UI flows against
+# a `next dev` server with every /api/* response stubbed via
+# `page.route()`. NEVER hits a real backend, GitHub, K8s, or ArgoCD.
+#
+# Deliberately decoupled from docker-publish.yml: browser tests are
+# heavier than Vitest, so we don't pay that cost on every main push.
+# Nightly + manual is enough to catch UI-regression drift on the
+# /deploy critical path. push / pull_request triggers are intentionally
+# omitted — flip them on later if signal warrants.
+on:
+  workflow_dispatch:
+  schedule:
+    # Daily at 02:00 KST = 17:00 UTC. Low-traffic window for OCI; if
+    # this fires alongside an unrelated job the runner queue is short
+    # enough at this hour that we still get a quick result email.
+    - cron: '0 17 * * *'
+
+# Two nightly fires shouldn't stomp each other on the off chance the
+# previous run is still going. Newest wins.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    # ubuntu-latest (x64) is chosen over ubuntu-22.04-arm because
+    # Playwright ships prebuilt chromium binaries for x64 and the
+    # arm64 path occasionally lags on browser-channel releases.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: apps/frontend
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+          cache-dependency-path: apps/frontend/package-lock.json
+
+      - name: Install frontend deps
+        run: npm ci
+
+      # Cache the downloaded browser binaries so the nightly doesn't
+      # re-download chromium every run. Key includes the @playwright/test
+      # version pinned in package-lock — bumping the dep busts the cache
+      # automatically, so we can't cache a browser that's incompatible
+      # with the runner's @playwright/test code.
+      - name: Get Playwright version
+        id: pw
+        run: |
+          version=$(node -p "require('@playwright/test/package.json').version")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Playwright browsers
+        id: pw-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.pw.outputs.version }}
+
+      # On cache hit we still need to install the system apt packages
+      # (libnss3, libnspr4, etc.) — those live under /usr and aren't in
+      # the cached browser dir. On miss, install both binaries + deps.
+      - name: Install Playwright browser (cache miss)
+        if: steps.pw-cache.outputs.cache-hit != 'true'
+        run: npx playwright install --with-deps chromium
+
+      - name: Install Playwright system deps (cache hit)
+        if: steps.pw-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium
+
+      - name: Run Playwright smoke
+        run: npm run test:e2e
