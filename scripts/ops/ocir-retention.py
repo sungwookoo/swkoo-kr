@@ -207,8 +207,15 @@ def process_repo(host, namespace, username, token, repo, deployed_tags,
     full_repo = f"{namespace}/{repo}"
     print(f"\n=== {repo} ===")
 
+    # OCIR scope vocabulary differs from generic Docker Registry v2:
+    # only `pull` and `push` are accepted as `action` values. Asking
+    # for `pull,delete` returns 400 ACTION_INVALID. The actual DELETE
+    # capability is gated by the OCI IAM policy attached to the auth
+    # token's user (we use the same OCI_AUTH_TOKEN docker-publish.yml
+    # uses to push images, which already has manage permission on the
+    # repos).
     bearer = get_bearer(host, namespace, username, token,
-                        f"repository:{full_repo}:pull,delete")
+                        f"repository:{full_repo}:pull,push")
 
     tags = list_tags(host, full_repo, bearer)
     print(f"  tags in registry: {len(tags)}")
