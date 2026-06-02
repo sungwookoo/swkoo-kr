@@ -86,15 +86,22 @@ def _request(method, url, headers=None, data=None, *, max_retries=5):
 # ───────── OCIR token flow ─────────
 
 
-def get_bearer(host: str, namespace: str, username: str, token: str, scope: str) -> str:
+def get_bearer(host: str, username: str, token: str, scope: str) -> str:
     """OCIR Bearer-token issue. The realm URL is OCIR-specific
     (/20180419/docker/token); for clean Docker Registry parity we
     could parse it out of a 401 WWW-Authenticate challenge, but
     hard-coding is fine on OCIR (no other realm exists for this
-    service)."""
+    service).
+
+    `username` is the OCIR docker-login username as-is — usually of
+    the form `<tenancyNamespace>/<user>` or `<tenancyNamespace>/
+    oracleidentitycloudservice/<user>`. The same string
+    docker-publish.yml passes to `docker login --username`; we must
+    NOT prepend the tenancy namespace ourselves or auth fails with
+    a generic 401."""
     realm = f"https://{host}/20180419/docker/token"
     qs = urllib.parse.urlencode({"service": host, "scope": scope})
-    creds = f"{namespace}/{username}:{token}".encode()
+    creds = f"{username}:{token}".encode()
     auth = base64.b64encode(creds).decode()
     status, _, body = _request(
         "GET", f"{realm}?{qs}",
@@ -201,6 +208,10 @@ def humansize(n: int) -> str:
 
 def process_repo(host, namespace, username, token, repo, deployed_tags,
                  keep_recent, dry_run, gh_token, gh_repo):
+    # `namespace` is used only to build the full repo path
+    # (<namespace>/<repo>) for the Registry v2 URLs; `username` is
+    # passed to get_bearer unchanged (do NOT compose
+    # namespace/username — get_bearer's docstring explains why).
     """deployed_tags: list of SHA tags we must preserve (Deployment
     spec + every Pod's containerStatus image, deduped by the host
     script). All must exist in the registry; missing any aborts."""
@@ -214,7 +225,7 @@ def process_repo(host, namespace, username, token, repo, deployed_tags,
     # token's user (we use the same OCI_AUTH_TOKEN docker-publish.yml
     # uses to push images, which already has manage permission on the
     # repos).
-    bearer = get_bearer(host, namespace, username, token,
+    bearer = get_bearer(host, username, token,
                         f"repository:{full_repo}:pull,push")
 
     tags = list_tags(host, full_repo, bearer)
