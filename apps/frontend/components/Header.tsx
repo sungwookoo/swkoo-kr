@@ -12,6 +12,7 @@ const navItems = [
   { href: '/' as const, label: 'Home' },
   { href: '/deploy' as const, label: 'Deploy', emphasis: true },
   { href: '/observatory' as const, label: 'Observatory' },
+  { href: '/about' as const, label: 'About' },
 ];
 
 export function Header() {

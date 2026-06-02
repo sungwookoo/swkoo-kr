@@ -10,26 +10,18 @@ import {
 } from '@/lib/api';
 import { AlertList } from '@/components/AlertList';
 import { PipelineSection } from '@/components/PipelineSection';
-import { ArchitectureDiagram } from '@/components/ArchitectureDiagram';
 import { ScopeToggle } from '@/components/ScopeToggle';
-import {
-  architecture,
-  cicdScenarios,
-  designPrinciples,
-  emptyStates,
-  hero,
-  legend,
-  observability,
-  problemDefinition,
-  statsLabels,
-  tradeOffs,
-} from '@/content/observatory';
+import { emptyStates, hero, legend, statsLabels } from '@/content/observatory';
 
 export const metadata: Metadata = {
   title: 'Observatory — swkoo.kr',
-  description:
-    'GitOps 파이프라인과 런타임 상태를 한 화면에서 판단하도록 설계된 운영 대시보드.',
+  description: 'GitOps 파이프라인과 런타임 상태를 한 화면에서 보는 운영 콘솔.',
 };
+
+// Observatory is data-only after the About split: pipeline cards,
+// timeline, workflow runs, alerts, legend. Problem definition,
+// design principles, architecture diagram, CI/CD scenarios,
+// observability rationale, and trade-offs all moved to /about.
 
 function formatTimestamp(timestamp: string | null | undefined) {
   if (!timestamp) {
@@ -219,201 +211,9 @@ export default async function ObservatoryPage({
         )}
       </section>
 
-      {/* Problem Definition */}
-      <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6">
-        <div className="mb-4">
-          <h2 className="text-xl font-semibold text-slate-100">
-            {problemDefinition.title}
-          </h2>
-          <p className="text-sm text-slate-400">{problemDefinition.subtitle}</p>
-        </div>
-        <ul className="space-y-2 text-sm text-slate-300">
-          {problemDefinition.statements.map((statement) => (
-            <li key={statement} className="flex items-start gap-2">
-              <span className="mt-2 size-1.5 rounded-full bg-emerald-400" />
-              <span>{statement}</span>
-            </li>
-          ))}
-        </ul>
-      </section>
-
-      {/* Design Principles */}
-      <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6">
-        <div className="mb-4">
-          <h2 className="text-xl font-semibold text-slate-100">
-            {designPrinciples.title}
-          </h2>
-          <p className="text-sm text-slate-400">{designPrinciples.subtitle}</p>
-        </div>
-        <div className="grid gap-4 lg:grid-cols-2">
-          {designPrinciples.principles.map((principle) => (
-            <div
-              key={principle.title}
-              className="rounded-xl border border-slate-800 bg-slate-950 p-4"
-            >
-              <h3 className="text-sm font-semibold text-emerald-400">
-                {principle.title}
-              </h3>
-              <p className="mt-2 text-sm text-slate-300">
-                {principle.description}
-              </p>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* Architecture Section */}
-      <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6">
-        <div className="mb-4">
-          <h2 className="text-xl font-semibold text-slate-100">
-            {architecture.title}
-          </h2>
-          <p className="text-sm text-slate-400">{architecture.subtitle}</p>
-        </div>
-        <div className="grid gap-6 lg:grid-cols-[1.2fr,0.8fr]">
-          <div className="rounded-xl border border-slate-800 bg-slate-950 p-4">
-            <ArchitectureDiagram />
-          </div>
-          <div className="space-y-5 text-sm text-slate-300">
-            <div>
-              <h3 className="text-sm font-semibold text-slate-200">
-                {architecture.dataFlow.title}
-              </h3>
-              <ol className="mt-2 space-y-2 text-slate-400">
-                {architecture.dataFlow.steps.map((step, index) => (
-                  <li key={step} className="flex gap-3">
-                    <span className="text-emerald-400">{index + 1}</span>
-                    <span>{step}</span>
-                  </li>
-                ))}
-              </ol>
-            </div>
-            <div>
-              <h3 className="text-sm font-semibold text-slate-200">
-                {architecture.failureFlow.title}
-              </h3>
-              <ul className="mt-2 space-y-2 text-slate-400">
-                {architecture.failureFlow.steps.map((step) => (
-                  <li key={step} className="flex items-start gap-2">
-                    <span className="mt-2 size-1.5 rounded-full bg-rose-400" />
-                    <span>{step}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* CI/CD Section */}
-      <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6">
-        <div className="mb-4">
-          <h2 className="text-xl font-semibold text-slate-100">
-            {cicdScenarios.title}
-          </h2>
-          <p className="text-sm text-slate-400">{cicdScenarios.subtitle}</p>
-        </div>
-        <div className="grid gap-4 lg:grid-cols-2">
-          {cicdScenarios.scenarios.map((scenario) => (
-            <div
-              key={scenario.title}
-              className="rounded-xl border border-slate-800 bg-slate-950 p-4"
-            >
-              <h3 className="text-sm font-semibold text-emerald-400">
-                {scenario.title}
-              </h3>
-              <p className="mt-2 text-sm text-slate-300">
-                {scenario.description}
-              </p>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* Observability Section */}
-      <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6">
-        <div className="mb-4">
-          <h2 className="text-xl font-semibold text-slate-100">
-            {observability.title}
-          </h2>
-          <p className="text-sm text-slate-400">{observability.subtitle}</p>
-        </div>
-        <div className="grid gap-4 lg:grid-cols-3">
-          <div className="rounded-xl border border-slate-800 bg-slate-950 p-4">
-            <h3 className="text-sm font-semibold text-emerald-400">
-              {observability.metrics.title}
-            </h3>
-            <ul className="mt-2 space-y-2 text-sm text-slate-300">
-              {observability.metrics.items.map((metric) => (
-                <li key={metric} className="flex items-start gap-2">
-                  <span className="mt-2 size-1.5 rounded-full bg-emerald-400" />
-                  <span>{metric}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-          <div className="rounded-xl border border-slate-800 bg-slate-950 p-4">
-            <h3 className="text-sm font-semibold text-emerald-400">
-              {observability.alerts.title}
-            </h3>
-            <ul className="mt-2 space-y-2 text-sm text-slate-300">
-              {observability.alerts.items.map((alert) => (
-                <li key={alert} className="flex items-start gap-2">
-                  <span className="mt-2 size-1.5 rounded-full bg-rose-400" />
-                  <span>{alert}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-          <div className="rounded-xl border border-slate-800 bg-slate-950 p-4">
-            <h3 className="text-sm font-semibold text-emerald-400">
-              {observability.runbook.title}
-            </h3>
-            <ul className="mt-2 space-y-2 text-sm text-slate-300">
-              {observability.runbook.items.map((step) => (
-                <li key={step} className="flex items-start gap-2">
-                  <span className="mt-2 size-1.5 rounded-full bg-sky-400" />
-                  <span>{step}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        </div>
-        <div className="mt-4 rounded-xl border border-slate-800 bg-slate-950 p-4">
-          <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-            {observability.alertRuleExample.caption}
-          </p>
-          <pre className="mt-3 whitespace-pre-wrap text-xs text-slate-200">
-{observability.alertRuleExample.yaml}
-          </pre>
-        </div>
-      </section>
-
-      {/* Trade-offs Section */}
-      <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6">
-        <div className="mb-4">
-          <h2 className="text-xl font-semibold text-slate-100">
-            {tradeOffs.title}
-          </h2>
-          <p className="text-sm text-slate-400">{tradeOffs.subtitle}</p>
-        </div>
-        <div className="grid gap-4 lg:grid-cols-2">
-          {tradeOffs.items.map((item) => (
-            <div
-              key={item.title}
-              className="rounded-xl border border-slate-800 bg-slate-950 p-4"
-            >
-              <h3 className="text-sm font-semibold text-emerald-400">
-                {item.title}
-              </h3>
-              <p className="mt-2 text-sm text-slate-300">{item.reason}</p>
-              <p className="mt-2 text-sm text-slate-500">리스크: {item.risk}</p>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* Legend (compact footer reference) */}
+      {/* Legend — compact footer reference for the status colours
+          rendered above. Architecture / CI-CD / observability / trade-off
+          prose moved to /about so this page stays purely operational. */}
       <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 text-sm text-slate-400">
         <p className="mb-3 text-xs font-semibold uppercase tracking-widest text-slate-500">
           {legend.title}
@@ -436,6 +236,15 @@ export default async function ObservatoryPage({
             </div>
           ))}
         </div>
+        <p className="mt-4 text-xs text-slate-500">
+          설계 노트 · 트레이드오프 · 아키텍처 다이어그램 →{' '}
+          <a
+            href="/about"
+            className="text-slate-300 underline-offset-2 hover:text-slate-100 hover:underline"
+          >
+            About
+          </a>
+        </p>
       </section>
     </main>
   );
