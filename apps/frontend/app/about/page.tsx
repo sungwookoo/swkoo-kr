@@ -78,9 +78,10 @@ export default function AboutPage(): import('react').ReactNode {
           </h2>
           <p className="text-sm text-slate-500">{architecture.subtitle}</p>
         </header>
-        <div className="rounded-md border border-slate-800 bg-slate-950/40 p-4">
-          <ArchitectureDiagram />
-        </div>
+        {/* No outer wrapper — ArchitectureDiagram already frames its
+            own diagram container, so a second border just added
+            visual noise (and squeezed the mermaid extra on mobile). */}
+        <ArchitectureDiagram />
         <div className="mt-6 grid gap-8 sm:grid-cols-2">
           <FlowList
             title={architecture.dataFlow.title}

@@ -56,7 +56,15 @@ function Hero(): import("react").ReactNode {
       <div className="mx-auto grid w-full max-w-6xl grid-cols-12 gap-y-12 lg:gap-x-8">
         {/* Left: copy */}
         <div className="col-span-12 flex flex-col items-start gap-8 lg:col-span-8">
-          <h1 className="display-tight max-w-3xl whitespace-pre-line text-balance text-left text-5xl font-semibold leading-[1.02] text-zinc-50 sm:text-6xl lg:text-7xl">
+          {/* aria-label spaces the two visual lines for screen
+              readers / text extraction so "GitHub repo가" and
+              "라이브 앱이 됩니다." aren't concatenated with no
+              whitespace between the block spans. Visible layout is
+              unchanged. */}
+          <h1
+            aria-label={hero.title.replace(/\n/g, ' ')}
+            className="display-tight max-w-3xl whitespace-pre-line text-balance text-left text-5xl font-semibold leading-[1.02] text-zinc-50 sm:text-6xl lg:text-7xl"
+          >
             <AnimatedLines text={hero.title} startDelay={80} step={120} />
           </h1>
 

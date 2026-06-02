@@ -113,7 +113,13 @@ export function DeploymentList({ configured, pipeline, namespace, deployments, a
           <h2 className="text-xl font-semibold text-slate-100">
             📦 {content.title}
             {configured && deployments.length > 0 && (
-              <span className="ml-2 rounded-full bg-slate-700/60 px-2 py-0.5 text-sm text-slate-300">
+              // aria-label gives screen readers "<n>개" instead of
+              // appending a bare digit to the heading, which
+              // otherwise reads as "…최근 배포5" with no break.
+              <span
+                aria-label={`${deployments.length}개`}
+                className="ml-2 rounded-full bg-slate-700/60 px-2 py-0.5 text-sm text-slate-300"
+              >
                 {deployments.length}
               </span>
             )}

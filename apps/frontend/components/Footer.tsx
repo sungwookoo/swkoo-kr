@@ -19,6 +19,7 @@ const internalLinks = [
   { href: '/' as const, label: 'Home' },
   { href: '/deploy' as const, label: 'Deploy' },
   { href: '/observatory' as const, label: 'Observatory' },
+  { href: '/about' as const, label: 'About' },
 ];
 
 const externalSiteLinks = [

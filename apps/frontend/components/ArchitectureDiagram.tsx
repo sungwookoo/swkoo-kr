@@ -179,9 +179,30 @@ export function ArchitectureDiagram() {
       {/* Diagram Description */}
       <p className="text-sm text-slate-400">{activeDiagram.description}</p>
 
-      {/* Diagram Container */}
-      <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-6 overflow-x-auto">
+      {/* Mobile-only scroll hint. The container below scrolls
+          horizontally because the mermaid output is min-w-[600px];
+          without a hint the affordance is invisible on small screens. */}
+      <p
+        className="font-mono text-[11px] text-slate-500 sm:hidden"
+        aria-hidden
+      >
+        ↔ 좌우로 스크롤해 전체 다이어그램 보기
+      </p>
+
+      {/* Diagram container. Single inner frame — the outer caller
+          (e.g. /about page) should NOT double-wrap. The right-edge
+          gradient is a soft cue that more content lives off-screen. */}
+      <div
+        className="relative overflow-x-auto rounded-xl border border-slate-800 bg-slate-900/60 p-6"
+        role="region"
+        aria-label={`${activeDiagram.label} diagram (horizontally scrollable)`}
+        tabIndex={0}
+      >
         <MermaidDiagram chart={activeDiagram.chart} className="min-w-[600px]" />
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-y-0 right-0 w-6 bg-gradient-to-l from-slate-900/80 to-transparent sm:hidden"
+        />
       </div>
 
       {/* Legend */}
