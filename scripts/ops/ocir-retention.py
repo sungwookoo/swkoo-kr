@@ -199,8 +199,11 @@ def humansize(n: int) -> str:
 # ───────── Per-repo driver ─────────
 
 
-def process_repo(host, namespace, username, token, repo, deployed_tag,
+def process_repo(host, namespace, username, token, repo, deployed_tags,
                  keep_recent, dry_run, gh_token, gh_repo):
+    """deployed_tags: list of SHA tags we must preserve (Deployment
+    spec + every Pod's containerStatus image, deduped by the host
+    script). All must exist in the registry; missing any aborts."""
     full_repo = f"{namespace}/{repo}"
     print(f"\n=== {repo} ===")
 
@@ -209,9 +212,10 @@ def process_repo(host, namespace, username, token, repo, deployed_tag,
 
     tags = list_tags(host, full_repo, bearer)
     print(f"  tags in registry: {len(tags)}")
+    print(f"  must-keep deployed tags ({len(deployed_tags)}): {deployed_tags}")
 
     # ─ Keep policy ─
-    keep_tags: set[str] = {"latest", deployed_tag}
+    keep_tags: set[str] = {"latest", *deployed_tags}
 
     sha_tags = [t for t in tags if SHA40.match(t)]
     print(f"  SHA-pattern tags: {len(sha_tags)}")
@@ -236,11 +240,15 @@ def process_repo(host, namespace, username, token, repo, deployed_tag,
         else:
             print(f"  [warn] could not resolve digest for tag {t}", file=sys.stderr)
 
-    # ─ Hard abort if the deployed tag is missing from the registry ─
-    if deployed_tag not in tag_digest:
+    # ─ Hard abort if ANY deployed tag is missing from the registry.
+    # We must not delete anything when the cluster references a tag
+    # we can't see — that's either a registry sync lag or an actual
+    # mismatch, and either way the safe default is "do nothing".
+    missing = [t for t in deployed_tags if t not in tag_digest]
+    if missing:
         raise SystemExit(
-            f"ABORT: deployed tag {repo}:{deployed_tag} not present in registry — "
-            f"refusing to delete anything (registry/cluster mismatch detected)"
+            f"ABORT: deployed tag(s) for {repo} not present in registry: "
+            f"{missing} — refusing to delete anything"
         )
 
     keep_digests = {tag_digest[t] for t in keep_tags if t in tag_digest}
@@ -251,7 +259,8 @@ def process_repo(host, namespace, username, token, repo, deployed_tag,
     going_away = sorted(t for t, d in tag_digest.items() if d in delete_digests)
     kept_tags = sorted(t for t, d in tag_digest.items() if d in keep_digests)
 
-    print(f"  keep set:        latest, deployed={deployed_tag[:12]}…, +{len(recent)} recent")
+    deployed_short = ",".join(t[:12] + "…" for t in deployed_tags)
+    print(f"  keep set:        latest, deployed=[{deployed_short}], +{len(recent)} recent")
     print(f"  resolved keep digests:   {len(keep_digests)}")
     print(f"  resolved delete digests: {len(delete_digests)}")
     print(f"  tags that will be removed ({len(going_away)}):")
@@ -328,12 +337,17 @@ def main():
 
     summaries = []
     for spec in args.repos:
+        # Accept `<repo>:<tag1>[,<tag2>,…]`. The host-side
+        # get-deployed-images.sh emits a comma list when the
+        # Deployment image and the live Pod image differ during a
+        # rollout, so we must keep BOTH.
         if ":" not in spec:
-            raise SystemExit(f"bad arg {spec!r}, expected <repo>:<tag>")
-        repo, deployed = spec.split(":", 1)
-        if not deployed:
-            raise SystemExit(f"empty deployed tag in {spec!r}")
-        s = process_repo(host, namespace, username, token, repo, deployed,
+            raise SystemExit(f"bad arg {spec!r}, expected <repo>:<tag>[,<tag>…]")
+        repo, tags_csv = spec.split(":", 1)
+        deployed_tags = [t for t in tags_csv.split(",") if t]
+        if not deployed_tags:
+            raise SystemExit(f"empty deployed tag list in {spec!r}")
+        s = process_repo(host, namespace, username, token, repo, deployed_tags,
                          args.keep_recent, args.dry_run, gh_token, gh_repo)
         summaries.append(s)
 
