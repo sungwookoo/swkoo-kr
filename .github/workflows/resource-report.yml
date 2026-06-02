@@ -1,0 +1,99 @@
+name: Resource Report (OCI nightly)
+
+# SSH into the OCI A1.Flex host as the `monitor` user (ForcedCommand =
+# /usr/local/bin/resource-report.sh, see deploy/host/monitor-setup.sh),
+# capture the report body, and POST it to a Discord webhook. Read-only:
+# the monitor SA is bound to a custom ClusterRole, sudo is locked to
+# /usr/bin/du, and the SSH key has no-pty/no-forwarding/ForcedCommand.
+#
+# push / pull_request triggers are intentionally NOT included — this is
+# a daily heartbeat + manual dispatch, not a per-commit signal.
+on:
+  workflow_dispatch:
+  schedule:
+    # 23:00 UTC = 08:00 KST daily. Aligned with the operator's morning
+    # routine; the report is the first thing in the channel by 09:00.
+    - cron: '0 23 * * *'
+
+# A second nightly fire would never overlap (runs <2 min) but we add
+# concurrency in case a manual dispatch happens during the schedule.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Configure SSH client
+        # Inline the private key into ~/.ssh and accept the host's
+        # public key on first sight. Production: pin host key via
+        # known_hosts secret. v0: accept-new is acceptable for a
+        # single-tenant private host on a stable public IP.
+        env:
+          SSH_KEY: ${{ secrets.OCI_HOST_SSH_KEY }}
+          OCI_HOST: ${{ secrets.OCI_HOST }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/monitor-key
+          chmod 600 ~/.ssh/monitor-key
+          # Prime known_hosts so StrictHostKeyChecking=yes works on
+          # the actual ssh command below (no MITM acceptance later).
+          ssh-keyscan -H "$OCI_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Collect resource report
+        env:
+          OCI_HOST: ${{ secrets.OCI_HOST }}
+          OCI_HOST_USER: ${{ secrets.OCI_HOST_USER }}
+        run: |
+          set -euo pipefail
+          # The user-supplied command is ignored by sshd because
+          # authorized_keys forces /usr/local/bin/resource-report.sh.
+          # We just need the connection.
+          ssh -o BatchMode=yes \
+              -o StrictHostKeyChecking=yes \
+              -i ~/.ssh/monitor-key \
+              "${OCI_HOST_USER}@${OCI_HOST}" \
+              > report.txt
+          # Sanity guard: a 0-byte report would silently post nothing
+          # to Discord. Treat empty output as a failure.
+          if [[ ! -s report.txt ]]; then
+            echo "::error::resource-report.sh returned empty output"
+            exit 1
+          fi
+          # Log the body to the Actions UI for forensics (no secrets).
+          echo "----- report body -----"
+          cat report.txt
+          echo "----- end report -----"
+
+      - name: Post to Discord
+        env:
+          WEBHOOK: ${{ secrets.DISCORD_RESOURCE_REPORT_WEBHOOK_URL }}
+        run: |
+          set -euo pipefail
+          # Discord accepts up to 2000 chars in `content`. The script
+          # caps itself well below that. We POST raw body as-is —
+          # Discord's markdown handles ``` blocks.
+          # `--data` (no -urlencode) + jq for safe JSON escaping.
+          payload=$(jq -Rs '{content: .}' < report.txt)
+          http_code=$(curl -sS -o /tmp/discord-resp.txt -w '%{http_code}' \
+            -H 'Content-Type: application/json' \
+            -X POST \
+            -d "$payload" \
+            "$WEBHOOK")
+          echo "Discord HTTP $http_code"
+          # Discord returns 204 (No Content) on success.
+          if [[ "$http_code" != "204" ]]; then
+            echo "::error::Discord webhook failed ($http_code)"
+            cat /tmp/discord-resp.txt
+            exit 1
+          fi
+
+      - name: Cleanup
+        if: always()
+        run: rm -f ~/.ssh/monitor-key report.txt /tmp/discord-resp.txt
