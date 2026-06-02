@@ -1,0 +1,124 @@
+name: OCIR Retention
+
+# Cleans old SHA tags from nrt.ocir.io/<ns>/swkoo/{backend,frontend}.
+# v0 keep policy = {latest, currently-deployed-sha, N most recent SHA
+# tags per repo}. Default dry_run=true so a schedule run is a no-op
+# until the operator verifies output and flips to false.
+#
+# push / pull_request triggers are intentionally NOT included.
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "If true, print the plan but issue NO DELETEs."
+        type: boolean
+        default: true
+      keep_recent:
+        description: "Per repo, keep N most-recent SHA tags by committer date."
+        type: string
+        default: "10"
+  schedule:
+    # Sunday 19:00 UTC = Monday 04:00 KST. Off-hours, weekly. Matches
+    # the existing host crictl-prune.timer cadence (Sun 04:00 KST) so
+    # weekly maintenance is grouped in one window.
+    - cron: '0 19 * * 0'
+
+# A second concurrent run could half-delete state; force serial.
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  retention:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Resolve currently-deployed image refs via SSH ForcedCommand
+        env:
+          SSH_KEY: ${{ secrets.OCI_HOST_RETENTION_SSH_KEY }}
+          OCI_HOST: ${{ secrets.OCI_HOST }}
+          OCI_HOST_USER: ${{ secrets.OCI_HOST_USER }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/retention-key
+          chmod 600 ~/.ssh/retention-key
+          ssh-keyscan -H "$OCI_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          # ForcedCommand on monitor's authorized_keys runs
+          # /usr/local/bin/get-deployed-images.sh. We capture stdout
+          # into a file (deployed.txt) and pass each line as a CLI arg
+          # to the Python retention script.
+          ssh -o BatchMode=yes \
+              -o StrictHostKeyChecking=yes \
+              -i ~/.ssh/retention-key \
+              "${OCI_HOST_USER}@${OCI_HOST}" > deployed.txt
+          if [[ ! -s deployed.txt ]]; then
+            echo "::error::get-deployed-images.sh returned empty output"
+            exit 1
+          fi
+          echo "Resolved deployed images:"
+          cat deployed.txt
+
+      - name: Run OCIR retention
+        env:
+          OCIR_HOST: ${{ secrets.OCI_REGISTRY_HOST }}
+          OCIR_TENANCY_NAMESPACE: ${{ secrets.OCI_TENANCY_NAMESPACE }}
+          OCIR_USERNAME: ${{ secrets.OCI_USERNAME }}
+          OCIR_AUTH_TOKEN: ${{ secrets.OCI_AUTH_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPO: ${{ github.repository }}
+          DRY_RUN: ${{ github.event.inputs.dry_run != 'false' }}
+          KEEP_RECENT: ${{ github.event.inputs.keep_recent || '10' }}
+        run: |
+          set -euo pipefail
+          # `xargs` reads each <repo>:<tag> line from the SSH output
+          # and passes them as positional args. dry_run defaults to
+          # true for scheduled runs as well (no inputs.dry_run on a
+          # cron firing → ''  → not 'false' → true).
+          DRY_FLAG=()
+          if [[ "$DRY_RUN" == "true" ]]; then DRY_FLAG=("--dry-run"); fi
+          # shellcheck disable=SC2046
+          python3 scripts/ops/ocir-retention.py \
+            "${DRY_FLAG[@]}" \
+            --keep-recent "$KEEP_RECENT" \
+            $(cat deployed.txt) \
+            2>&1 | tee retention.txt
+
+      - name: Post to Discord
+        if: always()
+        env:
+          WEBHOOK: ${{ secrets.DISCORD_RESOURCE_REPORT_WEBHOOK_URL }}
+          DRY_RUN: ${{ github.event.inputs.dry_run != 'false' }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          set -euo pipefail
+          # Best-effort: a Discord failure must NOT mask the actual
+          # workflow exit code. `|| true` on the curl so the post-step
+          # job status reflects the retention.py outcome, not the
+          # webhook outcome.
+          if [[ ! -s retention.txt ]]; then
+            echo "no retention output to forward" >&2
+            exit 0
+          fi
+          if [[ "$DRY_RUN" == "true" ]]; then HEADER="🧹 OCIR retention — **DRY RUN**"
+          else HEADER="🧹 OCIR retention — **EXECUTED**"; fi
+          if [[ "$JOB_STATUS" != "success" ]]; then HEADER="🚨 OCIR retention — **FAILED** ($JOB_STATUS)"; fi
+          # Discord 2000-char hard limit on `content`. Trim long
+          # output to keep the message valid even on a noisy run.
+          body=$(tail -c 1700 retention.txt)
+          payload=$(jq -Rs --arg h "$HEADER" '{content: ($h + "\n```\n" + . + "\n```")}' <<<"$body")
+          http=$(curl -sS -o /tmp/discord-resp.txt -w '%{http_code}' \
+            -H 'Content-Type: application/json' -X POST -d "$payload" "$WEBHOOK" || true)
+          echo "Discord HTTP $http"
+          [[ "$http" == "204" ]] || { echo "::warning::Discord webhook failed ($http)"; cat /tmp/discord-resp.txt || true; }
+
+      - name: Cleanup
+        if: always()
+        run: rm -f ~/.ssh/retention-key deployed.txt retention.txt /tmp/discord-resp.txt

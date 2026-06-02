@@ -22,3 +22,7 @@ out/
 test-results/
 playwright-report/
 playwright/.cache/
+
+# Python bytecode cache (scripts/ops/ocir-retention.py local runs).
+__pycache__/
+*.pyc
