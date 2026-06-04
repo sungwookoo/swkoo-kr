@@ -18,6 +18,7 @@ import {
 import {
   getUserDeployRepoName,
   getUserRegistrationPath,
+  parseStorageProfileBlock,
   renderDeployRepoFiles,
   renderUserRegistration,
   renderUserRepoFiles,
@@ -48,11 +49,34 @@ export interface PreviewCheck {
     | 'next_dep'
     | 'build_script'
     | 'package_lockfile'
-    | 'repo_casing';
+    | 'repo_casing'
+    | 'prisma_sqlite';
   status: 'pass' | 'warn' | 'fail';
   label: string;
   message: string;
   userAction?: string;
+}
+
+/** Persistent Storage Profile v0. The only supported profile today is
+ * Prisma SQLite — a 1Gi local-path PVC mounted at /data, with
+ * DATABASE_URL pinned to a file inside that mount. Detection happens
+ * at preview-time; once an app is registered with a profile the next
+ * register *preserves* it even if detection no longer fires (see the
+ * preservation guard in registerForUser).
+ *
+ * Fields are intentionally narrow string literals so the renderer can
+ * lean on type-level guarantees rather than runtime branching. New
+ * profiles will widen `type` and the literal sets — not the shape. */
+export interface StorageProfile {
+  type: 'prisma-sqlite';
+  size: '1Gi';
+  mountPath: '/data';
+  databaseUrl: 'file:/data/app.db';
+  // initMode is informational metadata for preview + the status feed;
+  // the init container itself does the same runtime probe (migrations
+  // dir present? → migrate deploy; else → db push) so it's robust to
+  // the user editing the field between deploys.
+  initMode: 'migrate-deploy' | 'db-push';
 }
 
 export type StackPreview =
@@ -62,6 +86,7 @@ export type StackPreview =
       port: number;
       nodeEngine: string | null;
       checks: PreviewCheck[];
+      storageProfile?: StorageProfile;
     }
   | { stack: 'unsupported'; reason: string; checks: PreviewCheck[] };
 
@@ -161,6 +186,10 @@ export interface DeploymentStatus {
     deploy: StageInfo;
     live: StageInfo;
   };
+  // Surfaced for the env panel + UI banner. Sourced from the same
+  // metadata.yaml `storage:` block the preservation guard reads.
+  // Older clients ignore unknown fields.
+  storageProfile?: StorageProfile;
 }
 
 interface GhaRunSummary {
@@ -423,6 +452,116 @@ export class DeployService {
         : 'lowercase repo 이름이에요. 별도 처리 필요 없어요.',
     });
 
+    // ----- 7. Persistent storage: Prisma SQLite detection -----
+    // Reads prisma/schema.prisma; if present, parses the datasource
+    // block. Only "provider = sqlite" + "url = env(DATABASE_URL)" +
+    // a package.json prisma/@prisma/client dep emits a storage profile.
+    // Anything else either skips silently (no schema = no profile) or
+    // surfaces a warn/fail check row.
+    let storageProfile: StorageProfile | undefined;
+    let schemaContent: string | null = null;
+    try {
+      const schemaResp = await axios.get<GithubContent>(
+        `https://api.github.com/repos/${owner}/${repo}/contents/prisma/schema.prisma`,
+        { headers }
+      );
+      schemaContent = Buffer.from(schemaResp.data.content, 'base64').toString('utf8');
+    } catch (err) {
+      const status = (err as { response?: { status?: number } }).response?.status;
+      if (status !== 404) {
+        // Transient — log and skip the row; don't fail the whole preview.
+        this.logger.warn(
+          `prisma schema probe failed for ${owner}/${repo}: ${(err as Error).message}`
+        );
+      }
+    }
+
+    if (schemaContent) {
+      // Brace-scope the datasource block so a "sqlite" mention in
+      // comments doesn't trigger detection.
+      const dsMatch = schemaContent.match(/datasource\s+\w+\s*\{([^}]*)\}/);
+      const dsBlock = dsMatch?.[1] ?? '';
+      const hasSqliteProvider = /provider\s*=\s*"sqlite"/.test(dsBlock);
+      const hasEnvDbUrl = /url\s*=\s*env\(\s*"DATABASE_URL"\s*\)/.test(dsBlock);
+      const hasPrismaDep = Boolean(
+        pkg?.dependencies?.['prisma'] ??
+          pkg?.devDependencies?.['prisma'] ??
+          pkg?.dependencies?.['@prisma/client'] ??
+          pkg?.devDependencies?.['@prisma/client']
+      );
+
+      if (!hasSqliteProvider) {
+        // Prisma schema present but not sqlite — v0 only auto-supports
+        // sqlite. Warn instead of fail so the user can still deploy
+        // (their other DB is presumably hosted externally).
+        checks.push({
+          key: 'prisma_sqlite',
+          status: 'warn',
+          label: 'Prisma SQLite',
+          message:
+            'Prisma schema 가 있지만 datasource provider 가 sqlite 가 아닙니다. v0 자동 영속 저장은 sqlite 만 지원합니다.',
+          userAction:
+            '다른 DB 는 외부 호스팅 + DATABASE_URL 을 swkoo.kr 환경변수 패널에 직접 설정해 주세요.',
+        });
+      } else if (!hasEnvDbUrl) {
+        checks.push({
+          key: 'prisma_sqlite',
+          status: 'fail',
+          label: 'Prisma SQLite',
+          message:
+            'datasource url 이 env("DATABASE_URL") 형식이 아닙니다. 자동 설정을 위해 env() 참조가 필요합니다.',
+          userAction:
+            'prisma/schema.prisma 의 datasource block 을 url = env("DATABASE_URL") 로 바꿔 주세요.',
+        });
+      } else if (!hasPrismaDep) {
+        checks.push({
+          key: 'prisma_sqlite',
+          status: 'warn',
+          label: 'Prisma SQLite',
+          message:
+            'schema.prisma 가 sqlite + env DATABASE_URL 형태로 정상이지만 package.json 에 prisma / @prisma/client 의존성이 없어요. 빌드 시 prisma generate 가 실패할 가능성이 큽니다.',
+          userAction: 'npm install prisma @prisma/client 로 의존성을 추가해 주세요.',
+        });
+      } else {
+        // All conditions met — enable storage profile. Detect migrations
+        // dir for initMode metadata (the init container does its own
+        // runtime check too).
+        let initMode: 'migrate-deploy' | 'db-push' = 'db-push';
+        try {
+          const migResp = await axios.get<Array<{ name: string; type: string }>>(
+            `https://api.github.com/repos/${owner}/${repo}/contents/prisma/migrations`,
+            { headers }
+          );
+          const entries = Array.isArray(migResp.data) ? migResp.data : [];
+          if (entries.some((e) => e.type === 'dir')) {
+            initMode = 'migrate-deploy';
+          }
+        } catch (err) {
+          const status = (err as { response?: { status?: number } }).response?.status;
+          if (status !== 404) {
+            this.logger.warn(
+              `prisma migrations probe failed for ${owner}/${repo}: ${(err as Error).message}`
+            );
+          }
+        }
+
+        storageProfile = {
+          type: 'prisma-sqlite',
+          size: '1Gi',
+          mountPath: '/data',
+          databaseUrl: 'file:/data/app.db',
+          initMode,
+        };
+
+        checks.push({
+          key: 'prisma_sqlite',
+          status: 'pass',
+          label: 'Prisma SQLite',
+          message: `SQLite 기반 Prisma 앱입니다. 1GB persistent storage 가 /data 에 연결되고, DATABASE_URL 은 file:/data/app.db 로 자동 설정됩니다. (init: ${initMode})`,
+        });
+      }
+    }
+
     // ----- Final classification -----
     const firstFail = checks.find((c) => c.status === 'fail');
     if (firstFail) {
@@ -440,6 +579,7 @@ export class DeployService {
       port: 3000,
       nodeEngine: pkg?.engines?.node ?? null,
       checks,
+      storageProfile,
     };
   }
 
@@ -519,6 +659,23 @@ export class DeployService {
     // yet in the deploy repo. Without this, every redeploy would
     // silently wipe the custom-domain Ingress + Cert.
     const existingDomain = this.customDomains.findForRender(loginLc, appName);
+
+    // Preserve an existing Persistent Storage Profile across redeploys.
+    // Once an app was registered with a profile (PVC committed to the
+    // deploy repo, /data populated with the user's DB), we must not
+    // silently drop the profile just because detection no longer
+    // fires this round — that would orphan the PVC and disconnect
+    // /data from the app. Read the prior metadata.yaml; if it has a
+    // `storage:` block, that wins over (or fills in for) detection.
+    // Note: if detection now sees a DIFFERENT initMode (migrations
+    // appeared/disappeared since last deploy), the detected value
+    // takes precedence — the data on disk is unaffected, only the
+    // init container's behaviour changes.
+    const existingStorageProfile = await this.readExistingStorageProfile(loginLc);
+    const detectedStorageProfile = preview.storageProfile;
+    const effectiveStorageProfile =
+      detectedStorageProfile ?? existingStorageProfile ?? undefined;
+
     const params = {
       login: loginLc,
       appName,
@@ -533,6 +690,7 @@ export class DeployService {
       sourceRepo: `${owner}/${repo}`,
       appsDomain: this.config.appsDomain,
       customDomain: existingDomain ? { domain: existingDomain.domain } : undefined,
+      storageProfile: effectiveStorageProfile,
     };
 
     const userRepoFiles = renderUserRepoFiles(params);
@@ -707,6 +865,27 @@ export class DeployService {
     };
   }
 
+  /** Reads the user's existing registration file (if any) from the
+   *  control repo and parses the `storage:` block. Used by
+   *  registerForUser as the preservation guard — if the user already
+   *  has a stateful app on the cluster, we must keep their PVC + mount
+   *  + init container even when fresh detection doesn't fire (e.g.
+   *  they accidentally removed prisma/schema.prisma). Returns null
+   *  for the (common) stateless case so the caller can fall through
+   *  to the detected profile or undefined. */
+  private async readExistingStorageProfile(
+    loginLc: string
+  ): Promise<StorageProfile | null> {
+    const [owner, name] = this.config.manifestRepo.split('/');
+    const content = await this.readManifestFile(
+      owner,
+      name,
+      getUserRegistrationPath(loginLc)
+    ).catch(() => null);
+    if (!content) return null;
+    return parseStorageProfileBlock(content) ?? null;
+  }
+
   private async readManifestFile(
     owner: string,
     repo: string,
@@ -869,12 +1048,14 @@ export class DeployService {
     const subdomain = this.resolveSubdomain(user, loginLc, appName);
     const liveUrl = `https://${subdomain}.${this.config.appsDomain}`;
 
-    const [manifestsStage, buildStage, app, liveStage] = await Promise.all([
-      this.checkManifestStage(loginLc),
-      this.checkBuildStage(requestingUserId, login, repo),
-      this.argo.getApplication(`swkoo-user-${loginLc}`).catch(() => null),
-      this.checkLiveStage(liveUrl),
-    ]);
+    const [manifestsStage, buildStage, app, liveStage, storageProfile] =
+      await Promise.all([
+        this.checkManifestStage(loginLc),
+        this.checkBuildStage(requestingUserId, login, repo),
+        this.argo.getApplication(`swkoo-user-${loginLc}`).catch(() => null),
+        this.checkLiveStage(liveUrl),
+        this.readExistingStorageProfile(loginLc),
+      ]);
 
     const imageDetectedStage = this.checkImageDetectedStage(app);
     const deployStage = this.checkDeployStage(app);
@@ -899,6 +1080,7 @@ export class DeployService {
         deploy: deployStage,
         live: liveStage,
       },
+      storageProfile: storageProfile ?? undefined,
     };
   }
 

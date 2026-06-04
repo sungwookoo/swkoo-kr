@@ -706,3 +706,198 @@ describe('DeployService.checkDeployStage — ARGO_SYNC_FAILED', () => {
     expect(r.reason).toBeUndefined();
   });
 });
+
+/** Persistent Storage Profile v0 — Prisma SQLite detection branches.
+ *  Re-uses the same axios mock pattern as the detectStack describe
+ *  block; the extra GitHub URLs probed by Phase 1 (schema.prisma,
+ *  migrations dir) are wired per test. */
+describe('DeployService.detectStack — Prisma SQLite detection', () => {
+  type AxiosGet = jest.Mock<Promise<{ data: unknown }>, [string, unknown]>;
+
+  function makeService() {
+    const auth = {
+      getValidAccessToken: jest.fn(async () => 'fake-token'),
+    } as unknown as AuthService;
+    const users = {} as UsersRepository;
+    const githubApp = {} as GithubAppService;
+    const argo = {} as ArgoCdClient;
+    const kube = {} as KubeClient;
+    const email = {} as EmailService;
+    const customDomains = { findForRender: jest.fn() } as never;
+    const config = { appsDomain: 'apps.swkoo.kr' } as never;
+    return new DeployService(
+      auth, githubApp, users, argo, kube, email, customDomains, config
+    );
+  }
+
+  function wireAxios(responses: Array<{
+    pattern: RegExp;
+    data?: unknown;
+    error?: { response?: { status?: number } };
+  }>): void {
+    const mock = axios.get as unknown as AxiosGet;
+    mock.mockReset();
+    mock.mockImplementation(async (url: string) => {
+      const hit = responses.find((r) => r.pattern.test(url));
+      if (!hit) throw new Error(`unmatched URL in test: ${url}`);
+      if (hit.error) throw Object.assign(new Error('axios error'), hit.error);
+      return { data: hit.data };
+    });
+  }
+
+  function encode(text: string | object): string {
+    const s = typeof text === 'string' ? text : JSON.stringify(text);
+    return Buffer.from(s, 'utf8').toString('base64');
+  }
+
+  // A standard Next.js+Prisma package.json + healthy lockfile +
+  // matching main branch — leaves Prisma detection as the sole
+  // differentiator across the test cases below.
+  const okPkg = {
+    name: 'app',
+    dependencies: { next: '15', prisma: '5', '@prisma/client': '5' },
+    scripts: { build: 'next build' },
+  };
+  const baseResponses = [
+    { pattern: /\/repos\/o\/r$/, data: { default_branch: 'main' } },
+    { pattern: /\/contents\/package\.json/, data: { content: encode(okPkg) } },
+    { pattern: /\/contents\/package-lock\.json/, data: { content: '' } },
+  ];
+
+  const prismaSqliteSchema = `
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User { id Int @id }
+`;
+
+  it('no schema.prisma → no storageProfile, no prisma_sqlite check row', async () => {
+    wireAxios([
+      ...baseResponses,
+      { pattern: /\/contents\/prisma\/schema\.prisma/, error: { response: { status: 404 } } },
+    ]);
+    const r = await makeService().detectStack(1, 'o', 'r');
+    expect(r.stack).toBe('nextjs');
+    if (r.stack === 'nextjs') {
+      expect(r.storageProfile).toBeUndefined();
+      expect(r.checks.find((c) => c.key === 'prisma_sqlite')).toBeUndefined();
+    }
+  });
+
+  it('sqlite + env DATABASE_URL + deps + no migrations → storageProfile, initMode=db-push', async () => {
+    wireAxios([
+      ...baseResponses,
+      {
+        pattern: /\/contents\/prisma\/schema\.prisma/,
+        data: { content: encode(prismaSqliteSchema) },
+      },
+      {
+        pattern: /\/contents\/prisma\/migrations/,
+        error: { response: { status: 404 } },
+      },
+    ]);
+    const r = await makeService().detectStack(1, 'o', 'r');
+    expect(r.stack).toBe('nextjs');
+    if (r.stack === 'nextjs') {
+      expect(r.storageProfile).toEqual({
+        type: 'prisma-sqlite',
+        size: '1Gi',
+        mountPath: '/data',
+        databaseUrl: 'file:/data/app.db',
+        initMode: 'db-push',
+      });
+      const row = r.checks.find((c) => c.key === 'prisma_sqlite');
+      expect(row?.status).toBe('pass');
+      expect(row?.message).toMatch(/db-push/);
+    }
+  });
+
+  it('sqlite + env + migrations dir with subdirs → initMode=migrate-deploy', async () => {
+    wireAxios([
+      ...baseResponses,
+      {
+        pattern: /\/contents\/prisma\/schema\.prisma/,
+        data: { content: encode(prismaSqliteSchema) },
+      },
+      {
+        pattern: /\/contents\/prisma\/migrations/,
+        data: [
+          { name: '20260101_init', type: 'dir' },
+          { name: 'migration_lock.toml', type: 'file' },
+        ],
+      },
+    ]);
+    const r = await makeService().detectStack(1, 'o', 'r');
+    if (r.stack === 'nextjs') {
+      expect(r.storageProfile?.initMode).toBe('migrate-deploy');
+    }
+  });
+
+  it('schema.prisma + provider="postgresql" → warn (out of v0 scope), no profile', async () => {
+    const pgSchema = `
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+`;
+    wireAxios([
+      ...baseResponses,
+      { pattern: /\/contents\/prisma\/schema\.prisma/, data: { content: encode(pgSchema) } },
+    ]);
+    const r = await makeService().detectStack(1, 'o', 'r');
+    expect(r.stack).toBe('nextjs');
+    if (r.stack === 'nextjs') {
+      expect(r.storageProfile).toBeUndefined();
+      const row = r.checks.find((c) => c.key === 'prisma_sqlite');
+      expect(row?.status).toBe('warn');
+      expect(row?.message).toMatch(/sqlite 가 아닙니다/);
+    }
+  });
+
+  it('sqlite + hardcoded file path (not env) → fail check, stack=unsupported', async () => {
+    const hardcodedSchema = `
+datasource db {
+  provider = "sqlite"
+  url      = "file:./prod.db"
+}
+`;
+    wireAxios([
+      ...baseResponses,
+      { pattern: /\/contents\/prisma\/schema\.prisma/, data: { content: encode(hardcodedSchema) } },
+    ]);
+    const r = await makeService().detectStack(1, 'o', 'r');
+    // Fail check flips the whole stack to unsupported.
+    expect(r.stack).toBe('unsupported');
+    const row = r.checks.find((c) => c.key === 'prisma_sqlite');
+    expect(row?.status).toBe('fail');
+    expect(row?.userAction).toMatch(/env\("DATABASE_URL"\)/);
+  });
+
+  it('sqlite + env + no prisma dep in package.json → warn, no profile', async () => {
+    // Same schema as the happy path but package.json has no prisma dep.
+    const pkgNoPrisma = {
+      name: 'app',
+      dependencies: { next: '15' },
+      scripts: { build: 'next build' },
+    };
+    wireAxios([
+      { pattern: /\/repos\/o\/r$/, data: { default_branch: 'main' } },
+      { pattern: /\/contents\/package\.json/, data: { content: encode(pkgNoPrisma) } },
+      { pattern: /\/contents\/package-lock\.json/, data: { content: '' } },
+      { pattern: /\/contents\/prisma\/schema\.prisma/, data: { content: encode(prismaSqliteSchema) } },
+    ]);
+    const r = await makeService().detectStack(1, 'o', 'r');
+    if (r.stack === 'nextjs') {
+      expect(r.storageProfile).toBeUndefined();
+      const row = r.checks.find((c) => c.key === 'prisma_sqlite');
+      expect(row?.status).toBe('warn');
+      expect(row?.message).toMatch(/prisma .+ 의존성이 없어요/);
+    }
+  });
+});

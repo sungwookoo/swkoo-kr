@@ -13,6 +13,7 @@ import {
   saveEnvVars,
   StageInfo,
   StageStatus,
+  StorageProfile,
   useDeploymentStatus,
   useEnvVars,
 } from '@/lib/deploy';
@@ -52,7 +53,13 @@ export function StatusClient({ login, repo }: StatusClientProps): import("react"
         )}
         {status && <Checklist status={status} />}
 
-        {status && <EnvVarsPanel login={login} repo={repo} />}
+        {status && (
+          <EnvVarsPanel
+            login={login}
+            repo={repo}
+            storageProfile={status.storageProfile}
+          />
+        )}
 
         {status && (
           <DomainPanel
@@ -88,13 +95,32 @@ interface EnvRow {
 
 const KEY_PATTERN = /^[A-Z_][A-Z0-9_]*$/;
 
-function EnvVarsPanel({ login, repo }: { login: string; repo: string }): import("react").ReactNode {
+export function EnvVarsPanel({
+  login,
+  repo,
+  storageProfile,
+}: {
+  login: string;
+  repo: string;
+  storageProfile?: StorageProfile;
+}): import("react").ReactNode {
   const { vars: serverVars, isLoading, error } = useEnvVars(login, repo);
   const { mutate } = useSWRConfig();
   const [rows, setRows] = useState<EnvRow[]>([]);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [lastSavedAt, setLastSavedAt] = useState<number | null>(null);
+
+  // Keys whose value the platform manages — the env panel rejects new
+  // rows with these keys and dims them when they arrive via the server
+  // fetch. Prisma SQLite owns DATABASE_URL today; expand if more
+  // profiles arrive. The reservation is per-key so unrelated env
+  // vars stay editable.
+  const reservedKeys = useMemo<ReadonlySet<string>>(() => {
+    const s = new Set<string>();
+    if (storageProfile?.type === 'prisma-sqlite') s.add('DATABASE_URL');
+    return s;
+  }, [storageProfile?.type]);
 
   useEffect(() => {
     if (!serverVars) return;
@@ -121,6 +147,7 @@ function EnvVarsPanel({ login, repo }: { login: string; repo: string }): import(
   }, [rows, serverVars]);
 
   const hasInvalidKey = rows.some((r) => r.key && !KEY_PATTERN.test(r.key));
+  const hasReservedKey = rows.some((r) => r.key && reservedKeys.has(r.key));
 
   const handleAdd = (): void => {
     setRows((prev) => [
@@ -180,6 +207,16 @@ function EnvVarsPanel({ login, repo }: { login: string; repo: string }): import(
         Save 시 매니페스트의 envFrom Secret이 갱신되고 Pod이 자동 재시작됩니다.
       </p>
 
+      {storageProfile?.type === 'prisma-sqlite' && (
+        <p
+          role="note"
+          className="rounded-md border border-emerald-700/40 bg-emerald-950/20 px-3 py-2 text-xs text-emerald-200"
+        >
+          이 앱은 Prisma SQLite 영속 저장소를 사용해요. <span className="font-mono">DATABASE_URL</span> 은
+          플랫폼이 <span className="font-mono">{storageProfile.databaseUrl}</span> 로 관리하므로 여기서 따로 추가할 수 없습니다.
+        </p>
+      )}
+
       {rbacErr && (
         <p className="text-sm text-amber-400">
           이 namespace에 아직 권한이 없습니다 — `/deploy`에서 한 번 재배포하면 RBAC이 생성되어
@@ -201,16 +238,26 @@ function EnvVarsPanel({ login, repo }: { login: string; repo: string }): import(
             <div className="space-y-2">
               {rows.map((r) => {
                 const keyInvalid = Boolean(r.key) && !KEY_PATTERN.test(r.key);
+                const keyReserved = Boolean(r.key) && reservedKeys.has(r.key);
+                const borderCls = keyReserved
+                  ? 'border-amber-500/70'
+                  : keyInvalid
+                    ? 'border-amber-500/50'
+                    : 'border-slate-800';
                 return (
                   <div key={r.id} className="flex items-center gap-2">
                     <input
                       type="text"
                       value={r.key}
                       onChange={(e) => handleField(r.id, 'key', e.target.value)}
-                      placeholder="DATABASE_URL"
+                      // Placeholder used to read DATABASE_URL — moved
+                      // to APP_BASE_URL so it doesn't suggest a key
+                      // we now manage on stateful apps.
+                      placeholder="APP_BASE_URL"
                       spellCheck={false}
                       autoComplete="off"
-                      className={`w-44 rounded-md border bg-slate-950 px-2 py-1 font-mono text-xs text-slate-100 placeholder-slate-700 focus:outline-none focus:border-slate-600 ${keyInvalid ? 'border-amber-500/50' : 'border-slate-800'}`}
+                      aria-invalid={keyReserved || keyInvalid}
+                      className={`w-44 rounded-md border bg-slate-950 px-2 py-1 font-mono text-xs text-slate-100 placeholder-slate-700 focus:outline-none focus:border-slate-600 ${borderCls}`}
                     />
                     <input
                       type={r.revealed ? 'text' : 'password'}
@@ -252,10 +299,15 @@ function EnvVarsPanel({ login, repo }: { login: string; repo: string }): import(
             </button>
             <div className="flex items-center gap-2">
               {saveError && <span className="text-xs text-amber-400">{saveError}</span>}
+              {hasReservedKey && (
+                <span className="text-xs text-amber-400">
+                  플랫폼이 관리하는 키는 추가할 수 없어요.
+                </span>
+              )}
               <button
                 type="button"
                 onClick={handleSave}
-                disabled={saving || !dirty || hasInvalidKey}
+                disabled={saving || !dirty || hasInvalidKey || hasReservedKey}
                 className="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-emerald-500 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-500"
               >
                 {saving ? '저장 중…' : 'Save'}

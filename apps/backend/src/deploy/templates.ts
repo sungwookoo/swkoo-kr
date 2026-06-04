@@ -32,6 +32,26 @@ export interface RenderParams {
   // kustomization.yaml. When unset (most callers), no custom resources
   // are emitted — base <slug>.apps.swkoo.kr ingress stays alone.
   customDomain?: { domain: string };
+  // Persistent Storage Profile v0. Set when /api/deploy/preview detects
+  // a Prisma SQLite app — or when the *existing* metadata.yaml in the
+  // control repo already records one (preservation guard in
+  // deploy.service.registerForUser). When set:
+  //   - <appName>/pvc.yaml is emitted + included in kustomization.
+  //   - Deployment strategy flips to Recreate.
+  //   - Pod-level fsGroup is added so the runAsUser user can write
+  //     to the local-path-provisioned volume.
+  //   - An init container runs `prisma migrate deploy` (if
+  //     migrations exist) or `prisma db push --skip-generate`.
+  //   - DATABASE_URL is set explicitly on app + init containers; it
+  //     wins over any value in the envFrom Secret (k8s precedence:
+  //     explicit env overrides envFrom on key collision).
+  storageProfile?: {
+    type: 'prisma-sqlite';
+    size: '1Gi';
+    mountPath: '/data';
+    databaseUrl: 'file:/data/app.db';
+    initMode: 'migrate-deploy' | 'db-push';
+  };
 }
 
 const GENERATED_HEADER =
@@ -93,7 +113,18 @@ export function renderDeployRepoFiles(params: RenderParams): Record<string, stri
       domain: params.customDomain.domain,
     });
   }
+  if (params.storageProfile) {
+    files[`${params.appName}/pvc.yaml`] = renderPvc(params);
+  }
   return files;
+}
+
+/** Path of the per-app PVC file. Exported for symmetry with
+ *  getCustomDomainIngressPath — deploy.service uses it only to
+ *  remove the file on un-register (PVC stays unless the whole
+ *  deployment is being deleted). */
+export function getStoragePvcPath(appName: string): string {
+  return `${appName}/pvc.yaml`;
 }
 
 /** Path of the custom-domain ingress file. Exported so deploy.service
@@ -107,6 +138,19 @@ export function getCustomDomainIngressPath(appName: string): string {
  * Image Updater values (image.repo, image.updateStrategy) and the
  * pointer (deployRepo) the template substitutes into source.repoURL. */
 export function renderUserRegistration(params: RenderParams): string {
+  // storage block: only emitted when the app has a profile. The
+  // preservation guard in deploy.service reads THIS block back on
+  // re-deploy — its presence (regardless of fresh detection) keeps
+  // the PVC + mount + init container intact across re-deploys.
+  const storageBlock = params.storageProfile
+    ? `storage:
+  profile: ${params.storageProfile.type}
+  size: ${params.storageProfile.size}
+  mountPath: ${params.storageProfile.mountPath}
+  databaseUrl: ${params.storageProfile.databaseUrl}
+  initMode: ${params.storageProfile.initMode}
+`
+    : '';
   return `${GENERATED_HEADER}login: ${params.login}
 appName: ${params.appName}
 deployRepo: ${params.deployRepoFullName}
@@ -116,10 +160,73 @@ image:
   updateStrategy: digest
   scanResult: pending
   writeBackMethod: argocd-image-updater
-`;
+${storageBlock}`;
+}
+
+/** Regex parser for the metadata.yaml `storage:` block. Used by the
+ *  preservation guard in deploy.service.registerForUser — when
+ *  detection returns no profile but the existing metadata says
+ *  there's one, the existing values are re-rendered into the next
+ *  deploy. Format is controlled by renderUserRegistration above
+ *  (shallow, fixed-indent YAML), so a tight regex parser beats
+ *  pulling in js-yaml. Returns null on absence or on a profile
+ *  this build doesn't recognise. */
+export function parseStorageProfileBlock(
+  registrationContent: string
+): RenderParams['storageProfile'] | null {
+  // Capture a `storage:` block: an indented (2-space) line group
+  // immediately after the key. Doesn't tolerate tab indent — we
+  // emit 2-space.
+  const m = registrationContent.match(/^storage:\s*\n((?:[ \t]+.+\n)+)/m);
+  if (!m) return null;
+  const block = m[1];
+
+  const get = (k: string): string | null => {
+    const re = new RegExp(`^\\s+${k}:\\s*(.+)$`, 'm');
+    return re.exec(block)?.[1]?.trim() ?? null;
+  };
+  const profile = get('profile');
+  if (profile !== 'prisma-sqlite') return null;
+
+  const size = get('size') ?? '1Gi';
+  const mountPath = get('mountPath') ?? '/data';
+  const databaseUrl = get('databaseUrl') ?? 'file:/data/app.db';
+  const initModeRaw = get('initMode') ?? 'db-push';
+  const initMode: 'migrate-deploy' | 'db-push' =
+    initModeRaw === 'migrate-deploy' ? 'migrate-deploy' : 'db-push';
+
+  // The literal types on RenderParams.storageProfile are narrow; we
+  // cast through `as` once after validating the only field that
+  // would mismatch.
+  return {
+    type: 'prisma-sqlite',
+    size: size as '1Gi',
+    mountPath: mountPath as '/data',
+    databaseUrl: databaseUrl as 'file:/data/app.db',
+    initMode,
+  };
 }
 
 function renderDockerfile(params: RenderParams): string {
+  // The template is intentionally Prisma-aware AT THE FILE LEVEL —
+  // it adapts at docker build time based on `prisma/schema.prisma`
+  // presence, so a single Dockerfile works for both stateless and
+  // Prisma-SQLite stacks.
+  //
+  // Build stage:
+  //   - mkdir -p prisma  → ensure the dir exists so the runner COPY
+  //     never fails. Empty prisma/ on a stateless app is fine.
+  //   - if schema.prisma → npx prisma generate (idempotent; produces
+  //     @prisma/client types that the Next build needs).
+  // Runner stage:
+  //   - apk add openssl  → Prisma's sqlite engine relies on libssl in
+  //     some scenarios. ~2 MB on alpine; cheap insurance.
+  //   - COPY ./prisma → carries schema + (any) migrations to runtime.
+  //     The init container reads them via the user's command — see
+  //     renderDeployment.
+  //
+  // db push / migrate deploy is NEVER run in the build — that requires
+  // the runtime PVC mount which only exists once the pod starts.
   return `# Generated by swkoo.kr — do not edit; re-deploy from https://swkoo.kr/deploy.
 FROM node:24-alpine AS deps
 WORKDIR /app
@@ -130,18 +237,23 @@ FROM node:24-alpine AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-RUN mkdir -p public && npm run build
+RUN mkdir -p public prisma \\
+  && if [ -f prisma/schema.prisma ]; then npx --no-install prisma generate; fi \\
+  && npm run build
 
 FROM node:24-alpine AS runner
 WORKDIR /app
 # node:*-alpine ships a 'node' user at uid 1000 — reuse it instead of
 # creating a duplicate (adduser would fail with uid conflict).
-RUN apk add --no-cache tini
+# openssl is for Prisma's sqlite engine (libssl); harmless on stateless
+# apps.
+RUN apk add --no-cache tini openssl
 ENV NODE_ENV=production PORT=${params.port}
 COPY --from=builder --chown=node:node /app/.next ./.next
 COPY --from=builder --chown=node:node /app/public ./public
 COPY --from=builder --chown=node:node /app/package*.json ./
 COPY --from=builder --chown=node:node /app/node_modules ./node_modules
+COPY --from=builder --chown=node:node /app/prisma ./prisma
 USER node
 EXPOSE ${params.port}
 ENTRYPOINT ["/sbin/tini", "--"]
@@ -317,6 +429,9 @@ function renderKustomization(params: RenderParams): string {
   const customLine = params.customDomain
     ? `  - ${params.appName}/custom-domain-ingress.yaml\n`
     : '';
+  const pvcLine = params.storageProfile
+    ? `  - ${params.appName}/pvc.yaml\n`
+    : '';
   return `${GENERATED_HEADER}apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
@@ -329,7 +444,7 @@ resources:
   - ${params.appName}/deployment.yaml
   - ${params.appName}/service.yaml
   - ${params.appName}/ingress.yaml
-${customLine}`;
+${customLine}${pvcLine}`;
 }
 
 export interface CustomDomainIngressArgs {
@@ -349,6 +464,38 @@ export interface CustomDomainIngressArgs {
  *  after tls.secretName. HTTP-01 challenge is solved via Traefik.
  *  User namespaces are PSA restricted; cert-manager's solver pod
  *  template is already compliant (spike 0 on 2026-05-26 confirmed). */
+/** PersistentVolumeClaim for the per-app /data mount.
+ *  - `argocd.argoproj.io/sync-options: Prune=false` — once a stateful
+ *    app is registered, ArgoCD must NOT prune this PVC even if it
+ *    later appears removed from the desired state by accident.
+ *    Deliberate deletion still flows through DeployService.deleteDeployment
+ *    which removes the entire registration file → namespace prune
+ *    cascades the PVC.
+ *  - 1Gi against the namespace ResourceQuota (which allows 1Gi requests.
+ *    storage + 1 PVC) — this is the only PVC a user app can claim. */
+function renderPvc(params: RenderParams): string {
+  if (!params.storageProfile) {
+    throw new Error('renderPvc called without storageProfile');
+  }
+  return `${GENERATED_HEADER}apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ${params.appName}-data
+  namespace: user-${params.login}
+  annotations:
+    argocd.argoproj.io/sync-options: Prune=false
+  labels:
+    app: ${params.appName}
+    swkoo.kr/user: ${params.login}
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: ${params.storageProfile.size}
+`;
+}
+
 export function renderCustomDomainIngress(args: CustomDomainIngressArgs): string {
   return `${GENERATED_HEADER}apiVersion: networking.k8s.io/v1
 kind: Ingress
@@ -422,6 +569,89 @@ roleRef:
 }
 
 function renderDeployment(params: RenderParams): string {
+  const sp = params.storageProfile;
+  // Strategy: stateful → Recreate (single PVC, RWO, single replica
+  // means no second pod can attach during a rolling update). Stateless
+  // → omit so k8s defaults to RollingUpdate.
+  const strategyBlock = sp
+    ? `  strategy:
+    type: Recreate
+`
+    : '';
+  // Pod-level securityContext gains fsGroup + fsGroupChangePolicy so
+  // the non-root container can write to the local-path PV (which is
+  // created with root ownership). OnRootMismatch avoids chown'ing
+  // every file on each pod start — useful as the DB grows.
+  const podSecurityContext = sp
+    ? `      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+        fsGroup: ${params.uid}
+        fsGroupChangePolicy: OnRootMismatch
+`
+    : `      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+`;
+  // Init container probes prisma/migrations at runtime; the user can
+  // add/remove migrations between deploys without us re-templating
+  // the YAML. `--no-install` requires Prisma to already be in
+  // node_modules (Dockerfile keeps dev deps in the runner so this
+  // resolves locally; never reaches out to npm).
+  const initContainersBlock = sp
+    ? `      initContainers:
+        - name: prisma-db-init
+          image: ${params.imageRepo}:latest
+          imagePullPolicy: Always
+          command: ["/bin/sh", "-lc"]
+          args:
+            - |
+              set -e
+              if [ -d prisma/migrations ] && [ -n "$(ls -A prisma/migrations 2>/dev/null)" ]; then
+                echo "[init] running prisma migrate deploy"
+                npx --no-install prisma migrate deploy
+              else
+                echo "[init] running prisma db push --skip-generate"
+                npx --no-install prisma db push --skip-generate
+              fi
+          env:
+            - name: DATABASE_URL
+              value: ${sp.databaseUrl}
+          volumeMounts:
+            - name: app-data
+              mountPath: ${sp.mountPath}
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: ${params.uid}
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+`
+    : '';
+  // DATABASE_URL declared via `env:` (NOT envFrom). When both are
+  // present k8s gives explicit env precedence on key collision; this
+  // is how we keep the platform value authoritative even if the user
+  // pastes DATABASE_URL into the env Secret.
+  const explicitEnvBlock = sp
+    ? `          env:
+            - name: DATABASE_URL
+              value: ${sp.databaseUrl}
+`
+    : '';
+  const appVolumeMounts = sp
+    ? `          volumeMounts:
+            - name: app-data
+              mountPath: ${sp.mountPath}
+`
+    : '';
+  const volumesBlock = sp
+    ? `      volumes:
+        - name: app-data
+          persistentVolumeClaim:
+            claimName: ${params.appName}-data
+`
+    : '';
+
   return `${GENERATED_HEADER}apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -432,7 +662,7 @@ metadata:
     swkoo.kr/user: ${params.login}
 spec:
   replicas: 1
-  selector:
+${strategyBlock}  selector:
     matchLabels:
       app: ${params.appName}
   template:
@@ -449,10 +679,7 @@ spec:
       # kernel calls (clone3 in old kernels, userfaultfd, etc.) while
       # still allowing every normal HTTP server / Node runtime call.
       # Container's own securityContext below stays as the harder gate.
-      securityContext:
-        seccompProfile:
-          type: RuntimeDefault
-      containers:
+${podSecurityContext}${initContainersBlock}      containers:
         - name: ${params.appName}
           image: ${params.imageRepo}:latest
           imagePullPolicy: Always
@@ -465,13 +692,13 @@ spec:
             - secretRef:
                 name: ${params.appName}-env
                 optional: true
-          securityContext:
+${explicitEnvBlock}${appVolumeMounts}          securityContext:
             runAsNonRoot: true
             runAsUser: ${params.uid}
             allowPrivilegeEscalation: false
             capabilities:
               drop: ["ALL"]
-`;
+${volumesBlock}`;
 }
 
 function renderService(params: RenderParams): string {

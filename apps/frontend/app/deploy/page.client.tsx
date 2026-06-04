@@ -662,8 +662,51 @@ function PreviewResult({
         )}
       </dl>
       <PreviewChecks checks={preview.checks} />
+      {preview.storageProfile && (
+        <PrismaStorageInfo profile={preview.storageProfile} />
+      )}
       <DeployTrigger fullName={fullName} blocked={hasFail} />
     </div>
+  );
+}
+
+/** Calm informational panel shown only when the preview detected a
+ *  Persistent Storage Profile. Copy is intentionally short and
+ *  non-developer-friendly — the goal is "your data is safe across
+ *  redeploys" + "DATABASE_URL is platform-managed" without
+ *  documenting every k8s primitive underneath. */
+function PrismaStorageInfo({
+  profile,
+}: {
+  profile: import('@/lib/deploy').StorageProfile;
+}): import("react").ReactNode {
+  return (
+    <section
+      aria-label="Persistent storage"
+      className="space-y-2 rounded-md border border-emerald-700/40 bg-emerald-950/20 p-3 text-sm"
+    >
+      <p className="text-xs font-medium uppercase tracking-wide text-emerald-300">
+        영속 저장소 · Prisma SQLite
+      </p>
+      <ul className="space-y-1 leading-relaxed text-slate-300">
+        <li>
+          앱 안의 <span className="font-mono text-slate-200">SQLite DB</span> 파일을
+          안전한 저장소 <span className="font-mono text-slate-200">/data</span> 에 보관해요.
+          ({profile.size})
+        </li>
+        <li>
+          DATABASE_URL 은 자동으로{' '}
+          <span className="font-mono text-slate-200">{profile.databaseUrl}</span> 로 설정됩니다 —
+          이 값은 플랫폼이 관리하므로 환경변수 패널에서 따로 넣을 필요가 없어요.
+        </li>
+        <li>
+          Pod 재시작이나 재배포에도 데이터는 그대로 유지됩니다.
+        </li>
+        <li className="text-xs text-slate-500">
+          ※ 앱을 완전히 삭제하면 namespace 와 함께 저장소도 삭제되어 데이터가 사라집니다.
+        </li>
+      </ul>
+    </section>
   );
 }
 

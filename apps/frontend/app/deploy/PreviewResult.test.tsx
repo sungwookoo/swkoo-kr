@@ -203,3 +203,75 @@ describe('PreviewResult — copy consistency', () => {
     expect(screen.getByText(/Next\.js 앱으로 감지/)).toBeInTheDocument();
   });
 });
+
+describe('PreviewResult — Prisma SQLite storage profile', () => {
+  const checksWithPrisma = [
+    ...ALL_PASS,
+    {
+      key: 'prisma_sqlite' as const,
+      status: 'pass' as const,
+      label: 'Prisma SQLite',
+      message:
+        'SQLite 기반 Prisma 앱입니다. 1GB persistent storage 가 /data 에 연결되고…',
+    },
+  ];
+
+  it('renders the storage info section when preview.storageProfile is set', () => {
+    const preview: StackPreview = {
+      stack: 'nextjs',
+      packageName: 'sample',
+      port: 3000,
+      nodeEngine: null,
+      checks: checksWithPrisma,
+      storageProfile: {
+        type: 'prisma-sqlite',
+        size: '1Gi',
+        mountPath: '/data',
+        databaseUrl: 'file:/data/app.db',
+        initMode: 'db-push',
+      },
+    };
+    render(<PreviewResult fullName="alice/sample" preview={preview} />);
+
+    // Banner label + key copy lines.
+    expect(screen.getByText(/영속 저장소 · Prisma SQLite/)).toBeInTheDocument();
+    expect(screen.getByText(/SQLite DB/)).toBeInTheDocument();
+    // Platform-managed DATABASE_URL copy
+    expect(screen.getByText(/file:\/data\/app\.db/)).toBeInTheDocument();
+    expect(screen.getByText(/플랫폼이 관리하므로/)).toBeInTheDocument();
+    // Persistence + deletion note
+    expect(screen.getByText(/재시작이나 재배포에도/)).toBeInTheDocument();
+    expect(screen.getByText(/namespace 와 함께 저장소도 삭제/)).toBeInTheDocument();
+  });
+
+  it('does NOT render the storage info when storageProfile is absent (stateless app)', () => {
+    const preview: StackPreview = {
+      stack: 'nextjs',
+      packageName: 'sample',
+      port: 3000,
+      nodeEngine: null,
+      checks: ALL_PASS,
+    };
+    render(<PreviewResult fullName="alice/sample" preview={preview} />);
+    expect(screen.queryByText(/영속 저장소/)).not.toBeInTheDocument();
+  });
+
+  it('Deploy button stays enabled when prisma_sqlite check is pass + no other fail', () => {
+    const preview: StackPreview = {
+      stack: 'nextjs',
+      packageName: 'sample',
+      port: 3000,
+      nodeEngine: null,
+      checks: checksWithPrisma,
+      storageProfile: {
+        type: 'prisma-sqlite',
+        size: '1Gi',
+        mountPath: '/data',
+        databaseUrl: 'file:/data/app.db',
+        initMode: 'db-push',
+      },
+    };
+    render(<PreviewResult fullName="alice/sample" preview={preview} />);
+    expect(screen.getByRole('button', { name: /Deploy/ })).not.toBeDisabled();
+  });
+});

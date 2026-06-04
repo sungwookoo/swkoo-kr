@@ -22,11 +22,23 @@ export interface PreviewCheck {
     | 'next_dep'
     | 'build_script'
     | 'package_lockfile'
-    | 'repo_casing';
+    | 'repo_casing'
+    | 'prisma_sqlite';
   status: 'pass' | 'warn' | 'fail';
   label: string;
   message: string;
   userAction?: string;
+}
+
+/** Mirrors backend StorageProfile. Kept narrow on purpose so the UI
+ *  can render fixed copy (1GB, /data) without re-formatting per
+ *  deploy. New profiles will add new `type` literals. */
+export interface StorageProfile {
+  type: 'prisma-sqlite';
+  size: string;
+  mountPath: string;
+  databaseUrl: string;
+  initMode: 'migrate-deploy' | 'db-push';
 }
 
 export type StackPreview =
@@ -36,6 +48,7 @@ export type StackPreview =
       port: number;
       nodeEngine: string | null;
       checks: PreviewCheck[];
+      storageProfile?: StorageProfile;
     }
   | { stack: 'unsupported'; reason: string; checks: PreviewCheck[] };
 
@@ -190,6 +203,10 @@ export interface DeploymentStatus {
     deploy: StageInfo;
     live: StageInfo;
   };
+  // Mirrors backend. Set when the deployment was registered with a
+  // persistent storage profile (or had one preserved). Drives the
+  // status page banner + the env panel's DATABASE_URL guard.
+  storageProfile?: StorageProfile;
 }
 
 export function useDeploymentStatus(
