@@ -8,3 +8,9 @@ image:
   updateStrategy: digest
   scanResult: pending
   writeBackMethod: argocd-image-updater
+storage:
+  profile: prisma-sqlite
+  size: 1Gi
+  mountPath: /data
+  databaseUrl: file:/data/app.db
+  initMode: migrate-deploy
