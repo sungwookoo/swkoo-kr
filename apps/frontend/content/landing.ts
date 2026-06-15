@@ -42,7 +42,7 @@ export const builders = {
   description:
     '단일 노드 k3s 기반 GitOps 풀스택입니다. 격리와 관측 정책은 운영자가 직접 관리합니다.',
   bullets: [
-    'OCI A1.Flex (4 OCPU · 24GB · ARM64) 단일 노드 k3s',
+    'OCI A1.Flex Always Free-aware 단일 노드 k3s',
     'Argo CD + ApplicationSet + Image Updater (digest 자동 추적)',
     'cert-manager DNS-01 wildcard + per-app TLS',
     'per-tenant ResourceQuota · LimitRange · NetworkPolicy',

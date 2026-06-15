@@ -14,6 +14,13 @@ export PATH="/usr/local/bin:/usr/bin:/bin"
 export KUBECONFIG=/etc/monitor/kubeconfig
 export LC_ALL=C
 
+# Oracle's Always Free documentation now lists Ampere A1 as 2 OCPU /
+# 12 GB total. The host may still be a legacy 4 OCPU / 24 GB shape, but
+# this report grades CPU and RAM against the smaller target so we see
+# pressure before a forced resize or policy change hurts production.
+TARGET_OCPU=2
+TARGET_MEM_MB=12288
+
 # ---- Severity tracker ----
 worst="OK"
 bump() {
@@ -38,13 +45,16 @@ LOAD=$(awk '{print $1, $2, $3}' /proc/loadavg)
 CPU_IDLE=$(top -bn1 2>/dev/null | awk -F'[ ,%]+' '/Cpu\(s\)/{for(i=1;i<=NF;i++) if($(i+1)=="id"){print int($i); exit}}')
 CPU_IDLE=${CPU_IDLE:-100}
 CPU_BUSY=$((100 - CPU_IDLE))
-CPU_LV=$(level $CPU_BUSY 80 95)
+CPU_COUNT=$(nproc 2>/dev/null || echo 1)
+CPU_TARGET_PCT=$((CPU_BUSY * CPU_COUNT / TARGET_OCPU))
+CPU_LV=$(level $CPU_TARGET_PCT 75 90)
 
 MEM_TOTAL=$(awk '/MemTotal/{print int($2/1024)}' /proc/meminfo)
 MEM_AVAIL=$(awk '/MemAvailable/{print int($2/1024)}' /proc/meminfo)
 MEM_USED=$((MEM_TOTAL - MEM_AVAIL))
 MEM_PCT=$((MEM_USED * 100 / MEM_TOTAL))
-MEM_LV=$(level $MEM_PCT 80 90)
+MEM_TARGET_PCT=$((MEM_USED * 100 / TARGET_MEM_MB))
+MEM_LV=$(level $MEM_TARGET_PCT 75 90)
 
 ROOT_PCT=$(df -P / | awk 'NR==2{gsub("%","",$5); print $5}')
 ROOT_USED=$(df -h / | awk 'NR==2{print $3}')
@@ -153,8 +163,8 @@ fmt_lv() { printf '%-4s' "$1"; }
   printf '%s **swkoo.kr daily resource report** — `%s`\n' "$ICON" "$NOW"
   printf '```\n'
   printf '[%s] Host:      uptime %s, load %s\n' "$(fmt_lv OK)" "$UPTIME" "$LOAD"
-  printf '[%s] CPU:       %d%% busy (4 OCPU baseline)\n' "$(fmt_lv "$CPU_LV")" "$CPU_BUSY"
-  printf '[%s] Memory:    %dM / %dM (%d%%)\n' "$(fmt_lv "$MEM_LV")" "$MEM_USED" "$MEM_TOTAL" "$MEM_PCT"
+  printf '[%s] CPU:       %d%% host busy (~%d%% of %d OCPU target)\n' "$(fmt_lv "$CPU_LV")" "$CPU_BUSY" "$CPU_TARGET_PCT" "$TARGET_OCPU"
+  printf '[%s] Memory:    %dM / %dM host (%d%% host, %d%% of 12GB target)\n' "$(fmt_lv "$MEM_LV")" "$MEM_USED" "$MEM_TOTAL" "$MEM_PCT" "$MEM_TARGET_PCT"
   printf '[%s] Disk /:    %s / %s (%s%%)\n' "$(fmt_lv "$ROOT_LV")" "$ROOT_USED" "$ROOT_SIZE" "${ROOT_PCT}"
   printf '[%s] Disk/data: %s / %s (%s%%)\n' "$(fmt_lv "$DATA_LV")" "$DATA_USED" "$DATA_SIZE" "${DATA_PCT}"
   printf '[%s] containerd cache: %s\n' "$(fmt_lv OK)" "$CONT_SIZE"
@@ -169,7 +179,8 @@ fmt_lv() { printf '%-4s' "$1"; }
     printf 'PVC top (actual on /data):\n%s\n' "$PVC_TOP"
   fi
   printf '\n'
-  printf 'Free Tier baseline: 4 OCPU / 24GB RAM / 200GB BV / 20GB OS\n'
+  printf 'Free Tier target: %d OCPU / 12GB RAM / 200GB BV / 20GB Object\n' "$TARGET_OCPU"
+  printf 'Note: current host may still report legacy 4 OCPU / 24GB allocatable.\n'
   printf 'OCIR: 수동 점검 (v0 범위 제외)\n'
   printf '```\n'
 }

@@ -122,7 +122,7 @@
 ## 7. 알려진 한계
 
 - 단일 노드 — 노드 죽으면 친구 앱도 다운. (다중 노드 / 관리형 k8s는 BIZ_READINESS §5)
-- Always Free 천장 (4 OCPU / 24GB / Egress 10TB·월) → 실측 수용 ceiling ~20명 (CPU 병목).
+- Always Free 천장 변화 리스크 (기존 4 OCPU / 24GB → 문서상 2 OCPU / 12GB) → 운영 목표를 2/12 기준으로 재산정. 실측 수용 ceiling은 보수적으로 재측정 필요.
 - 운영 부담 24/7 1인 → 친구 수 제한적.
 - 보안 격리는 NetworkPolicy + 자원 한도 + Trivy 이미지 스캔(Phase 3.3, severity counts만, admission webhook 차단은 없음).
 - 사용자가 push한 이미지 안의 코드는 검증 안 함 — 신뢰 기반. 스캔은 보고형이지 차단형 아님.

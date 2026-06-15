@@ -23,7 +23,7 @@
 
 ### 1.1 단일 노드 = SLA 불가
 
-OCI Always Free A1은 단일 노드 천장 (4 OCPU/24GB). 노드 down = 모든 고객 down. 실효 가용성 ~95% — 유료 고객 기대치 99% 미만.
+OCI Always Free A1은 단일 노드 천장 리스크가 큼. 기존 4 OCPU/24GB로 운영 중이더라도 공식 Free Tier 문서상 2 OCPU/12GB 기준으로 축소될 수 있다. 노드 down = 모든 고객 down. 실효 가용성 ~95% — 유료 고객 기대치 99% 미만.
 
 **해결 경로 (택1)**:
 - Free 떠남: OCI Paid 또는 관리형 k8s (~$50-200/월 시작)

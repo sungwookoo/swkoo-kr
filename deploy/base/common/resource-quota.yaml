@@ -5,7 +5,10 @@
 # steady-state to leave room for the OCI SDK heap spikes during backup
 # and short overlap windows during deploys.
 #
-# Sized for OCI A1.Flex (4 vCPU / 24 GiB total):
+# Sized to stay conservative if OCI A1.Flex Always Free capacity is
+# treated as 2 OCPU / 12 GiB total. This namespace is the control plane,
+# not the user app pool, so keep requests low and make pressure visible
+# in the daily resource report instead of assuming the legacy 4/24 headroom.
 #   backend  requests 100m/256Mi · limits 500m/1Gi
 #   frontend requests 150m/256Mi · limits 500m/512Mi
 #   headroom for one debug pod, sidecar additions, future growth

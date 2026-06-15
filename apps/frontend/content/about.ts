@@ -26,7 +26,7 @@ export const hero = {
   title: 'A GitOps deployment system, running on a free-tier cloud.',
   subtitle:
     'GitHub App, Kubernetes, ArgoCD, OCI 를 엮어 단일 운영자가 다수 앱을 배포·관측하는 사이드 프로젝트.',
-  meta: 'OCI A1.Flex (4 OCPU · 24 GB) · single-node k3s · zero managed services',
+  meta: 'OCI A1.Flex · single-node k3s · 2 OCPU / 12 GB Free Tier target',
 } as const;
 
 export const claims: ReadonlyArray<{ label: string; body: string }> = [
@@ -155,7 +155,7 @@ export const techMatrix: ReadonlyArray<TechItem> = [
     id: 'oci-free-tier',
     label: 'OCI Free Tier',
     what: 'Oracle Cloud 의 Always Free 자원 풀.',
-    usedFor: 'A1.Flex 4 OCPU/24 GB · 200 GB block · 20 GB object storage.',
+    usedFor: 'A1.Flex capacity planning · 200 GB block · 20 GB object storage.',
     whyItMatters: '평생 무료 ARM compute. 사이드 프로젝트 baseline 비용을 0 으로 깐다.',
   },
   {
