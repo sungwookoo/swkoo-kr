@@ -84,7 +84,7 @@ export default function TermsPage(): import("react").ReactNode {
           <ul className="list-disc space-y-1 pl-5">
             <li>공유 CPU: 예약 0.1코어 / 최대 0.5코어</li>
             <li>메모리: 예약 256MiB / 최대 512MiB</li>
-            <li>Pod: 3개</li>
+            <li>앱은 기본 Pod 1개로 실행하며, 네임스페이스의 Pod 수 상한은 재배포 등을 위해 3개로 설정됩니다.</li>
             <li>영구 저장공간: 지원되는 Prisma SQLite 앱에 1개 / 1GiB</li>
             <li>네트워크: NetworkPolicy로 사설 IP 대역 차단, DNS·HTTP/HTTPS만 허용</li>
           </ul>

@@ -546,7 +546,7 @@ export class DeployService {
           key: 'prisma_sqlite',
           status: 'pass',
           label: 'Prisma SQLite',
-          message: `SQLite 기반 Prisma 앱입니다. 1GB persistent storage 가 /data 에 연결되고, DATABASE_URL 은 file:/data/app.db 로 자동 설정됩니다. (init: ${initMode})`,
+          message: `SQLite 기반 Prisma 앱입니다. 1GiB persistent storage 가 /data 에 연결되고, DATABASE_URL 은 file:/data/app.db 로 자동 설정됩니다. (init: ${initMode})`,
         });
       }
     }

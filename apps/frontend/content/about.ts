@@ -156,7 +156,7 @@ export const techMatrix: ReadonlyArray<TechItem> = [
     label: 'OCI Free Tier',
     what: 'Oracle Cloud 의 Always Free 자원 풀.',
     usedFor: 'A1.Flex capacity planning · 200 GB block · 20 GB object storage.',
-    whyItMatters: '평생 무료 ARM compute. 사이드 프로젝트 baseline 비용을 0 으로 깐다.',
+    whyItMatters: 'OCI ARM compute의 무료 사용 범위를 활용한다. 계정은 Pay As You Go이며 사용량에 따라 비용이 발생할 수 있다.',
   },
   {
     id: 'resource-monitoring',
@@ -219,7 +219,7 @@ export const systemPatterns: ReadonlyArray<PatternItem> = [
   {
     id: 'cost-discipline',
     label: 'Operational cost discipline',
-    body: 'Always-on 인프라는 0 원 (OCI Always Free). 정기 작업은 GitHub Actions free tier 분만 소비. daily Discord 요약으로 한도 초과 전 알람.',
+    body: 'OCI와 GitHub Actions의 무료 사용 범위를 활용한다. 사용량과 요금 정책에 따라 비용이 발생할 수 있으며, 지속적인 무과금을 보장하지 않는다.',
   },
   {
     id: 'failure-aware-ux',

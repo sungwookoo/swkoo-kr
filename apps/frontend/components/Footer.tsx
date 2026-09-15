@@ -22,10 +22,6 @@ const internalLinks = [
   { href: '/about' as const, label: 'About' },
 ];
 
-const externalSiteLinks = [
-  { href: 'https://argocd.swkoo.kr', label: 'Argo CD' },
-];
-
 export function Footer() {
   const currentYear = new Date().getFullYear();
 
@@ -63,18 +59,6 @@ export function Footer() {
                   >
                     {link.label}
                   </Link>
-                </li>
-              ))}
-              {externalSiteLinks.map((link) => (
-                <li key={link.href}>
-                  <a
-                    href={link.href}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-sm text-slate-400 transition-colors hover:text-zinc-100"
-                  >
-                    {link.label} ↗
-                  </a>
                 </li>
               ))}
             </ul>

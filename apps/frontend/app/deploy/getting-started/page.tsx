@@ -22,8 +22,10 @@ const sections = [
     body: '지원하는/지원하지 않는 항목:',
     bullets: [
       '런타임 환경변수 ✅ — 배포 후 `/deploy/<login>/<repo>` 페이지의 "환경변수" 패널에서 추가. Save 시 Pod 자동 재시작',
-      '영구 저장공간 ✅ — 지원되는 Prisma SQLite 앱에 1GiB 제공. 외부 DB도 환경변수로 연결 가능',
+      '영구 저장공간 ✅ — 지원되는 Prisma SQLite 앱에 1GiB 제공. 외부 DB는 공개 HTTPS API 방식으로 연결 가능. 일반 PostgreSQL·MySQL 포트 연결은 현재 지원하지 않음',
       '앱당 공유 CPU 예약 0.1코어·최대 0.5코어, 메모리 예약 256MiB·최대 512MiB',
+      '사용자 앱 DB 자동 백업은 제공하지 않습니다. 영구 저장공간은 백업과 다르며, 앱 제거 시 연결된 DB도 삭제됩니다',
+      '자원 상한은 자동으로 늘어나지 않습니다. 상향이 필요하면 운영자에게 문의해 주세요',
       '한 사용자당 앱 1개 (재배포는 같은 앱 슬롯을 덮어씁니다)',
     ],
   },
@@ -35,7 +37,7 @@ const sections = [
       '본인 repo에 빌드 설정 파일 자동 commit (`main`/`master` 어느 쪽이든 OK)',
       '클러스터 자원 (namespace · 자원 한도 · 네트워크 정책) 자동 생성',
       'GitHub Actions가 이미지 빌드 → 본인 GHCR로 push',
-      '약 5분 안에 `<slug>.apps.swkoo.kr` 로 라이브 배포 — 슬러그는 Deploy 화면에서 직접 입력 가능, 비우면 `<login>-<repo>` 기본값',
+      '빌드 성공 후 `<slug>.apps.swkoo.kr` 로 자동 배포 (소요 시간은 빌드와 인프라 상태에 따라 달라짐) — 슬러그는 Deploy 화면에서 직접 입력 가능, 비우면 `<login>-<repo>` 기본값',
     ],
   },
   {
@@ -43,7 +45,7 @@ const sections = [
     title: '본인 도메인 연결 (선택) — CNAME 한 줄',
     body: '기본 URL은 그대로 두고, 본인 소유 도메인의 서브도메인을 추가로 연결할 수 있습니다. 배포 후 /deploy/<login>/<repo> 페이지의 "커스텀 도메인" 패널에서 진행합니다.',
     bullets: [
-      '연결은 CNAME 한 줄로 끝납니다 — DNS 관리 화면에서 패널에 표시된 Host/Target 값을 그대로 추가하면 됩니다. 1-5분 안에 인증서까지 자동 발급',
+      '연결은 CNAME 한 줄로 끝납니다 — DNS 관리 화면에서 패널에 표시된 Host/Target 값을 그대로 추가하면 됩니다. DNS 확인 후 인증서를 자동 발급하며, DNS 전파와 인증기관 상태에 따라 지연될 수 있습니다',
       '루트 도메인(`example.com`)은 직접 연결을 지원하지 않습니다 — 입력 시 `www.example.com` 같은 서브도메인 사용을 안내해 드립니다',
       '이미 Vercel/Netlify 등에 연결된 `www`는 그대로 두고 `portfolio.your-domain.com` 같은 새 서브도메인을 쓰는 걸 추천합니다 — 같은 host에 A 레코드와 CNAME은 공존할 수 없습니다',
       'DNS 업체별로 zone file import를 지원하면 [DNS 레코드 파일 다운로드]로 한 번에 적용할 수 있습니다 (Cloudflare, Route 53 등). 미지원이면 패널의 값을 그대로 복사해 직접 입력',
@@ -66,7 +68,7 @@ export default function GettingStartedPage(): import("react").ReactNode {
             처음 배포하시나요?
           </h1>
           <p className="text-balance text-lg leading-relaxed text-zinc-400">
-            5분 안에 끝납니다. 그 전에 알아두면 좋은 것들 몇 가지.
+            배포 전에 확인할 준비사항과 현재 지원 범위를 안내합니다.
           </p>
         </header>
 

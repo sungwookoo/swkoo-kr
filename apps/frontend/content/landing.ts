@@ -27,7 +27,7 @@ export const steps = [
   {
     n: 3,
     title: 'Deploy 클릭',
-    body: 'Dockerfile과 GitHub Actions workflow는 사용자 repo에, Kubernetes 매니페스트는 운영 repo에 commit됩니다. ArgoCD가 5분 안에 라이브로 올립니다.',
+    body: 'Dockerfile과 GitHub Actions workflow는 사용자 repo에, Kubernetes 매니페스트는 운영 repo에 commit됩니다. 빌드 성공 후 자동 배포하며, 소요 시간은 빌드와 인프라 상태에 따라 달라집니다.',
   },
 ] as const;
 
@@ -47,7 +47,7 @@ export const builders = {
     'cert-manager DNS-01 wildcard + per-app TLS',
     'per-tenant ResourceQuota · LimitRange · NetworkPolicy',
     'Prometheus + Alertmanager → 운영자 Discord (arm64 변환 sidecar 자체 구현)',
-    '일일 SQLite 백업 → OCI Object Storage (Instance Principal, 90일 retention)',
+    '플랫폼 운영 DB 일일 백업 → OCI Object Storage (90일 보관). 사용자 앱 DB 자동 백업은 미제공',
     '사용자 deploy 완료 자동 이메일 (Resend, GitHub OAuth email)',
   ],
 } as const;

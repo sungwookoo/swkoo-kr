@@ -31,7 +31,7 @@ export interface PreviewCheck {
 }
 
 /** Mirrors backend StorageProfile. Kept narrow on purpose so the UI
- *  can render fixed copy (1GB, /data) without re-formatting per
+ *  can render fixed copy (1GiB, /data) without re-formatting per
  *  deploy. New profiles will add new `type` literals. */
 export interface StorageProfile {
   type: 'prisma-sqlite';
