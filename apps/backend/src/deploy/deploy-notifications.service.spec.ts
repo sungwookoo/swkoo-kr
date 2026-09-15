@@ -61,12 +61,25 @@ describe('background deploy notifications', () => {
   const email = { enabled: jest.fn(), sendDeploySuccess: jest.fn() };
   const deploy = { getCurrentDeployment: jest.fn() };
   const argo = { getApplication: jest.fn() };
+  const status = { getStages: jest.fn() };
 
   function openRepository(): void {
     users = new UsersRepository({ dbPath: join(directory, 'test.sqlite') } as never);
     users.onModuleInit();
-    service = new DeployNotificationsService(users, deploy as never, argo as never, email as never, { checkRuntime: jest.fn().mockResolvedValue({ status: 'success' }) } as never);
+    service = new DeployNotificationsService(users, deploy as never, argo as never, email as never, status as never);
   }
+
+  it('does not notify about the old healthy app when the latest build failed', async () => {
+    status.getStages.mockResolvedValue({ build: { status: 'failed' }, imageDetected: { status: 'pending' } });
+    await service.notifyReadyDeployments();
+    expect(email.sendDeploySuccess).not.toHaveBeenCalled();
+  });
+
+  it('does not mix different image snapshots during a concurrent rollout', async () => {
+    status.getStages.mockResolvedValue({ imageDetected: { status: 'success', imageDigest: `sha256:${'b'.repeat(64)}` } });
+    await service.notifyReadyDeployments();
+    expect(email.sendDeploySuccess).not.toHaveBeenCalled();
+  });
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -77,6 +90,7 @@ describe('background deploy notifications', () => {
     userId = users.upsertUser({ githubId: 1, githubLogin: 'alice',
       name: null, email: 'alice@example.com', avatarUrl: null }).id;
     users.setAllowed('alice', true);
+    status.getStages.mockResolvedValue({ build: { status: 'success' }, imageDetected: { status: 'success', imageDigest: digest }, deploy: { status: 'success' }, live: { status: 'success' } });
     email.enabled.mockReturnValue(true);
     email.sendDeploySuccess.mockResolvedValue(true);
     deploy.getCurrentDeployment.mockResolvedValue({ login: 'alice', repo: 'app',

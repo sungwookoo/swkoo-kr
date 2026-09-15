@@ -61,7 +61,7 @@ export class DeployStatusService {
         message: '최신 빌드 이미지가 클러스터에 반영되기를 기다리는 중입니다.' };
       return stages;
     }
-    stages.imageDetected = { status: 'success', message: `최신 빌드 이미지 확인 (${expected.slice(0, 19)}…)` };
+    stages.imageDetected = { status: 'success', imageDigest: expected, message: `최신 빌드 이미지 확인 (${expected.slice(0, 19)}…)` };
     stages.deploy = this.checkDeployStage(app);
     if (stages.deploy.status === 'failed') return stages;
     const runtime = await this.checkRuntime(login, repo, expected);

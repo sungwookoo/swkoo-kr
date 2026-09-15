@@ -37,7 +37,9 @@ export class DeployNotificationsService {
           const app = await this.argo.getApplication(`swkoo-user-${current.login}`);
           const digest = readyImageDigest(app, current.login, current.repo);
           if (!digest || this.users.getLastNotifiedImageSha(user.id) === digest) continue;
-          if ((await this.status.checkRuntime(current.login, current.repo, digest)).status !== 'success') continue;
+          const stages = await this.status.getStages(user.id, current.login, current.repo, current.liveUrl);
+          if (Object.values(stages).some((stage) => stage.status !== 'success')
+            || stages.imageDetected.imageDigest !== digest) continue;
           const live = await axios.get(current.liveUrl, {
             timeout: 3000, maxRedirects: 3, validateStatus: () => true,
           });

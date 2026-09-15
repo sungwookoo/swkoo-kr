@@ -152,6 +152,7 @@ export interface StageInfo {
   message: string;
   link?: string;
   sourceSha?: string;
+  imageDigest?: string;
   // New in Phase 3: structured failure cause + actionable CTA. All
   // optional — existing API consumers ignore unknown fields. Only set
   // when we have a deterministic signal; ambiguous build failures stay
