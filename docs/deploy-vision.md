@@ -59,11 +59,11 @@
    │  Dockerfile + .github/workflows/build.yml (운영자 제공 템플릿)
    ▼
 [GitHub Actions (친구 분량)]
-   │  build → push to OCIR (운영자 보조 secret 제공 또는 별도 OCIR 네임스페이스)
+   │  build → push to GHCR (GitHub Actions GITHUB_TOKEN)
    ▼
-[OCIR: <namespace>/users/<friend>/<app>:<sha>]
+[GHCR: ghcr.io/<friend>/<app>:<sha>]
    ▼
-[manifests repo: swkoo-kr (또는 별도)]
+[private manifests repo: swkoo-deploy/<friend>]
    │  CI bot이 image tag 갱신 (또는 Argo Image Updater)
    ▼
 [ArgoCD Application: user-<friend>-<app>]
@@ -73,16 +73,16 @@
    │  ResourceQuota / LimitRange / NetworkPolicy
    │  Deployment + Service + Ingress
    ▼
-[Ingress: <appname>.apps.swkoo.kr  (wildcard TLS)]
+[Ingress: <appname>.apps.swkoo.kr  (앱별 TLS)]
 ```
 
 핵심 결정 (Phase 1 단계에서 단순함 우선):
-- **wildcard TLS**: cert-manager DNS-01 challenge with `*.apps.swkoo.kr` (별도 와일드카드 인증서)
-- **namespace 네이밍**: `user-<github-login>` (1 사용자 = 1 namespace, 그 안에 여러 앱)
+- **앱별 TLS**: cert-manager DNS-01 challenge로 각 앱의 인증서를 발급
+- **namespace 네이밍**: `user-<github-login>` (1 사용자 = 1 namespace, 현재 앱 1개)
 - **registry 분리**: swkoo 본인 image는 OCIR(`nrt.ocir.io/...`) 그대로, **친구 image는 친구의 GHCR(`ghcr.io/<friend>/<app>`)**. 친구는 GitHub 안에서 끝나고, swkoo OCI 한도(20GB Object Storage)는 친구가 늘어도 영향 없음.
 - **이미지 빌드**: 친구 repo의 GitHub Actions가 자기 GHCR로 push (built-in `GITHUB_TOKEN`, 친구가 추가 secret 등록 불필요)
 - **ArgoCD App per user-app**: ApplicationSet으로 자동 생성 (`deploy/users/*` 자동 발견)
-- **manifests repo 위치**: 일단 `swkoo-kr/deploy/users/<friend>/<app>/` 하위에 두고, Phase 2 이후 별도 repo로 분리 검토
+- **manifests repo 위치**: `swkoo-deploy/<friend>` private 저장소. 공통 `deploy/users/<friend>.yaml`은 등록 정보만 보관
 
 ---
 
@@ -124,7 +124,7 @@
 ## 7. 알려진 한계
 
 - 단일 노드 — 노드 죽으면 친구 앱도 다운. (다중 노드 / 관리형 k8s는 BIZ_READINESS §5)
-- Always Free 천장 변화 리스크 (기존 4 OCPU / 24GB → 문서상 2 OCPU / 12GB) → 운영 목표를 2/12 기준으로 재산정. 실측 수용 ceiling은 보수적으로 재측정 필요.
+- 2026-09-15 확인: Pay As You Go 계정, 실제 4 OCPU / 24GB. 무료 사용량과 청구액을 확인하며 운영한다. 수용 인원은 부하 검증으로 결정한다.
 - 운영 부담 24/7 1인 → 친구 수 제한적.
 - 보안 격리 템플릿은 NetworkPolicy + 자원 한도 + PSA restricted. Trivy는 취약점 상세를 보고하며 admission 단계 차단은 없다. 실제 적용은 별도 검증한다.
 - 사용자가 push한 이미지 안의 코드는 검증 안 함 — 신뢰 기반. 스캔은 보고형이지 차단형 아님.
@@ -146,7 +146,7 @@
 Phase 1·2·3.1·3.2·3.3 + Step 1·2 + B 묶음 + C (사용자 이메일 알림) + major dep upgrade 모두 ✅. 남은 큰 줄기 (BIZ_READINESS §5 참조):
 
 - 회사 entity 설립 (코드와 병렬 가능)
-- 다중 노드 / 관리형 k8s 이전 — CPU 한계(현 ~20명) 해소
+- 다중 노드 / 관리형 k8s 이전 — 단일 노드 자원·장애 한계 해소
 - 결제 모듈 (Stripe) — entity 후속
 - 다중 region — 단일 노드 전제 깸, 대규모 작업
 

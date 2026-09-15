@@ -65,7 +65,7 @@ describe('background deploy notifications', () => {
   function openRepository(): void {
     users = new UsersRepository({ dbPath: join(directory, 'test.sqlite') } as never);
     users.onModuleInit();
-    service = new DeployNotificationsService(users, deploy as never, argo as never, email as never);
+    service = new DeployNotificationsService(users, deploy as never, argo as never, email as never, { checkRuntime: jest.fn().mockResolvedValue({ status: 'success' }) } as never);
   }
 
   beforeEach(() => {

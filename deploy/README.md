@@ -372,3 +372,21 @@ Cloudflare DNS-01 갱신이 `DELETE /zones//dns_records/...` 오류로 정체되
 실제 적용한 버전과 설정: Helm `cert-manager` (namespace `cert-manager`), chart `v1.12.17`, 기존 `installCRDs=true` 유지. Kubernetes 접근은 `sudo helm --kubeconfig /etc/rancher/k3s/k3s.yaml`을 사용했다. 사용자 kubeconfig는 인증 오류가 있어 사용하지 않았다.
 
 **다음 Terraform 적용 전 확인:** `oci/terraform-k3s/variables.tf`의 `cert_manager_chart_version` 기본값은 아직 `v1.12.0`이다. 현재 운영 수정이 되돌아가지 않도록 최소 `-var 'cert_manager_chart_version=v1.12.17'`로 plan을 검토하거나, 별도 인프라 변경에서 검증 후 기본값을 갱신한다. 이번 복구에서는 Terraform state·전체 인프라를 변경하지 않았다. 1.12 계열의 장기 유지가 목표는 아니며, 지원 중인 minor 버전으로의 업그레이드는 별도 검증한다.
+
+## 분리된 사용자 저장소·격리 회귀 검증
+
+`scripts/render-storage-validation.cjs`는 현재 백엔드 템플릿으로 fixture를 생성한다.
+`scripts/validate-user-storage.py`는 OCI 호스트에서 sudo로 실행하며, 기존 `user-swkoo-validation-a/b`가 있으면 중단한다.
+실제 사용자 namespace는 변경하지 않는다. 임시 namespace 두 개와 PVC 두 개를 만들고 finally에서 정리한다.
+
+```powershell
+npm --prefix apps/backend run build
+node scripts/render-storage-validation.cjs C:/sungwoo/resource-rollout/validation-fixtures.json
+scp C:/sungwoo/resource-rollout/validation-fixtures.json swkoo-oci:/tmp/swkoo-validation-fixtures.json
+scp scripts/validate-user-storage.py swkoo-oci:/tmp/swkoo-validate-user-storage.py
+ssh swkoo-oci 'sudo python3 -u /tmp/swkoo-validate-user-storage.py /tmp/swkoo-validation-fixtures.json'
+```
+
+검증 항목: Prisma migration, 재시작 데이터 보존, 별도 PVC 복원, NetworkPolicy 양성/음성 대조, DNS, 서비스계정 token 부재, namespace 삭제 후 PV 회수.
+스크립트의 SprintFlow 이미지 digest는 검증된 fixture 버전이며 갱신 시 migration 호환성을 확인한다.
+운영 DB 복원은 원본을 덮어쓰기 전에 반드시 별도 파일에서 integrity_check/foreign_key_check와 핵심 테이블 수를 검증한다.

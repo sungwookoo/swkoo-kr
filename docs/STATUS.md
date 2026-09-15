@@ -2,6 +2,18 @@
 
 기준일: 2026-09-15. 코드 기준선과 아래 운영 검증 기록을 구분한다. Observatory의 정체성은 [VISION](../VISION.md), Deploy의 정체성은 [deploy-vision](./deploy-vision.md)을 따른다.
 
+## 기존 개선 계획 후속 구현 (2026-09-15)
+
+- 배포 상태 책임을 `DeployStatusService`로 분리하고, 공통 Argo 이미지 판정을 `deployment-readiness.ts`로 추출했다.
+- 저장소 기본 브랜치의 현재 SHA에 대한 `build.yml` 실행만 조회한다. 해당 SHA 태그의 GHCR digest와 원하는 이미지가 같아야 다음 단계로 진행한다.
+- Argo 비교 source·summary 일치, 성공한 동기화, Deployment observedGeneration·updated/available replicas 및 해당 이미지 Pod Ready를 확인한다. 오래된 정상 앱으로 새 배포를 완료 처리하지 않는다.
+- ImagePullBackOff/CrashLoopBackOff 등은 컨테이너 실패로, 정상 rollout 뒤 HTTP 오류는 앱 응답 실패로 표시한다. 알림도 실제 컨테이너 준비 확인을 거친다.
+- 화면의 라이브 표시는 모든 단계가 성공해야 표시한다. 제거 확인 화면에 PVC·DB 삭제 범위와 사전 백업 필요성을 명시했다.
+- PR 단위 테스트·프로덕션 빌드 workflow 추가, 기존 Playwright smoke를 PR에서도 실행한다. 이 workflow 추가는 GitHub branch protection 설정 변경을 의미하지 않는다.
+- 로컬: 백엔드 236개(17 suites), 프런트엔드 90개, Playwright 12개 통과. 실제 Nest HTTP 경계에서 무인증·다른 사용자 상태/환경변수 읽기/쓰기 거부를 검증했다.
+- 운영 분리 검증: 실제 Prisma migration + 동일 PVC로 Pod 교체 후 데이터 유지, 다른 namespace/PVC로 백업 복구, 양성 대조 후 cross-namespace TCP 차단, DNS 허용·서비스계정 token 없음 확인. namespace 삭제 시 해당 PV 및 디렉터리 회수 확인. 테스트 자원 정리 완료.
+- OCI Object Storage `daily/2026-09-14/observatory.sqlite` (36,544,512 bytes)를 임시 경로로 다운로드·복원해 integrity/foreign_key 검사 통과, users 4 / audit_log 332 / custom_domains 1 확인. 임시 복원 파일 삭제, 운영 DB 미변경.
+
 ## SprintFlow 빈 DB 오류 복구 (2026-09-15)
 
 - SprintFlow 커밋 `62794065767d9d04115db28803db3af49fcd8f74`: 첫 접속 시 프로젝트가 없으면 프로젝트와 상태 4개를 원자적으로 생성. 기존 데이터는 유지하고 동시 요청의 중복 생성은 고유 키로 방지한다.
@@ -64,8 +76,8 @@
 ## 미완료·후속 범위
 
 - 일반적인 DB 호스팅, 다중 노드·고가용성, 결제·일반 공개 가입.
-- PR 단계 검증 확대와 실제 배포 흐름의 통합 테스트. 현재 Playwright는 모의 API를 사용한다.
-- 전체 배포 진행 UI의 최신 빌드·이미지 연결 검증은 후속 작업이다. 이번에는 완료 이메일의 판정만 강화했다.
+- Playwright는 UI API 대역을 사용한다. 실제 Nest HTTP 인가 통합 테스트 및 별도 OCI 공간의 저장소·격리 검증을 함께 수행한다.
+- 배포 판정은 아래 2026-09-15 개선 검증 기록을 따른다.
 
 ## OCI 배포 및 테스트 결과
 

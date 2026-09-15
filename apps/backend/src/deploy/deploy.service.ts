@@ -8,6 +8,7 @@ import { CustomDomainsRepository } from '../domain/domain.repository';
 import { KubeClient } from '../kube/kube.client';
 import { AuthService } from '../onboarding/auth.service';
 import { UsersRepository } from '../onboarding/users.repository';
+import { DeployStatusService } from './deploy-status.service';
 import { ArgoCdClient } from '../pipelines/services/argo-cd.client';
 import { GithubAppService } from '../github-app/github-app.service';
 import {
@@ -135,6 +136,7 @@ export type StageReason =
   | 'DOCKER_BUILD_FAILED'
   | 'GHCR_PUSH_FAILED'
   | 'IMAGE_UPDATER_PENDING'
+  | 'POD_NOT_READY'
   | 'ARGO_SYNC_FAILED'
   | 'LIVE_HEALTHCHECK_FAILED'
   | 'UNKNOWN_BUILD_FAILURE';
@@ -149,6 +151,7 @@ export interface StageInfo {
   status: StageStatus;
   message: string;
   link?: string;
+  sourceSha?: string;
   // New in Phase 3: structured failure cause + actionable CTA. All
   // optional — existing API consumers ignore unknown fields. Only set
   // when we have a deterministic signal; ambiguous build failures stay
@@ -191,23 +194,9 @@ export interface DeploymentStatus {
   storageProfile?: StorageProfile;
 }
 
-interface GhaRunSummary {
-  id: number;
-  status: string;
-  conclusion: string | null;
-  html_url: string;
-  head_sha: string;
-  created_at: string;
-}
-
 @Injectable()
 export class DeployService {
   private readonly logger = new Logger(DeployService.name);
-  // (login/repo → last GHA runId we already notified about). In-memory: on
-  // backend restart we may double-fire once if the user reloads the progress
-  // page right after; acceptable for an operator-side alert.
-  private readonly notifiedFailures = new Map<string, number>();
-
   constructor(
     private readonly auth: AuthService,
     private readonly githubApp: GithubAppService,
@@ -216,7 +205,8 @@ export class DeployService {
     private readonly kube: KubeClient,
     private readonly customDomains: CustomDomainsRepository,
     @Inject(onboardingConfig.KEY)
-    private readonly config: ConfigType<typeof onboardingConfig>
+    private readonly config: ConfigType<typeof onboardingConfig>,
+    private readonly statusService: DeployStatusService
   ) {}
 
   async listRepos(userId: number): Promise<RepoSummary[]> {
@@ -1046,345 +1036,12 @@ export class DeployService {
     const subdomain = this.resolveSubdomain(user, loginLc, appName);
     const liveUrl = `https://${subdomain}.${this.config.appsDomain}`;
 
-    const [manifestsStage, buildStage, app, liveStage, storageProfile] =
-      await Promise.all([
-        this.checkManifestStage(loginLc),
-        this.checkBuildStage(requestingUserId, login, repo),
-        this.argo.getApplication(`swkoo-user-${loginLc}`).catch(() => null),
-        this.checkLiveStage(liveUrl),
-        this.readExistingStorageProfile(loginLc),
-      ]);
-
-    const imageDetectedStage = this.checkImageDetectedStage(app);
-    const deployStage = this.checkDeployStage(app);
-
-    return {
-      login: loginLc,
-      repo,
-      appName,
-      liveUrl,
-      stages: {
-        manifests: manifestsStage,
-        build: buildStage,
-        imageDetected: imageDetectedStage,
-        deploy: deployStage,
-        live: liveStage,
-      },
-      storageProfile: storageProfile ?? undefined,
-    };
-  }
-
-  private async checkManifestStage(login: string): Promise<StageInfo> {
-    const [owner, name] = this.config.manifestRepo.split('/');
-    try {
-      const token = await this.githubApp.getInstallationTokenForRepo(owner, name);
-      await axios.get(
-        `https://api.github.com/repos/${owner}/${name}/contents/${getUserRegistrationPath(login)}`,
-        {
-          headers: {
-            Authorization: `token ${token}`,
-            Accept: 'application/vnd.github+json',
-          },
-          params: { ref: this.config.manifestBranch },
-        }
-      );
-      return { status: 'success', message: '매니페스트 등록 완료' };
-    } catch (err) {
-      const status = (err as { response?: { status?: number } }).response?.status;
-      if (status === 404) {
-        return { status: 'pending', message: '매니페스트 등록 대기 중' };
-      }
-      return { status: 'pending', message: '매니페스트 상태 확인 중' };
-    }
-  }
-
-  private async checkBuildStage(
-    userId: number,
-    owner: string,
-    repo: string
-  ): Promise<StageInfo> {
-    let accessToken: string;
-    try {
-      accessToken = await this.auth.getValidAccessToken(userId);
-    } catch {
-      return { status: 'pending', message: '빌드 상태 확인 권한 없음 (재로그인 필요)' };
-    }
-    try {
-      const resp = await axios.get<{ workflow_runs: GhaRunSummary[] }>(
-        `https://api.github.com/repos/${owner}/${repo}/actions/runs`,
-        {
-          headers: {
-            Authorization: `token ${accessToken}`,
-            Accept: 'application/vnd.github+json',
-          },
-          params: { branch: 'main', per_page: 1 },
-        }
-      );
-      const run = resp.data.workflow_runs[0];
-      if (!run) {
-        return { status: 'pending', message: '빌드 대기 중 (워크플로 실행 기록 없음)' };
-      }
-      if (run.status === 'completed' && run.conclusion === 'success') {
-        return {
-          status: 'success',
-          message: `빌드 완료 (${run.head_sha.slice(0, 7)})`,
-          link: run.html_url,
-        };
-      }
-      if (run.status === 'completed') {
-        this.maybeNotifyBuildFailure(owner, repo, run);
-        const classified = await this.classifyBuildFailure(accessToken, owner, repo, run);
-        return {
-          status: 'failed',
-          message: classified.message,
-          link: run.html_url,
-          reason: classified.reason,
-          userAction: classified.userAction,
-          operatorHint: classified.operatorHint,
-        };
-      }
-      return { status: 'running', message: `이미지 빌드 중 (${run.status})`, link: run.html_url };
-    } catch (err) {
-      this.logger.warn(`checkBuildStage failed: ${(err as Error).message}`);
-      return { status: 'pending', message: '빌드 상태 확인 중' };
-    }
-  }
-
-  /** Best-effort classification of a *completed-but-failed* GHA run.
-   * Two probes:
-   *   1. The user's build.yml — if it still uses the legacy
-   *      `${{ github.repository }}` tag (pre c98b452 fix), the build
-   *      will fail with "repository name must be lowercase" on any
-   *      mixed-case repo. Re-running register on swkoo.kr regenerates
-   *      the workflow with `params.imageRepo` (already lower-cased).
-   *   2. The run's jobs endpoint — failed step name carries enough
-   *      signal to classify without downloading the log zip. Step
-   *      names come from our generated workflow (renderBuildWorkflow)
-   *      so they're stable; users who hand-edit the workflow can fall
-   *      through to UNKNOWN_BUILD_FAILURE.
-   * Any classification failure (token issue, jobs 404, regex miss)
-   * returns UNKNOWN_BUILD_FAILURE so the UI still surfaces a useful
-   * "open the log" link. */
-  private async classifyBuildFailure(
-    accessToken: string,
-    owner: string,
-    repo: string,
-    run: GhaRunSummary
-  ): Promise<{
-    message: string;
-    reason: StageReason;
-    userAction?: StageAction;
-    operatorHint?: string;
-  }> {
-    const headers = {
-      Authorization: `token ${accessToken}`,
-      Accept: 'application/vnd.github+json',
-    };
-    const conclusion = run.conclusion ?? 'unknown';
-
-    // ---- Probe 1: legacy workflow template ----
-    // Only the failure surface is interesting — a "matched" template
-    // means we know the workflow needs regenerating. We narrow further
-    // for the mixed-case repo case (the original symptom). Other
-    // legacy quirks may exist but we don't enumerate them here.
-    try {
-      const wfResp = await axios.get<GithubContent>(
-        `https://api.github.com/repos/${owner}/${repo}/contents/.github/workflows/build.yml`,
-        { headers }
-      );
-      const wfContent = Buffer.from(wfResp.data.content, 'base64').toString('utf8');
-      const legacyTagPattern = /ghcr\.io\/\$\{\{\s*github\.repository\s*\}\}/;
-      const hasLegacyTag = legacyTagPattern.test(wfContent);
-      if (hasLegacyTag) {
-        const mixedCase = /[A-Z]/.test(repo);
-        const mixedCaseSuffix = mixedCase
-          ? ' (repo 이름에 대문자가 포함되어 있어 lowercase GHCR 태그 규칙을 위반합니다)'
-          : '';
-        return {
-          message: `빌드 실패: ${conclusion} — 구버전 workflow 템플릿을 사용 중입니다${mixedCaseSuffix}.`,
-          reason: 'WORKFLOW_OLD_TEMPLATE',
-          userAction: {
-            label: 'swkoo.kr에서 다시 배포 시작 (workflow 자동 갱신)',
-            href: '/deploy',
-            kind: 'link',
-          },
-        };
-      }
-    } catch (err) {
-      // Workflow file unreadable — possibly the user deleted it or
-      // the install token is missing. Skip this probe and try step
-      // classification.
-      this.logger.warn(
-        `classifyBuildFailure workflow probe failed for ${owner}/${repo}: ${(err as Error).message}`
-      );
-    }
-
-    // ---- Probe 2: failed step name ----
-    // The jobs endpoint is cheap relative to the log zip and carries
-    // step-level conclusions. We look for the *first* failed step and
-    // match against a small set of patterns tied to our generated
-    // template (checkout/buildx/login-action/build-push-action).
-    interface GhaJobStep {
-      name: string;
-      status: string;
-      conclusion: string | null;
-    }
-    interface GhaJob {
-      name: string;
-      status: string;
-      conclusion: string | null;
-      steps?: GhaJobStep[];
-    }
-    try {
-      const jobsResp = await axios.get<{ jobs: GhaJob[] }>(
-        `https://api.github.com/repos/${owner}/${repo}/actions/runs/${run.id}/jobs`,
-        { headers }
-      );
-      const failedStep = jobsResp.data.jobs
-        .flatMap((j) => j.steps ?? [])
-        .find((s) => s.conclusion === 'failure');
-      const stepName = failedStep?.name.toLowerCase() ?? '';
-
-      // login-action failure → token / packages: write missing.
-      if (stepName.includes('login') && stepName.includes('ghcr')) {
-        return {
-          message: `빌드 실패: ${conclusion} — GHCR 로그인 단계 실패.`,
-          reason: 'GHCR_PUSH_FAILED',
-          userAction: {
-            label: 'GitHub Actions 로그 보기',
-            href: run.html_url,
-            kind: 'link',
-          },
-          operatorHint: 'workflow의 permissions.packages 또는 GITHUB_TOKEN 권한 확인이 필요할 수 있습니다.',
-        };
-      }
-      // build-push-action / Build and push → docker build failed.
-      if (
-        stepName.includes('build') &&
-        (stepName.includes('push') || stepName.includes('docker'))
-      ) {
-        return {
-          message: `빌드 실패: ${conclusion} — Docker 빌드/푸시 단계 실패.`,
-          reason: 'DOCKER_BUILD_FAILED',
-          userAction: {
-            label: 'GitHub Actions 로그 보기',
-            href: run.html_url,
-            kind: 'link',
-          },
-        };
-      }
-    } catch (err) {
-      this.logger.warn(
-        `classifyBuildFailure jobs probe failed for ${owner}/${repo}#${run.id}: ${(err as Error).message}`
-      );
-    }
-
-    // ---- Fallback ----
-    return {
-      message: `빌드 실패: ${conclusion}`,
-      reason: 'UNKNOWN_BUILD_FAILURE',
-      userAction: {
-        label: 'GitHub Actions 로그 보기',
-        href: run.html_url,
-        kind: 'link',
-      },
-    };
-  }
-
-  private maybeNotifyBuildFailure(
-    owner: string,
-    repo: string,
-    run: GhaRunSummary
-  ): void {
-    const url = this.config.discordBuildFailureWebhookUrl;
-    if (!url) return;
-    if (run.conclusion === 'success') return;
-    const key = `${owner.toLowerCase()}/${repo}`;
-    if (this.notifiedFailures.get(key) === run.id) return;
-    this.notifiedFailures.set(key, run.id);
-
-    const lines = [
-      '🔴 빌드 실패',
-      `**${owner}/${repo}** @ ${run.head_sha.slice(0, 7)}`,
-      `결론: ${run.conclusion ?? 'unknown'}`,
-      `로그: ${run.html_url}`,
-    ];
-    void axios
-      .post(url, { content: lines.join('\n') }, { timeout: 5000 })
-      .catch((err) => {
-        this.logger.error(`Build-failure Discord webhook failed: ${(err as Error).message}`);
-      });
-  }
-
-  private checkImageDetectedStage(app: unknown): StageInfo {
-    const imagesField = (app as {
-      spec?: { source?: { kustomize?: { images?: string[] } } };
-    } | null)?.spec?.source?.kustomize?.images;
-    const images = Array.isArray(imagesField) ? imagesField : [];
-    const pinned = images.find((entry) => entry.includes('@sha256:'));
-    if (pinned) {
-      const digest = pinned.split('@sha256:')[1]?.slice(0, 12);
-      return { status: 'success', message: `새 이미지 감지 (sha256:${digest}…)` };
-    }
-    return { status: 'pending', message: '새 이미지 감지 대기 중' };
-  }
-
-  private checkDeployStage(app: unknown): StageInfo {
-    const a = app as
-      | { status?: { sync?: { status?: string }; health?: { status?: string } } }
-      | null;
-    if (!a) {
-      return { status: 'pending', message: 'ArgoCD Application 감지 대기 중' };
-    }
-    const sync = a.status?.sync?.status;
-    const health = a.status?.health?.status;
-    if (sync === 'Synced' && health === 'Healthy') {
-      return { status: 'success', message: '배포 완료 (Synced / Healthy)' };
-    }
-    if (health === 'Degraded') {
-      return {
-        status: 'failed',
-        message: `배포 실패 (Health=${health})`,
-        reason: 'ARGO_SYNC_FAILED',
-        userAction: {
-          label: 'GitHub Actions 로그로 빌드 결과 먼저 확인',
-          kind: 'docs',
-        },
-        operatorHint:
-          'Pod 이벤트(kubectl describe / kubectl logs)로 ImagePullBackOff, CrashLoopBackOff 여부를 확인하세요.',
-      };
-    }
-    return {
-      status: 'running',
-      message: `배포 진행 중 (Sync=${sync ?? '?'} / Health=${health ?? '?'})`,
-    };
-  }
-
-  private async checkLiveStage(liveUrl: string): Promise<StageInfo> {
-    try {
-      const resp = await axios.get(liveUrl, {
-        timeout: 3000,
-        validateStatus: () => true,
-        maxRedirects: 3,
-      });
-      if (resp.status >= 200 && resp.status < 400) {
-        return { status: 'success', message: `${liveUrl} 응답 정상`, link: liveUrl };
-      }
-      // 5xx (or persistent non-success) is treated as pending here on
-      // purpose — the live URL flips through 5xx briefly while the
-      // ingress + new pod are settling, and we don't want to flash a
-      // hard 'failed' state during a normal rollout. Only mark failed
-      // if the Argo deploy stage has settled as Degraded (handled in
-      // checkDeployStage) — the live row stays in pending until either
-      // a 2xx-3xx response or the operator intervenes.
-      return {
-        status: 'pending',
-        message: `${liveUrl} HTTP ${resp.status}`,
-        link: liveUrl,
-      };
-    } catch {
-      return { status: 'pending', message: '라이브 URL 응답 대기 중', link: liveUrl };
-    }
+    const [stages, storageProfile] = await Promise.all([
+      this.statusService.getStages(requestingUserId, loginLc, repo, liveUrl),
+      this.readExistingStorageProfile(loginLc),
+    ]);
+    return { login: loginLc, repo, appName, liveUrl, stages,
+      storageProfile: storageProfile ?? undefined };
   }
 
   /** Resolves the subdomain the user wants for *this* register call.

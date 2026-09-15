@@ -530,6 +530,7 @@ function DeleteCard({ login, repo }: { login: string; repo: string }): import("r
           <p className="text-sm text-slate-300">
             <span className="font-mono">{login}/{repo}</span>의 매니페스트가 swkoo-kr에서
             삭제되고 ~1-3분 안에 라이브 URL이 다운됩니다.
+            연결된 영구 저장공간과 DB 데이터도 삭제되므로, 필요한 데이터는 먼저 백업해 주세요.
           </p>
           <p className="text-xs text-slate-500">
             본인 repo의 Dockerfile + workflow는 그대로 남습니다 — 필요하면 GitHub에서 직접 삭제하세요.
@@ -578,7 +579,8 @@ function Header({
   repo: string;
   status?: DeploymentStatus;
 }): import("react").ReactNode {
-  const liveReady = status?.stages.live.status === 'success';
+  const liveReady = Boolean(status && Object.values(status.stages).every((stage) => stage.status === 'success'));
+  const failed = Boolean(status && Object.values(status.stages).some((stage) => stage.status === 'failed'));
   return (
     <header className="space-y-3">
       <p className="text-xs uppercase tracking-wide text-slate-500">deployment</p>
@@ -587,7 +589,7 @@ function Header({
       </h1>
       {status && (
         <p className="text-sm text-slate-400">
-          {liveReady ? '✓ 라이브 — ' : '⏳ 배포 진행 중 — '}
+          {liveReady ? '✓ 라이브 — ' : failed ? '⚠ 배포 확인 필요 — ' : '⏳ 배포 진행 중 — '}
           <a
             href={status.liveUrl}
             target="_blank"

@@ -1,10 +1,11 @@
 # OCI Always Free capacity response
 
-Updated: 2026-06-15
+Updated: 2026-09-15
 
-Oracle's Always Free documentation currently lists Ampere A1 as 2 OCPU
-and 12 GB memory total. swkoo.kr may still run on a legacy 4 OCPU / 24 GB
-shape, but operating assumptions should be based on the smaller target.
+Verified in OCI Console: Pay As You Go, current-month displayed cost SGD 0.00.
+Instance metadata confirms 4 OCPU / 24 GB. Oracle's [paid-account price list](https://www.oracle.com/cloud/price-list/)
+includes 3,000 A1 OCPU-hours and 18,000 GB-hours monthly. The [Always Free-only documentation](https://docs.oracle.com/en-us/iaas/Content/FreeTier/freetier_topic-Always_Free_Resources.htm)
+currently describes 2 OCPU / 12 GB; do not infer that this paid tenancy must resize.
 
 ## Non-disruptive actions already taken
 
@@ -18,8 +19,9 @@ shape, but operating assumptions should be based on the smaller target.
 
 - Do not resize, reboot, or stop the instance just to chase documentation
   changes. First confirm billing/account behavior.
-- Treat 2 OCPU / 12 GB as the planning target for user capacity and
-  alert thresholds.
+- Use measured 4 OCPU / 24 GB capacity for current planning. The existing
+  report still evaluates a conservative 2/12 fallback scenario; it is not
+  the actual allocation or a verified user-capacity limit.
 - Keep Block Volume planning at 200 GB unless Oracle changes that
   separate allowance.
 - Avoid adding always-on control-plane components unless they replace

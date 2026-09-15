@@ -2,9 +2,7 @@ import { defineConfig, devices } from '@playwright/test';
 
 // Mock-only browser smoke. We DO NOT call swkoo.kr or any real backend
 // — every /api/* response is provided by `page.route(...)` per spec.
-// Run locally with `npm run test:e2e`. Not wired into CI yet (brain
-// install + browser launch overhead is larger than Vitest; we stabilize
-// on developer machines first and decide a CI hook separately).
+// Run locally with `npm run test:e2e`; CI runs on PRs, nightly and manually.
 //
 // Port choice: 3100 (not 3000) so the smoke server doesn't fight a
 // regular `next dev` the developer may already have running. The

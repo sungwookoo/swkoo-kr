@@ -22,6 +22,7 @@ import type { GithubAppService } from '../github-app/github-app.service';
 import type { UsersRepository } from '../onboarding/users.repository';
 import type { ArgoCdClient } from '../pipelines/services/argo-cd.client';
 import type { KubeClient } from '../kube/kube.client';
+import { DeployStatusService } from './deploy-status.service';
 import { DeployService } from './deploy.service';
 
 /** Regression for ownership check on /deploy/register: a logged-in user
@@ -47,7 +48,7 @@ describe('DeployService.registerForUser — ownership check', () => {
     const customDomains = { findForRender: jest.fn() } as never;
     const config = { appsDomain: 'apps.swkoo.kr' } as never;
     const service = new DeployService(
-      auth, githubApp, users, argo, kube, customDomains, config
+      auth, githubApp, users, argo, kube, customDomains, config, {} as never
     );
     return { service, audit, findByLogin };
   }
@@ -152,7 +153,7 @@ describe('DeployService.deleteDeployment — orphan custom_domain cleanup', () =
     } as never;
 
     const service = new DeployService(
-      auth, githubApp, users, argo, kube, customDomains, config
+      auth, githubApp, users, argo, kube, customDomains, config, {} as never
     );
     // refreshUsersApplicationSet is called at the end of deleteDeployment
     // (best-effort, fire-and-forget); stub it to avoid kube.custom usage.
@@ -235,7 +236,7 @@ describe('DeployService.detectStack — pre-deploy checks', () => {
     const customDomains = { findForRender: jest.fn() } as never;
     const config = { appsDomain: 'apps.swkoo.kr' } as never;
     const service = new DeployService(
-      auth, githubApp, users, argo, kube, customDomains, config
+      auth, githubApp, users, argo, kube, customDomains, config, {} as never
     );
     return service;
   }
@@ -408,8 +409,8 @@ describe('DeployService.checkBuildStage — failure classification', () => {
       appsDomain: 'apps.swkoo.kr',
       discordBuildFailureWebhookUrl: undefined,
     } as never;
-    return new DeployService(
-      auth, githubApp, users, argo, kube, customDomains, config
+    return new DeployStatusService(
+      auth, githubApp, argo, kube, config
     );
   }
 
@@ -421,6 +422,8 @@ describe('DeployService.checkBuildStage — failure classification', () => {
     const mock = axios.get as unknown as AxiosGet;
     mock.mockReset();
     mock.mockImplementation(async (url: string) => {
+      if (/\/repos\/[^/]+\/[^/]+$/.test(url)) return { data: { default_branch: 'main' } };
+      if (url.includes('/commits/')) return { data: { sha: 'deadbeef' } };
       const hit = responses.find((r) => r.pattern.test(url));
       if (!hit) throw new Error(`unmatched URL in test: ${url}`);
       if (hit.error) {
@@ -435,7 +438,7 @@ describe('DeployService.checkBuildStage — failure classification', () => {
   }
 
   function callCheckBuildStage(
-    service: DeployService,
+    service: DeployStatusService,
     owner: string,
     repo: string
   ) {
@@ -485,7 +488,7 @@ describe('DeployService.checkBuildStage — failure classification', () => {
   it('legacy workflow template + mixed-case repo → WORKFLOW_OLD_TEMPLATE with casing note', async () => {
     wireAxios([
       {
-        pattern: /\/actions\/runs(?!\/)/,
+        pattern: /\/actions\/workflows\/build\.yml\/runs/,
         data: { workflow_runs: [FAILED_RUN] },
       },
       {
@@ -505,7 +508,7 @@ describe('DeployService.checkBuildStage — failure classification', () => {
   it('legacy workflow template + lowercase repo → WORKFLOW_OLD_TEMPLATE without casing note', async () => {
     wireAxios([
       {
-        pattern: /\/actions\/runs(?!\/)/,
+        pattern: /\/actions\/workflows\/build\.yml\/runs/,
         data: { workflow_runs: [FAILED_RUN] },
       },
       {
@@ -523,7 +526,7 @@ describe('DeployService.checkBuildStage — failure classification', () => {
   it('modern workflow + failed "Build and push" step → DOCKER_BUILD_FAILED', async () => {
     wireAxios([
       {
-        pattern: /\/actions\/runs(?!\/)/,
+        pattern: /\/actions\/workflows\/build\.yml\/runs/,
         data: { workflow_runs: [FAILED_RUN] },
       },
       {
@@ -556,7 +559,7 @@ describe('DeployService.checkBuildStage — failure classification', () => {
   it('modern workflow + failed "Login to GHCR" step → GHCR_PUSH_FAILED with operatorHint', async () => {
     wireAxios([
       {
-        pattern: /\/actions\/runs(?!\/)/,
+        pattern: /\/actions\/workflows\/build\.yml\/runs/,
         data: { workflow_runs: [FAILED_RUN] },
       },
       {
@@ -588,7 +591,7 @@ describe('DeployService.checkBuildStage — failure classification', () => {
   it('modern workflow + no matching step → UNKNOWN_BUILD_FAILURE (still links the log)', async () => {
     wireAxios([
       {
-        pattern: /\/actions\/runs(?!\/)/,
+        pattern: /\/actions\/workflows\/build\.yml\/runs/,
         data: { workflow_runs: [FAILED_RUN] },
       },
       {
@@ -624,7 +627,7 @@ describe('DeployService.checkBuildStage — failure classification', () => {
   it('successful run → success, no reason field', async () => {
     wireAxios([
       {
-        pattern: /\/actions\/runs(?!\/)/,
+        pattern: /\/actions\/workflows\/build\.yml\/runs/,
         data: { workflow_runs: [{ ...FAILED_RUN, conclusion: 'success' }] },
       },
     ]);
@@ -637,7 +640,7 @@ describe('DeployService.checkBuildStage — failure classification', () => {
   it('no workflow run yet → pending, no reason field', async () => {
     wireAxios([
       {
-        pattern: /\/actions\/runs(?!\/)/,
+        pattern: /\/actions\/workflows\/build\.yml\/runs/,
         data: { workflow_runs: [] },
       },
     ]);
@@ -657,12 +660,12 @@ describe('DeployService.checkDeployStage — ARGO_SYNC_FAILED', () => {
     const kube = {} as KubeClient;
     const customDomains = { findForRender: jest.fn() } as never;
     const config = { appsDomain: 'apps.swkoo.kr' } as never;
-    return new DeployService(
-      auth, githubApp, users, argo, kube, customDomains, config
+    return new DeployStatusService(
+      auth, githubApp, argo, kube, config
     );
   }
 
-  function callCheckDeployStage(service: DeployService, app: unknown) {
+  function callCheckDeployStage(service: DeployStatusService, app: unknown) {
     return (service as unknown as {
       checkDeployStage: (a: unknown) => {
         status: string;
@@ -719,7 +722,7 @@ describe('DeployService.detectStack — Prisma SQLite detection', () => {
     const customDomains = { findForRender: jest.fn() } as never;
     const config = { appsDomain: 'apps.swkoo.kr' } as never;
     return new DeployService(
-      auth, githubApp, users, argo, kube, customDomains, config
+      auth, githubApp, users, argo, kube, customDomains, config, {} as never
     );
   }
 

@@ -12,6 +12,7 @@ import { PipelinesModule } from '../pipelines/pipelines.module';
 import { AccountController } from './account.controller';
 import { CleanupService } from './cleanup.service';
 import { DeployController } from './deploy.controller';
+import { DeployStatusService } from './deploy-status.service';
 import { DeployService } from './deploy.service';
 import { EnvService } from './env.service';
 import { ScanService } from './scan.service';
@@ -30,7 +31,7 @@ import { DeployNotificationsService } from './deploy-notifications.service';
     ConfigModule.forFeature(emailConfig),
   ],
   controllers: [DeployController, AccountController],
-  providers: [DeployService, EnvService, CleanupService, ScanService, DeployNotificationsService],
+  providers: [DeployStatusService, DeployService, EnvService, CleanupService, ScanService, DeployNotificationsService],
   exports: [DeployService, EnvService],
 })
 export class DeployModule {}
