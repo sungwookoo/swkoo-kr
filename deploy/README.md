@@ -364,3 +364,11 @@ FROM deploy_notifications ORDER BY id DESC LIMIT 50;
 `expired`는 Resend 수신·발송 로그와 대조한다. 발송 여부가 불명확한 상태에서 행을 삭제하거나 키를 새로 생성하면 중복 메일이 발생할 수 있다. DB 백업 복원으로 이미 보낸 기록이 소실된 경우에도 이 점을 확인한다.
 
 운영 반영 후 테스트 앱에서 현재 이미지와 Argo CD의 `sync.comparedTo.source.kustomize.images`, `summary.images`가 일치하는지 확인하고, 진행 화면을 닫은 상태에서 이메일 수신을 검증한다. 이미지가 빠르게 교체되거나 삭제되면 해당 배포의 알림을 건너뛴다. 상세 범위는 [현재 검증 기준선](../docs/STATUS.md)을 따른다.
+
+## 2026-09-15 인증서 갱신 복구 기록
+
+Cloudflare DNS-01 갱신이 `DELETE /zones//dns_records/...` 오류로 정체되어 사용자 앱 인증서가 만료되어 있었다. 토큰의 Zone Read / DNS Edit 권한은 정상이었다. 기존 Helm release를 `v1.12.0` → `v1.12.17`로 갱신하고 `cmctl renew`로 발급을 재개했다. 사용자 인증서 4개와 공통 wildcard 모두 갱신되었다.
+
+실제 적용한 버전과 설정: Helm `cert-manager` (namespace `cert-manager`), chart `v1.12.17`, 기존 `installCRDs=true` 유지. Kubernetes 접근은 `sudo helm --kubeconfig /etc/rancher/k3s/k3s.yaml`을 사용했다. 사용자 kubeconfig는 인증 오류가 있어 사용하지 않았다.
+
+**다음 Terraform 적용 전 확인:** `oci/terraform-k3s/variables.tf`의 `cert_manager_chart_version` 기본값은 아직 `v1.12.0`이다. 현재 운영 수정이 되돌아가지 않도록 최소 `-var 'cert_manager_chart_version=v1.12.17'`로 plan을 검토하거나, 별도 인프라 변경에서 검증 후 기본값을 갱신한다. 이번 복구에서는 Terraform state·전체 인프라를 변경하지 않았다. 1.12 계열의 장기 유지가 목표는 아니며, 지원 중인 minor 버전으로의 업그레이드는 별도 검증한다.
