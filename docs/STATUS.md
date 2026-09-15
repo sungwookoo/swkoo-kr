@@ -2,6 +2,19 @@
 
 기준일: 2026-09-15. 코드 기준선과 아래 운영 검증 기록을 구분한다. Observatory의 정체성은 [VISION](../VISION.md), Deploy의 정체성은 [deploy-vision](./deploy-vision.md)을 따른다.
 
+## 사용자 앱 자원 기본값 변경 (2026-09-15)
+
+- 앱 및 Prisma 초기화 컨테이너: CPU requests 100m / limits 500m, 메모리 requests 256Mi / limits 512Mi.
+- 신규 사용자 LimitRange와 생성 Deployment에 동일한 값을 적용한다. 네임스페이스 총 quota는 재배포 여유를 위해 유지한다(requests 500m/512Mi, limits 1 CPU/1Gi).
+- 기존 4개 GitOps 저장소의 활성 앱과 LimitRange를 수정했다: hatbann `6951f25`, hizieun `af56a78`, sungwookoo `c6ccc2a`, sw-koo `d30a111`.
+- 4개 앱 모두 새 자원으로 Running/Ready, 재시작 0회 확인. SprintFlow 초기화 컨테이너도 같은 자원이며, 기존 PVC Bound 및 미적용 migration 없음 확인.
+- hello / planner-h / zieun-ai-portfolio HTTPS 200. SprintFlow는 기존의 프로젝트 데이터 없음 오류로 HTTP 500을 유지한다. DB 초기화는 실행하지 않았다.
+- `/deploy`, 시작 가이드, 이용약관에 공유 CPU 최대 0.5코어·메모리 최대 512MiB 및 예약량을 안내한다. 영구 저장공간 1GiB는 지원되는 Prisma SQLite 앱에 제공된다.
+- 총 6명은 운영 시작 시 검증할 계획 규모이며 부하 테스트로 보장된 수용량이나 가입 제한이 아니다.
+- 로컬 템플릿 테스트 22개, 프런트엔드 테스트 90개, 백엔드 빌드 및 기존 앱 설정의 서버 dry-run 통과.
+- CI [34957796342](https://github.com/sungwookoo/swkoo-kr/actions/runs/34957796342) 성공: 백엔드 217개·프런트엔드 90개 테스트, 프로덕션 빌드 통과.
+- 백엔드·프런트엔드 이미지 `758317bc896abf2a0a7f23a2ac2b47fc7968ffe7` 운영 rollout 완료. 모든 Argo 앱 Synced/Healthy. `/api/health` 200, 공개 배포 화면 및 약관·시작 가이드의 새 사양 확인.
+
 ## 구현된 기능
 
 | 영역 | 코드에서 확인한 범위 |
