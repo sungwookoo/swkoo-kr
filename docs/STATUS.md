@@ -2,6 +2,14 @@
 
 기준일: 2026-09-15. 코드 기준선과 아래 운영 검증 기록을 구분한다. Observatory의 정체성은 [VISION](../VISION.md), Deploy의 정체성은 [deploy-vision](./deploy-vision.md)을 따른다.
 
+## SprintFlow 빈 DB 오류 복구 (2026-09-15)
+
+- SprintFlow 커밋 `62794065767d9d04115db28803db3af49fcd8f74`: 첫 접속 시 프로젝트가 없으면 프로젝트와 상태 4개를 원자적으로 생성. 기존 데이터는 유지하고 동시 요청의 중복 생성은 고유 키로 방지한다.
+- 초기화 전 SQLite 백업 `app.db.before-workspace-fix-20260915`을 기존 PV에 보관했고 무결성 검사 통과. `db:reset`/`db:seed`는 실행하지 않았다.
+- 실제 SQLite 회귀 테스트 2개(동시 초기화·사용자 수정/작업 보존·기존 다른 프로젝트 보존), 타입 검사, 프로덕션 빌드 통과.
+- [이미지 빌드](https://github.com/sungwookoo/SprintFlow/actions/runs/34958756419) 성공. 운영 digest `sha256:77c71e44b89075dae79232951f65e9b56854fbe85976b3f9996437f24415e582`로 전환 완료.
+- HTTPS 200 반복 확인, 브라우저 보드·일정 화면 정상. Project 1 / Status 4 / Issue 0 / Member 0 / Sprint 0, DB integrity ok. Pod Ready, restart 0, Argo Synced/Healthy. 아래 과거 검증 기록의 HTTP 500은 이 변경으로 해결됨.
+
 ## 사용자 앱 자원 기본값 변경 (2026-09-15)
 
 - 앱 및 Prisma 초기화 컨테이너: CPU requests 100m / limits 500m, 메모리 requests 256Mi / limits 512Mi.
