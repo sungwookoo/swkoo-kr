@@ -460,6 +460,11 @@ function Shell({
         aria-hidden
         className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[42rem] bg-[radial-gradient(ellipse_at_top,rgba(16,185,129,0.08),transparent_60%)]"
       />
+      <p className="mx-auto mb-4 max-w-2xl text-center text-sm text-slate-400">
+        앱당 공유 CPU 최대 0.5코어 · 메모리 최대 512MiB
+        <br />
+        예약: CPU 0.1코어 · 메모리 256MiB. 지원되는 Prisma SQLite 앱은 영구 저장공간 1GiB 제공.
+      </p>
       {narrow ? children : <div className="mx-auto flex w-full justify-center">{children}</div>}
     </main>
   );

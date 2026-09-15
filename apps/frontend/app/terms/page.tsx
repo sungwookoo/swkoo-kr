@@ -80,16 +80,16 @@ export default function TermsPage(): import("react").ReactNode {
         </Section>
 
         <Section title="5. 자원 한도">
-          <p>사용자 당 기본 한도가 적용됩니다(플랜별 상향 가능).</p>
+          <p>사용자당 앱 1개에 아래 기본 자원이 적용됩니다.</p>
           <ul className="list-disc space-y-1 pl-5">
-            <li>CPU: requests 0.5 core / limits 1 core</li>
-            <li>RAM: requests 512MB / limits 1GB</li>
+            <li>공유 CPU: 예약 0.1코어 / 최대 0.5코어</li>
+            <li>메모리: 예약 256MiB / 최대 512MiB</li>
             <li>Pod: 3개</li>
-            <li>PersistentVolumeClaim: 1개 / 1GB</li>
+            <li>영구 저장공간: 지원되는 Prisma SQLite 앱에 1개 / 1GiB</li>
             <li>네트워크: NetworkPolicy로 사설 IP 대역 차단, DNS·HTTP/HTTPS만 허용</li>
           </ul>
           <p className="text-xs text-zinc-500">
-            한도 초과 시 신규 Pod 생성이 거부됩니다. 한도 상향은 운영자에게 직접 요청하거나 상위 플랜으로 전환합니다.
+            CPU 최대치는 여유 자원이 있을 때 사용할 수 있는 상한입니다. 메모리 한도를 초과하면 앱이 종료·재시작될 수 있습니다. 한도 상향은 운영자에게 문의해 주세요.
           </p>
         </Section>
 

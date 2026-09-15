@@ -41,8 +41,8 @@ shape, but operating assumptions should be based on the smaller target.
 1. Keep the single-node architecture.
 2. Lower Prometheus retention before touching app quotas.
 3. Remove or pause optional resident tools before user workloads.
-4. Keep user app defaults conservative: 50m request / 100m limit,
-   64Mi request / 128Mi limit.
+4. Keep user app defaults conservative: 100m request / 500m limit,
+   256Mi request / 512Mi limit.
 5. Limit stateful/PVC apps first, because they add backup and recovery
    responsibility even when CPU/RAM usage is low.
 

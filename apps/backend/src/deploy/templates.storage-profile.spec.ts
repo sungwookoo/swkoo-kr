@@ -193,3 +193,25 @@ storage:
     expect(parseStorageProfileBlock(meta)?.initMode).toBe('db-push');
   });
 });
+
+
+describe('User app resource policy', () => {
+  it.each([undefined, PRISMA_PROFILE])('allows a rolling replacement with profile %p', (storageProfile) => {
+    const files = renderDeployRepoFiles({ ...BASE_PARAMS, storageProfile });
+    const yaml = require('js-yaml');
+    const deployment = yaml.load(files['sample/deployment.yaml']);
+    const quota = yaml.load(files['resource-quota.yaml']).spec.hard;
+    const defaults = yaml.load(files['limit-range.yaml']).spec.limits[0];
+    const resources = { requests: { cpu: '100m', memory: '256Mi' }, limits: { cpu: '500m', memory: '512Mi' } };
+    for (const container of [...deployment.spec.template.spec.containers, ...(deployment.spec.template.spec.initContainers ?? [])]) {
+      expect(container.resources).toEqual(resources);
+    }
+    expect(defaults.default).toEqual(resources.limits);
+    expect(defaults.defaultRequest).toEqual(resources.requests);
+    expect(defaults.max).toEqual(resources.limits);
+    expect(parseInt(quota['requests.memory'])).toBeGreaterThanOrEqual(2 * 256);
+    expect(quota['limits.memory']).toBe('1Gi');
+    expect(quota['limits.cpu']).toBe('1');
+    expect(parseInt(quota['requests.cpu'])).toBeGreaterThanOrEqual(2 * 100);
+  });
+});

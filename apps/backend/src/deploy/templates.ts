@@ -361,11 +361,11 @@ spec:
   limits:
     - type: Container
       default:
-        cpu: 100m
-        memory: 128Mi
+        cpu: 500m
+        memory: 512Mi
       defaultRequest:
-        cpu: 50m
-        memory: 64Mi
+        cpu: 100m
+        memory: 256Mi
       max:
         cpu: 500m
         memory: 512Mi
@@ -603,6 +603,13 @@ function renderDeployment(params: RenderParams): string {
         - name: prisma-db-init
           image: ${params.imageRepo}:latest
           imagePullPolicy: Always
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
           command: ["/bin/sh", "-lc"]
           args:
             - |
@@ -683,6 +690,13 @@ ${podSecurityContext}${initContainersBlock}      containers:
         - name: ${params.appName}
           image: ${params.imageRepo}:latest
           imagePullPolicy: Always
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
           ports:
             - containerPort: ${params.port}
               name: http

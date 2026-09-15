@@ -42,7 +42,7 @@
 
 1. 친구 1명의 GitHub repo가 등록되어 `git push` 만으로 자동 빌드 → 배포 → URL 노출 흐름 정상 동작. ✅ — 2026-05-14, 친구 2명 + 본인 부계정으로 Next.js 싱글페이지 배포 검증.
 2. 사용자 namespace 격리 (NetworkPolicy egress 제한 + RBAC). ✅
-3. 자원 한도 적용: 사용자당 CPU 0.5 / RAM 512MB / Pods 3 / PV 1GB. ✅
+3. 자원 한도 적용: 앱당 공유 CPU 예약 0.1 / 최대 0.5코어, RAM 예약 256MiB / 최대 512MiB, 지원되는 Prisma SQLite 앱 PV 1GiB (네임스페이스 Pods 3). ✅
 4. 본인 인프라(Observatory + 자체 앱) 영향 없음 — 격리 검증. ✅
 5. 운영 비용 0원 유지 (Always Free 한도 안에서). ✅
 
