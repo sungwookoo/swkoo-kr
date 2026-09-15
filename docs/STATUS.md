@@ -7,12 +7,17 @@
 - 배포 상태 책임을 `DeployStatusService`로 분리하고, 공통 Argo 이미지 판정을 `deployment-readiness.ts`로 추출했다.
 - 저장소 기본 브랜치의 현재 SHA에 대한 `build.yml` 실행만 조회한다. 해당 SHA 태그의 GHCR digest와 원하는 이미지가 같아야 다음 단계로 진행한다.
 - Argo 비교 source·summary 일치, 성공한 동기화, Deployment observedGeneration·updated/available replicas 및 해당 이미지 Pod Ready를 확인한다. 오래된 정상 앱으로 새 배포를 완료 처리하지 않는다.
-- ImagePullBackOff/CrashLoopBackOff 등은 컨테이너 실패로, 정상 rollout 뒤 HTTP 오류는 앱 응답 실패로 표시한다. 알림도 실제 컨테이너 준비 확인을 거친다.
+- ImagePullBackOff/CrashLoopBackOff 등은 컨테이너 실패로, 정상 rollout 뒤 HTTP 오류는 앱 응답 실패로 표시한다. 알림도 동일한 최신 빌드·이미지·컨테이너 판정을 사용하며, 조회 중 이미지가 바뀌면 발송하지 않는다.
 - 화면의 라이브 표시는 모든 단계가 성공해야 표시한다. 제거 확인 화면에 PVC·DB 삭제 범위와 사전 백업 필요성을 명시했다.
 - PR 단위 테스트·프로덕션 빌드 workflow 추가, 기존 Playwright smoke를 PR에서도 실행한다. 이 workflow 추가는 GitHub branch protection 설정 변경을 의미하지 않는다.
-- 로컬: 백엔드 236개(17 suites), 프런트엔드 90개, Playwright 12개 통과. 실제 Nest HTTP 경계에서 무인증·다른 사용자 상태/환경변수 읽기/쓰기 거부를 검증했다.
+- 최종 CI: 백엔드 238개(17 suites), 프런트엔드 90개, Playwright 12개 통과. 실제 Nest HTTP 경계에서 무인증·다른 사용자 상태/환경변수 읽기/쓰기 거부를 검증했다.
 - 운영 분리 검증: 실제 Prisma migration + 동일 PVC로 Pod 교체 후 데이터 유지, 다른 namespace/PVC로 백업 복구, 양성 대조 후 cross-namespace TCP 차단, DNS 허용·서비스계정 token 없음 확인. namespace 삭제 시 해당 PV 및 디렉터리 회수 확인. 테스트 자원 정리 완료.
 - OCI Object Storage `daily/2026-09-14/observatory.sqlite` (36,544,512 bytes)를 임시 경로로 다운로드·복원해 integrity/foreign_key 검사 통과, users 4 / audit_log 332 / custom_domains 1 확인. 임시 복원 파일 삭제, 운영 DB 미변경.
+
+- 임시 Prometheus 경고를 실제 알림 경로로 발송하여 Discord relay의 `posted alert=SwkooValidationDrill status=204` 확인. 테스트 규칙 삭제 완료. 이는 제공자의 요청 수락 확인이며 사람이 메시지를 읽었다는 의미는 아니다.
+- [최종 백엔드 CI](https://github.com/sungwookoo/swkoo-kr/actions/runs/34960855162), [PR 검증 수동 실행](https://github.com/sungwookoo/swkoo-kr/actions/runs/34960595475), [Playwright CI](https://github.com/sungwookoo/swkoo-kr/actions/runs/34960599631) 성공.
+- 운영 이미지: 백엔드 `19df55d92d66aa47483edff54b75cd7415bf68d4`, 프런트엔드 `590aadd87ce8e48d489bb7ddc7a3096ca1f53581`. 두 Pod Ready/restart 0, 모든 Argo Application Synced/Healthy.
+- 로그인한 SprintFlow 배포 화면에서 최신 빌드 `6279406`, 이미지 `sha256:77c71e44b890…`, 컨테이너 준비 및 라이브 응답의 전체 성공 확인. `/api/health`와 사용자 앱 4개 HTTPS 200 확인.
 
 ## SprintFlow 빈 DB 오류 복구 (2026-09-15)
 
@@ -50,7 +55,7 @@
 ## 이번 변경: 배포 완료 이메일
 
 - 화면 상태 조회에서 발송 부수 효과를 제거하고 1분 주기 작업으로 분리했다.
-- 현재 등록된 활성 앱의 `Synced / Healthy`, 성공한 동기화 작업, 현재 이미지와 비교된 source·이미지 summary의 digest 일치, 앱 URL의 2xx/3xx 응답을 확인한다. 이는 Argo CD의 상태에 근거하며 Pod를 직접 조회하는 검증은 아니다.
+- 현재 등록된 활성 앱의 `Synced / Healthy`, 성공한 동기화 작업, 현재 이미지와 비교된 source·이미지 summary의 digest 일치, 앱 URL의 2xx/3xx 응답을 확인한다. 2026-09-15 후속 구현으로 최신 소스 빌드 및 실제 Pod 준비 상태 검증도 추가했다(위 기록 참조).
 - SQLite `deploy_notifications`에 수신자·메일 내용 데이터·중복 방지 키·시도를 저장한다. 실패 시 5분 간격으로 재시도하고, 성공해야 발송 완료로 기록한다.
 - 최초 시도 후 23시간이 지나면 `expired`로 전환하고 `DEPLOY_NOTIFY_EXPIRED` 감사 로그를 남긴다. Resend의 [중복 방지 키 유효기간은 24시간](https://resend.com/docs/dashboard/emails/idempotency-keys)이므로 무기한 자동 재시도하지 않는다.
 - 같은 사용자·저장소·digest는 한 번만 발송한다. 기존 `last_notified_image_sha`는 이전 버전에서 보낸 이미지의 재발송을 막기 위해 유지한다. 이전 버전이 발송 전에 기록한 실패 여부는 복구할 수 없다.
