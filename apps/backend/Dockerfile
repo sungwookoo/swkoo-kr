@@ -1,10 +1,12 @@
 # syntax=docker/dockerfile:1.6
 
-FROM node:24-alpine AS base
+# Keep native addon build headers and runtime aligned. Node 24.19+ has an
+# ObjectWrap cleanup regression: https://github.com/nodejs/node/issues/65446
+FROM node:24.18.1-alpine AS base
 WORKDIR /app
 # Build tools for native modules whose prebuilts don't cover the Node 24 +
 # musl + arm64 combo (notably better-sqlite3). Only kept in the intermediate
-# stages — the final runner is a fresh node:24-alpine.
+# stages — the final runner uses the same pinned Node version.
 RUN apk add --no-cache python3 make g++
 
 FROM base AS deps
@@ -20,7 +22,7 @@ FROM base AS prod-deps
 COPY package*.json ./
 RUN npm ci --omit=dev
 
-FROM node:24-alpine AS runner
+FROM node:24.18.1-alpine AS runner
 ENV NODE_ENV=production
 WORKDIR /app
 
