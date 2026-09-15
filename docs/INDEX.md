@@ -45,6 +45,7 @@ swkoo.kr/
 
 | 문서 | 역할 | 상태 |
 |------|------|------|
+| **STATUS.md** | 현재 구현, 미완료, 운영 검증 필요 항목 | 로컬 코드 기준선 |
 | **deploy-vision.md** | `/deploy` 친구한정 PaaS 정체성·아키텍처·Phase 표 | ✅ Phase 1·2·3.1·3.2·3.3 + Step 1·2 (sub-slug, 테스트, 백업, 알람 라우팅) 완료 |
 | **REFACTORING_PROMPT.md** | 페이지 카피 origin reference (자체 "Superseded by VISION" 명시) | 📜 historical |
 
@@ -54,6 +55,7 @@ swkoo.kr/
 
 | 영역 | 진실 위치 |
 |------|----------|
+| 현재 구현과 운영 검증의 구분 | `docs/STATUS.md` |
 | Observatory 앱 로드맵 | `README.md` |
 | `/deploy` PaaS Phase 표 + 미해결 결정 | `docs/deploy-vision.md` |
 | 친구 베타 → 유료 전환 사전 조건 | `BIZ_READINESS.md` |

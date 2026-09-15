@@ -15,6 +15,7 @@ import { DeployController } from './deploy.controller';
 import { DeployService } from './deploy.service';
 import { EnvService } from './env.service';
 import { ScanService } from './scan.service';
+import { DeployNotificationsService } from './deploy-notifications.service';
 
 @Module({
   imports: [
@@ -29,7 +30,7 @@ import { ScanService } from './scan.service';
     ConfigModule.forFeature(emailConfig),
   ],
   controllers: [DeployController, AccountController],
-  providers: [DeployService, EnvService, CleanupService, ScanService],
+  providers: [DeployService, EnvService, CleanupService, ScanService, DeployNotificationsService],
   exports: [DeployService, EnvService],
 })
 export class DeployModule {}

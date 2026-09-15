@@ -22,7 +22,6 @@ import type { GithubAppService } from '../github-app/github-app.service';
 import type { UsersRepository } from '../onboarding/users.repository';
 import type { ArgoCdClient } from '../pipelines/services/argo-cd.client';
 import type { KubeClient } from '../kube/kube.client';
-import type { EmailService } from '../email/email.service';
 import { DeployService } from './deploy.service';
 
 /** Regression for ownership check on /deploy/register: a logged-in user
@@ -43,13 +42,12 @@ describe('DeployService.registerForUser — ownership check', () => {
     const githubApp = {} as GithubAppService;
     const argo = {} as ArgoCdClient;
     const kube = {} as KubeClient;
-    const email = {} as EmailService;
     // Owner check runs before any DB read on custom_domains, but the
     // constructor needs *something* for the injected dep.
     const customDomains = { findForRender: jest.fn() } as never;
     const config = { appsDomain: 'apps.swkoo.kr' } as never;
     const service = new DeployService(
-      auth, githubApp, users, argo, kube, email, customDomains, config
+      auth, githubApp, users, argo, kube, customDomains, config
     );
     return { service, audit, findByLogin };
   }
@@ -146,7 +144,6 @@ describe('DeployService.deleteDeployment — orphan custom_domain cleanup', () =
       // refreshUsersApplicationSet uses kube; keep at no-op
     } as ArgoCdClient;
     const kube = {} as KubeClient;
-    const email = {} as EmailService;
     const config = {
       appsDomain: 'apps.swkoo.kr',
       manifestRepo: 'sungwookoo/swkoo-kr',
@@ -155,7 +152,7 @@ describe('DeployService.deleteDeployment — orphan custom_domain cleanup', () =
     } as never;
 
     const service = new DeployService(
-      auth, githubApp, users, argo, kube, email, customDomains, config
+      auth, githubApp, users, argo, kube, customDomains, config
     );
     // refreshUsersApplicationSet is called at the end of deleteDeployment
     // (best-effort, fire-and-forget); stub it to avoid kube.custom usage.
@@ -235,11 +232,10 @@ describe('DeployService.detectStack — pre-deploy checks', () => {
     const githubApp = {} as GithubAppService;
     const argo = {} as ArgoCdClient;
     const kube = {} as KubeClient;
-    const email = {} as EmailService;
     const customDomains = { findForRender: jest.fn() } as never;
     const config = { appsDomain: 'apps.swkoo.kr' } as never;
     const service = new DeployService(
-      auth, githubApp, users, argo, kube, email, customDomains, config
+      auth, githubApp, users, argo, kube, customDomains, config
     );
     return service;
   }
@@ -407,14 +403,13 @@ describe('DeployService.checkBuildStage — failure classification', () => {
     const githubApp = {} as GithubAppService;
     const argo = {} as ArgoCdClient;
     const kube = {} as KubeClient;
-    const email = {} as EmailService;
     const customDomains = { findForRender: jest.fn() } as never;
     const config = {
       appsDomain: 'apps.swkoo.kr',
       discordBuildFailureWebhookUrl: undefined,
     } as never;
     return new DeployService(
-      auth, githubApp, users, argo, kube, email, customDomains, config
+      auth, githubApp, users, argo, kube, customDomains, config
     );
   }
 
@@ -660,11 +655,10 @@ describe('DeployService.checkDeployStage — ARGO_SYNC_FAILED', () => {
     const githubApp = {} as GithubAppService;
     const argo = {} as ArgoCdClient;
     const kube = {} as KubeClient;
-    const email = {} as EmailService;
     const customDomains = { findForRender: jest.fn() } as never;
     const config = { appsDomain: 'apps.swkoo.kr' } as never;
     return new DeployService(
-      auth, githubApp, users, argo, kube, email, customDomains, config
+      auth, githubApp, users, argo, kube, customDomains, config
     );
   }
 
@@ -722,11 +716,10 @@ describe('DeployService.detectStack — Prisma SQLite detection', () => {
     const githubApp = {} as GithubAppService;
     const argo = {} as ArgoCdClient;
     const kube = {} as KubeClient;
-    const email = {} as EmailService;
     const customDomains = { findForRender: jest.fn() } as never;
     const config = { appsDomain: 'apps.swkoo.kr' } as never;
     return new DeployService(
-      auth, githubApp, users, argo, kube, email, customDomains, config
+      auth, githubApp, users, argo, kube, customDomains, config
     );
   }
 

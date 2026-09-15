@@ -30,7 +30,7 @@
 
 - ❌ **일반 공개 / 셀프 가입** — 친구 1~2명 베타로 시작, 신뢰 기반 등록.
 - ❌ **SLA 보장** — 단일 노드, 노드 장애 시 전부 다운.
-- ❌ **Stateful 서비스 호스팅** — Phase 1에선 DB 등 stateful 컨테이너 ❌. Phase 2 이후 PV 정책과 함께 검토.
+- ❌ **범용 DB 호스팅** — Prisma SQLite + 1Gi PVC 프로필은 지원한다. 그 밖의 stateful 서비스 운영은 범위 밖이다.
 - ❌ **빌드 인프라 자체 운영** — 사용자 GitHub Actions에 위탁. 클러스터 안 자체 빌드(Tekton 등) 안 함.
 - ❌ **결제 시스템** — quota는 정적 한도로 통제. 사용자 ↔ 운영자 사이 금전 거래 없음.
 - ❌ **상용 PaaS 흉내** — Coolify/Heroku 대체가 아니라 사례 데모.
@@ -50,7 +50,9 @@
 
 ---
 
-## 5. 아키텍처 (Phase 1, 가장 단순한 형태)
+## 5. 아키텍처 (Phase 1 이력)
+
+아래 그림은 초기 설계 기록이다. 현재는 사용자 이미지에 GHCR을 사용하고, 매니페스트는 사용자별 private 저장소에 둔다. 현재 구현·검증 상태는 [STATUS.md](./STATUS.md)를 따른다.
 
 ```
 [친구의 GitHub repo]
@@ -124,7 +126,7 @@
 - 단일 노드 — 노드 죽으면 친구 앱도 다운. (다중 노드 / 관리형 k8s는 BIZ_READINESS §5)
 - Always Free 천장 변화 리스크 (기존 4 OCPU / 24GB → 문서상 2 OCPU / 12GB) → 운영 목표를 2/12 기준으로 재산정. 실측 수용 ceiling은 보수적으로 재측정 필요.
 - 운영 부담 24/7 1인 → 친구 수 제한적.
-- 보안 격리는 NetworkPolicy + 자원 한도 + Trivy 이미지 스캔(Phase 3.3, severity counts만, admission webhook 차단은 없음).
+- 보안 격리 템플릿은 NetworkPolicy + 자원 한도 + PSA restricted. Trivy는 취약점 상세를 보고하며 admission 단계 차단은 없다. 실제 적용은 별도 검증한다.
 - 사용자가 push한 이미지 안의 코드는 검증 안 함 — 신뢰 기반. 스캔은 보고형이지 차단형 아님.
 
 ---
@@ -150,9 +152,9 @@ Phase 1·2·3.1·3.2·3.3 + Step 1·2 + B 묶음 + C (사용자 이메일 알림
 
 코드 측 잔여 후보:
 - 사용자별 plan tier (admin UI에서 quota 토글) — CPU 수용 인원 확장 + 유료 전환 자리
-- 스테이트풀 서비스 호스팅 (DB 등) — 현재 Phase 1 non-goal에서 풀기
-- 단위 테스트 확장 — Step 2.1에서 슬러그 영역만 35 케이스 시작. ScanService 알림 dedup, DeployService stage parser, ArgoCD 상태 매핑 등 미커버
-- 사용자 본인 도메인 연결 (custom domain) — 친구 1차 인터뷰 "도메인 변경" ask 의 2차 답. 첫 paid feature 후보로 자연스러움
+- Prisma SQLite 프로필 외 범용 stateful 서비스 지원 여부 결정
+- 단위·통합 테스트 확장 — 현재 로컬 검증 범위와 운영 검증 공백은 STATUS.md 참조
+- 커스텀 도메인 등록·검증·인증서 상태 조회는 구현됨. 운영 환경에서 연결·삭제 흐름 검증 필요
 
 ---
 

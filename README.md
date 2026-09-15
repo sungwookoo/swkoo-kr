@@ -5,6 +5,8 @@
 
 이 디렉터리(`swkoo-kr/`)는 `https://swkoo.kr`에 배포되는 **Observatory** 애플리케이션의 저장소 루트입니다. 백엔드는 NestJS, 프론트엔드는 Next.js(App Router) + TypeScript + Tailwind CSS를 사용합니다.
 
+같은 저장소의 `/deploy`는 GitHub 저장소를 배포하는 친구 대상 셀프서비스입니다. **현재 구현·미완료·운영 검증 상태는 [docs/STATUS.md](./docs/STATUS.md)** 에 정리합니다. 아래 Phase 표는 Observatory의 이력이며 `/deploy`의 범위는 별도입니다.
+
 ## Observatory는 무엇인가
 
 **"Commit → CI Build → Registry Push → Argo Sync → Pod Ready" 한 번의 배포 생명주기를 단일 운영자 시점의 한 타임라인으로 엮고, 그 위에 활성 알람을 겹쳐 운영 판단을 가속하는** 관측 도구.
@@ -86,8 +88,8 @@ VISION §3 전체가 여기로 매핑됨. 요약:
 
 - **Backend**: NestJS, TypeScript, Axios, class-validator
 - **Frontend**: Next.js(App Router) + TypeScript + Tailwind CSS + SWR + Zustand + Mermaid
-- **통신**: REST. Webhook 수신은 Phase 3에 도입 예정.
-- **테스트**: Jest (Nest)
+- **통신**: REST + GitHub/Argo CD Webhook 수신 + 화면 폴링.
+- **테스트**: Jest (Backend), Vitest (Frontend), Playwright (모의 API 기반 UI 스모크).
 
 ## 컨테이너 빌드
 

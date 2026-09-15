@@ -27,6 +27,7 @@ export interface ArgoCdApplication {
       status?: string;
       revision?: string;
       comparedTo?: {
+        source?: { kustomize?: { images?: string[] } };
         destination?: {
           namespace?: string;
         };

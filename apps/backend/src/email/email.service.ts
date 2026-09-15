@@ -30,7 +30,7 @@ export class EmailService {
     return this.config.enabled;
   }
 
-  async sendDeploySuccess(payload: DeploySuccessEmail): Promise<boolean> {
+  async sendDeploySuccess(payload: DeploySuccessEmail, idempotencyKey: string): Promise<boolean> {
     if (!this.config.enabled) return false;
     if (!payload.to) {
       this.logger.warn(`deploy-success email skipped: no recipient for ${payload.login}`);
@@ -55,6 +55,7 @@ export class EmailService {
           headers: {
             Authorization: `Bearer ${this.config.resendApiKey}`,
             'Content-Type': 'application/json',
+            'Idempotency-Key': idempotencyKey,
           },
           timeout: 10_000,
         }

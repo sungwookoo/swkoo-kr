@@ -6,6 +6,8 @@
 
 ---
 
+> 현재 구현 및 운영 검증 상태는 [docs/STATUS.md](./docs/STATUS.md)를 따른다. 아래 날짜가 붙은 체크리스트는 당시 작업 이력이며 운영 검증을 대신하지 않는다.
+
 ## 0. 활성화 신호
 
 이 중 하나가 발생하면 §1·§2를 본격 점검·실행 시점:
@@ -34,30 +36,25 @@ OCI Always Free A1은 단일 노드 천장 리스크가 큼. 기존 4 OCPU/24GB�
 
 ### 1.2 멀티테넌트 격리 강도
 
-현재 안전망: namespace + NetworkPolicy + ResourceQuota + LimitRange. 빠진 것:
-- 이미지 스캔 (Trivy 등) — 친구가 악성 이미지 push 시 그대로 실행
-- Pod Security Admission (PSA) `restricted` profile enforce 없음
-- CNI 단일 평면 — 다른 tenant 패킷 가시성
+현재 코드의 안전망: namespace + NetworkPolicy + ResourceQuota + LimitRange + PSA `restricted` 생성 템플릿. Trivy 정기 스캔과 결과 조회·운영자 알림도 구현되어 있다.
+
+남은 검증·제한:
+- Trivy는 보고형이며 admission 단계의 이미지 차단은 없음.
+- 기존 사용자 namespace의 PSA label 적용과 NetworkPolicy의 실제 차단 동작은 클러스터에서 별도 검증 필요.
+- 공유 노드 기반 격리의 적합성은 공개 서비스 전환 전에 재평가.
 
 **해결 (P0 블로커는 아니지만 강력 권장)**:
 - Trivy admission webhook (HIGH 이상 차단)
-- PSA `restricted` namespace label 강제
+- 기존 namespace의 PSA `restricted` 적용 확인
 - 진짜 강격리 필요 시 vCluster 또는 Kamaji (전용 control plane per tenant)
 
 **현재 Phase에서 할 일**: 사용자 코드 책임 명시 — T&C에 "사용자 작성 코드의 보안·법적 책임은 사용자에게 있다" 조항 필요.
 
 ### 1.3 매니페스트 repo 단일성
 
-현재 `swkoo-kr/deploy/users/*` 에 모든 친구 매니페스트. 사업화 시 문제:
-- 고객 A의 git diff에서 고객 B 매니페스트 노출 가능
-- repo public이면 모든 metadata.yaml 외부 검색됨
-- 한 commit 사고가 모든 tenant 영향
+Phase 3.1에서 사용자별 private 배포 저장소(`swkoo-deploy/<login>`)로 분리되었다. 공통 저장소의 `deploy/users/<login>.yaml`에는 등록 정보가 남으며 ApplicationSet이 이를 읽는다.
 
-**Phase 2에서 즉시 할 일**:
-- `swkoo-kr` repo 공개 여부 확인 → public이면 **private 전환 검토**
-- 코드에서 `getUserManifestPath(login)` 같은 함수로 경로 추상화 한 겹 — 차후 per-tenant repo 분리 시 한 곳만 수정
-
-**사업화 시 본격 해결**: per-tenant 매니페스트 repo, 또는 DB-backed 설정 + ApplicationSet plugin generator.
+남은 검토 대상은 공통 등록 정보의 공개 범위, 사용자별 저장소 접근 권한, 공통 ApplicationSet 변경의 영향이다. 매니페스트 저장소 분리를 미완료 과제로 다시 취급하지 않는다.
 
 ---
 
@@ -136,7 +133,7 @@ Phase 2 빌드 중 적용할 "사업 전환 준비" 패턴:
 - [x] **운영 데이터 복구 능력** — Step 2.2 (2026-05-20). `BackupService` 가 매일 04:00 KST SQLite 전체 스냅샷을 OCI Object Storage 로 업로드 (Instance Principal, lifecycle 90일). PVC 복원 dry-run 으로 runbook 검증 — 다운타임 ~1분. 백업 retention 은 `/privacy` §3 에 명시. *유료 사용자 첫 결제 후 데이터 손실은 신뢰 영구 손상* → 결제 도입 전 사전 조건 충족.
 - [x] **사용자 URL 자율성 — sub-slug** — Step 1 (2026-05-20). `users.subdomain` 컬럼 + 예약어/포맷 검증 + 가용성 체크 endpoint + Deploy 화면 입력 필드. 친구 인터뷰 *"도메인 바꾸고싶다"* ask 의 첫 단계. 다음 단계(사용자 본인 도메인 연결) 가 첫 paid feature 후보.
 - [x] **알람 → 운영자 통로 검증** — Step 2.3 (2026-05-20). Alertmanager → Discord 통로가 22일+ 비어있던 silent failure 발견·해결. 13개 룰 중 `SwkooBackendDown` 표현식 버그 (`up == 0` 만으로는 target-missing 못 잡음) 도 동시 수정. *유료 SLA 약속 전 알람 채널 작동은 필수*.
-- [x] **사용자 측 deploy 완료 알림** — C 작업 (2026-05-20). Resend API 통해 OAuth email 로 자동 발송. `users.last_notified_image_sha` 컬럼 dedup → 같은 이미지엔 한 번만, 새 push 마다 한 번. `noreply@swkoo.kr` 발신. 친구 ask 와 직접 연결된 *진짜 사용자 가치* — 진행도 페이지 안 켜놔도 deploy 완료 알 수 있음.
+- [x] **사용자 측 deploy 완료 알림** — C 작업 (2026-05-20). Resend API 통해 OAuth email 로 자동 발송. `users.last_notified_image_sha` 컬럼 dedup → 같은 이미지엔 한 번만, 새 push 마다 한 번. `noreply@swkoo.kr` 발신. 친구 ask 와 직접 연결된 *진짜 사용자 가치* — 진행도 페이지 안 켜놔도 deploy 완료 알 수 있음이 목표였으나, 당시 구현은 상태 조회에 의존했다. 2026-09-15 로컬 변경에서 주기 작업·영속 재시도로 교체했으며 운영 배포·검증은 별도다.
 - [x] **major dep 일괄 upgrade** — Frontend Next 14→16 / React 18→19 / ESLint 8→10 / TS 5→6, Backend NestJS 10→11 (2026-05-20). Next 14 의 critical authz bypass + content injection CVE 해결. 친구 베타가 *가장 안전한 major upgrade 윈도우* 라는 판단 — paid 진입 후엔 동일 작업 비용 훨씬 큼.
 - [x] **운영 hygiene 묶음** — 2026-05-20 오후 B 묶음. GHA `update-manifests` race 자동 retry, `/api/auth` rate limit (`@nestjs/throttler`), `/deploy` 0-repo 빈 상태 안내, 에러 메시지 친화화, 운영자 자체 이미지 (swkoo-backend·frontend) Trivy 스캔 추가.
 

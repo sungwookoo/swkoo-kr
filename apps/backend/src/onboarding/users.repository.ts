@@ -3,8 +3,19 @@ import { ConfigType } from '@nestjs/config';
 import Database, { Database as Db } from 'better-sqlite3';
 import { dirname } from 'node:path';
 import { mkdirSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 
 import { webhooksConfig } from '../config/webhooks.config';
+import type { DeploySuccessEmail } from '../email/email.service';
+
+export interface DeployNotification {
+  id: number;
+  idempotencyKey: string;
+  payload: string;
+  state: 'pending' | 'sent' | 'expired';
+  firstAttemptAt: number | null;
+  nextAttemptAt: number;
+}
 
 export interface UserUpsert {
   githubId: number;
@@ -161,6 +172,20 @@ export class UsersRepository implements OnModuleInit, OnModuleDestroy {
     // notified the user about. Persisting across backend restarts
     // prevents duplicate emails on pod recreate.
     this.addColumnIfMissing('users', 'last_notified_image_sha', 'TEXT');
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS deploy_notifications (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        repo TEXT NOT NULL,
+        digest TEXT NOT NULL,
+        payload TEXT NOT NULL,
+        idempotency_key TEXT NOT NULL,
+        state TEXT NOT NULL DEFAULT 'pending',
+        first_attempt_at INTEGER,
+        next_attempt_at INTEGER NOT NULL DEFAULT 0,
+        UNIQUE(user_id, repo, digest)
+      );
+    `);
     this.logger.log('users + audit_log tables ready');
   }
 
@@ -261,6 +286,7 @@ export class UsersRepository implements OnModuleInit, OnModuleDestroy {
         .prepare(`SELECT github_login FROM users WHERE id = ?`)
         .get(userId) as { github_login: string } | undefined;
       if (!row) return;
+      this.db.prepare('DELETE FROM deploy_notifications WHERE user_id = ?').run(userId);
       this.db
         .prepare(
           `UPDATE audit_log SET actor = ? WHERE actor = ?`
@@ -404,6 +430,39 @@ export class UsersRepository implements OnModuleInit, OnModuleDestroy {
     this.db
       .prepare(`UPDATE users SET last_notified_image_sha = ? WHERE id = ?`)
       .run(sha, userId);
+  }
+
+  queueDeployNotification(userId: number, digest: string, payload: DeploySuccessEmail): DeployNotification {
+    this.db.prepare(`
+      INSERT OR IGNORE INTO deploy_notifications (user_id, repo, digest, payload, idempotency_key)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(userId, payload.repo, digest, JSON.stringify(payload), `deploy-success/${randomUUID()}`);
+    return this.db.prepare(`
+      SELECT id, idempotency_key AS idempotencyKey, payload, state,
+        first_attempt_at AS firstAttemptAt, next_attempt_at AS nextAttemptAt
+      FROM deploy_notifications WHERE user_id = ? AND repo = ? AND digest = ?
+    `).get(userId, payload.repo, digest) as DeployNotification;
+  }
+
+  startDeployNotificationAttempt(id: number, now: number): void {
+    this.db.prepare(`
+      UPDATE deploy_notifications SET first_attempt_at = COALESCE(first_attempt_at, ?),
+        next_attempt_at = ? WHERE id = ? AND state = 'pending'
+    `).run(now, now + 5 * 60_000, id);
+  }
+
+  finishDeployNotification(id: number, userId: number, digest: string, state: 'sent' | 'expired'): void {
+    this.db.transaction(() => {
+      this.db.prepare('UPDATE deploy_notifications SET state = ? WHERE id = ?').run(state, id);
+      if (state === 'sent') this.setLastNotifiedImageSha(userId, digest);
+    })();
+  }
+
+  listDeployNotifications(userId: number): unknown[] {
+    return this.db.prepare(`
+      SELECT repo, digest, payload, state, first_attempt_at AS firstAttemptAt,
+        next_attempt_at AS nextAttemptAt FROM deploy_notifications WHERE user_id = ? ORDER BY id
+    `).all(userId);
   }
 
   findBySubdomain(subdomain: string): UserRow | undefined {

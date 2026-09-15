@@ -92,6 +92,7 @@ export class AccountController {
       envVars,
       latestScan,
       auditLog,
+      deployNotifications: this.users.listDeployNotifications(user.id),
     };
   }
 

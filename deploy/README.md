@@ -345,3 +345,22 @@ rm -f /tmp/restore.sqlite
 **10. 운영자 본인 admin 로그인 + 친구 1명에게 "정상 동작 중인가" 확인 요청**
 
 복구 시점 이후 발생했던 *작은* 상태 변경 (audit log 새 행, sign-in lastLoginAt 등) 은 손실. 사용자 환경변수 (k8s Secret) 와 manifest (git) 는 영향 없음.
+
+## 배포 완료 이메일 — 주기 작업
+
+`RESEND_API_KEY`와 `EMAIL_FROM`을 모두 설정하면 백엔드가 1분마다 현재 활성 배포를 확인한다. 화면 조회는 이메일을 발송하지 않는다. SQLite `deploy_notifications`는 기존 데이터 PVC·전체 DB 백업에 포함되며 서버 시작 시 테이블이 자동 생성된다. 백엔드 단일 replica를 전제로 한다.
+
+- `pending`: 발송 대기 또는 실패. 현재 이미지의 정상 상태를 다시 확인하고 5분 간격으로 재시도한다.
+- `sent`: 제공자가 요청을 수락했다. 수신함 도착 여부는 제공자 로그에서 확인한다.
+- `expired`: 최초 시도 후 23시간 경과. 중복 발송을 피하려고 자동 재시도를 중단하며 `DEPLOY_NOTIFY_EXPIRED` 감사 로그와 서버 경고 로그를 남긴다.
+
+상태 조회용 SQL (메일 주소·내용은 출력하지 않음):
+
+```sql
+SELECT id, user_id, repo, digest, state, first_attempt_at, next_attempt_at
+FROM deploy_notifications ORDER BY id DESC LIMIT 50;
+```
+
+`expired`는 Resend 수신·발송 로그와 대조한다. 발송 여부가 불명확한 상태에서 행을 삭제하거나 키를 새로 생성하면 중복 메일이 발생할 수 있다. DB 백업 복원으로 이미 보낸 기록이 소실된 경우에도 이 점을 확인한다.
+
+운영 반영 후 테스트 앱에서 현재 이미지와 Argo CD의 `sync.comparedTo.source.kustomize.images`, `summary.images`가 일치하는지 확인하고, 진행 화면을 닫은 상태에서 이메일 수신을 검증한다. 이미지가 빠르게 교체되거나 삭제되면 해당 배포의 알림을 건너뛴다. 상세 범위는 [현재 검증 기준선](../docs/STATUS.md)을 따른다.
