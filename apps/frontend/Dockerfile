@@ -13,6 +13,10 @@ COPY . .
 RUN npm run build
 
 FROM node:24-alpine AS runner
+# Runtime does not install packages; omit bundled package-manager dependencies.
+RUN apk upgrade --no-cache \
+  && rm -rf /usr/local/lib/node_modules/npm /opt/yarn-* \
+  && rm -f /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/yarn /usr/local/bin/yarnpkg
 ENV NODE_ENV=production
 ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
