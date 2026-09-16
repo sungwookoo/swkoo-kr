@@ -184,22 +184,21 @@ export class ScanService {
       this.logger.error(`createJob ${jobName}: ${(err as Error).message}`);
       return null;
     }
-    let job: V1Job | null;
     try {
-      job = await this.waitForJob(jobName);
+      const job = await this.waitForJob(jobName);
+      if (!job?.status?.succeeded) {
+        this.logger.warn(`scan job ${jobName} did not succeed`);
+        return null;
+      }
+      const logs = await this.readJobLogs(jobName);
+      return logs ? this.parseTrivyOutput(logs) : null;
     } finally {
-      void this.deleteJob(jobName);
+      await this.deleteJob(jobName);
     }
-    if (!job || !job.status?.succeeded) {
-      this.logger.warn(`scan job ${jobName} did not succeed`);
-      return null;
-    }
-    const logs = await this.readJobLogs(jobName);
-    if (!logs) return null;
-    return this.parseTrivyOutput(logs);
   }
 
   private buildJobSpec(jobName: string, login: string, image: string): V1Job {
+    const privateRegistry = /^[a-z0-9.-]+\.ocir\.io\//.test(image);
     return {
       apiVersion: 'batch/v1',
       kind: 'Job',
@@ -220,6 +219,7 @@ export class ScanService {
           },
           spec: {
             restartPolicy: 'Never',
+            automountServiceAccountToken: false,
             containers: [
               {
                 name: 'trivy',
@@ -237,7 +237,14 @@ export class ScanService {
                   '--platform=linux/arm64',
                   image,
                 ],
-                volumeMounts: [{ name: 'cache', mountPath: '/cache' }],
+                env: [
+                  { name: 'GOMEMLIMIT', value: '384MiB' },
+                  ...(privateRegistry ? [{ name: 'DOCKER_CONFIG', value: '/registry' }] : []),
+                ],
+                volumeMounts: [
+                  { name: 'cache', mountPath: '/cache' },
+                  ...(privateRegistry ? [{ name: 'registry', mountPath: '/registry', readOnly: true }] : []),
+                ],
                 resources: {
                   requests: { cpu: '100m', memory: '256Mi' },
                   limits: { cpu: '500m', memory: '512Mi' },
@@ -245,6 +252,7 @@ export class ScanService {
               },
             ],
             volumes: [
+              ...(privateRegistry ? [{ name: 'registry', secret: { secretName: 'ocir-credentials', items: [{ key: '.dockerconfigjson', path: 'config.json' }] } }] : []),
               {
                 name: 'cache',
                 persistentVolumeClaim: { claimName: 'trivy-db-cache' },
