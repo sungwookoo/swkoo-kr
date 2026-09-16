@@ -26,3 +26,22 @@ for (const failure of [false, true]) {
     await expect(page.getByText(/연결된 영구 저장공간과 DB 데이터도 삭제/)).toBeVisible();
   });
 }
+
+for (const code of [401, 403]) {
+  test(`deployment management explains ${code} without exposing panels`, async ({ page }) => {
+    await installCatchAll(page);
+    await page.route('**/api/auth/me', route => json(route, 401, {}));
+    await page.route('**/api/deploy/status/**', route => json(route, code, {}));
+    await page.goto('/deploy/hizieun/portfolio');
+    if (code === 401) {
+      const link = page.getByRole('link', { name: 'GitHub로 로그인하고 돌아오기' });
+      await expect(link).toBeVisible();
+      await expect(link).toHaveAttribute('href', /returnTo=%2Fdeploy%2Fhizieun%2Fportfolio$/);
+    } else {
+      await expect(page.getByText('이 앱의 관리 권한이 없습니다.', { exact: false })).toBeVisible();
+    }
+    await expect(page.getByText('상태 조회 실패:', { exact: false })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: '+ Add variable' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: '이 앱 제거하기' })).toHaveCount(0);
+  });
+}

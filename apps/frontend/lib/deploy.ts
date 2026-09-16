@@ -55,7 +55,7 @@ export type StackPreview =
 async function fetcher<T>(url: string): Promise<T> {
   const response = await fetch(url, { credentials: 'include' });
   if (!response.ok) {
-    throw new Error(`${response.status} ${response.statusText}`);
+    throw Object.assign(new Error(`${response.status} ${response.statusText}`), { status: response.status });
   }
   return (await response.json()) as T;
 }

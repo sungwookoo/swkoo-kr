@@ -61,6 +61,35 @@ describe('AuthController — GitHub App install vs login flow', () => {
     return { controller, auth };
   }
 
+  it.each([
+    ['/deploy/hizieun/portfolio', 'st-123', '/deploy/hizieun/portfolio'],
+    ['https://evil.example', 'st-123', '/deploy'],
+    ['//evil.example', 'st-123', '/deploy'],
+    ['/deploy/alice/..', 'st-123', '/deploy'],
+    ['/deploy/hizieun/portfolio', 'other-state', '/deploy'],
+  ])('validates and binds return path %s to OAuth state %s', async (path, savedState, expected) => {
+    const { controller } = makeController({
+      exchangeCodeForUser: jest.fn(async () => ({ id: 1, githubLogin: 'alice' } as UserRow)),
+      signSessionToken: jest.fn(() => 'signed-jwt'),
+    });
+    const cap = makeRes();
+    await controller.handleCallback(makeReq({ code: 'code', state: 'st-123' }, {
+      [OAUTH_STATE_COOKIE]: 'st-123',
+      swkoo_oauth_return: JSON.stringify({ state: savedState, path }),
+    }), cap.res);
+    expect(cap.redirectedTo).toBe(`https://swkoo.kr${expected}`);
+    expect(cap.cleared).toContain('swkoo_oauth_return');
+  });
+
+  it('stores a validated return path with the login state', () => {
+    const { controller } = makeController();
+    const cap = makeRes();
+    controller.startOauth(cap.res, makeReq({ returnTo: '/deploy/hizieun/portfolio' }));
+    const saved = JSON.parse(cap.cookies.find(c => c.name === 'swkoo_oauth_return')!.value);
+    expect(saved.path).toBe('/deploy/hizieun/portfolio');
+    expect(saved.state).toBe(cap.cookies.find(c => c.name === OAUTH_STATE_COOKIE)!.value);
+  });
+
   it('GET /github/login redirects to the OAuth authorize URL', () => {
     const { controller } = makeController();
     const cap = makeRes();

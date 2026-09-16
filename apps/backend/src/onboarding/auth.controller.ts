@@ -19,6 +19,14 @@ import { AuthService, OAUTH_STATE_COOKIE, SESSION_COOKIE } from './auth.service'
 import { UsersRepository } from './users.repository';
 
 const SESSION_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+const RETURN_COOKIE = 'swkoo_oauth_return';
+
+function safeReturnPath(value: unknown): string {
+  if (typeof value !== 'string' || !/^\/deploy\/[a-zA-Z0-9_-]+\/[a-zA-Z0-9_.-]+$/.test(value)) return '/deploy';
+  if (value.split('/').some(part => part === '.' || part === '..')) return '/deploy';
+  return value;
+}
+
 const STATE_MAX_AGE_MS = 10 * 60 * 1000;
 
 /** Bump this when /privacy or /terms changes substantively — users with a
@@ -46,7 +54,7 @@ export class AuthController {
    * App. Redirects to GitHub's OAuth authorize screen (Authorized GitHub
    * Apps). Does NOT grant repo access; new users should use /install. */
   @Get('github/login')
-  startOauth(@Res() res: Response): void {
+  startOauth(@Res() res: Response, @Req() req?: Request): void {
     const state = this.auth.generateOauthState();
     const url = this.auth.buildAuthorizeUrl(state);
 
@@ -58,6 +66,9 @@ export class AuthController {
       path: '/',
     });
 
+    res.cookie(RETURN_COOKIE, JSON.stringify({ state, path: safeReturnPath(req?.query.returnTo) }), {
+      httpOnly: true, secure: true, sameSite: 'lax', maxAge: STATE_MAX_AGE_MS, path: '/',
+    });
     res.redirect(url);
   }
 
@@ -113,6 +124,12 @@ export class AuthController {
     }
 
     res.clearCookie(OAUTH_STATE_COOKIE, { path: '/' });
+    let returnPath = '/deploy';
+    try {
+      const saved = JSON.parse(readCookie(req, RETURN_COOKIE) ?? '{}');
+      if (saved.state === state) returnPath = safeReturnPath(saved.path);
+    } catch { /* Invalid return cookie falls back to the deployment list. */ }
+    res.clearCookie(RETURN_COOKIE, { path: '/' });
 
     try {
       const user = await this.auth.exchangeCodeForUser(code);
@@ -124,7 +141,7 @@ export class AuthController {
         maxAge: SESSION_MAX_AGE_MS,
         path: '/',
       });
-      res.redirect(`${this.config.appBaseUrl}/deploy`);
+      res.redirect(`${this.config.appBaseUrl}${returnPath}`);
     } catch (err) {
       this.logger.error(`OAuth callback failed: ${(err as Error).message}`);
       res.redirect(`${this.config.appBaseUrl}/deploy?error=oauth_failed`);

@@ -53,8 +53,8 @@ export function useMe(): {
 
 /** Pure OAuth login — for users who already installed the swkoo-deploy
  * App on at least one repo. */
-export function loginUrl(): string {
-  return `${API_BASE_URL}/auth/github/login`;
+export function loginUrl(returnTo?: string): string {
+  return `${API_BASE_URL}/auth/github/login${returnTo ? `?returnTo=${encodeURIComponent(returnTo)}` : ''}`;
 }
 
 /** GitHub App installation — for new users who need to grant repo access.

@@ -18,6 +18,7 @@ import {
   useEnvVars,
 } from '@/lib/deploy';
 import { LatestScan, ScanFinding, useLatestScan } from '@/lib/account';
+import { loginUrl } from '@/lib/auth';
 import { DomainPanel } from '@/components/DomainPanel';
 
 interface StatusClientProps {
@@ -34,7 +35,11 @@ const STAGE_ORDER: Array<{ key: keyof DeploymentStatus['stages']; label: string 
 ];
 
 export function StatusClient({ login, repo }: StatusClientProps): import("react").ReactNode {
-  const { status, isLoading, error } = useDeploymentStatus(login, repo);
+  const { status: cachedStatus, isLoading, error } = useDeploymentStatus(login, repo);
+  const errorStatus = (error as (Error & { status?: number }) | undefined)?.status;
+  const requiresLogin = errorStatus === 401;
+  const forbidden = errorStatus === 403;
+  const status = requiresLogin || forbidden ? undefined : cachedStatus;
 
   return (
     <main className="relative isolate min-h-[calc(100vh-12rem)] w-full px-6 py-16 sm:py-20">
@@ -46,7 +51,17 @@ export function StatusClient({ login, repo }: StatusClientProps): import("react"
         <Header login={login} repo={repo} status={status} />
 
         {isLoading && !status && <p className="text-slate-500">상태 조회 중…</p>}
-        {error && (
+        {requiresLogin && (
+          <section className="space-y-4" aria-label="로그인 필요">
+            <p className="text-amber-400">로그인이 필요합니다. 세션이 만료되었을 수 있습니다.</p>
+            <p className="text-sm text-slate-400">이 앱을 배포한 GitHub 계정으로 로그인하면 진행도·환경변수·스캔 결과를 확인할 수 있습니다.</p>
+            <a className="inline-block rounded bg-zinc-100 px-4 py-2 text-sm text-zinc-900" href={loginUrl(`/deploy/${encodeURIComponent(login)}/${encodeURIComponent(repo)}`)}>
+              GitHub로 로그인하고 돌아오기
+            </a>
+          </section>
+        )}
+        {forbidden && <p className="text-amber-400">이 앱의 관리 권한이 없습니다. 앱을 배포한 GitHub 계정으로 로그인해 주세요.</p>}
+        {error && !requiresLogin && !forbidden && (
           <p className="text-sm text-amber-400">
             상태 조회 실패: {error.message}
           </p>
