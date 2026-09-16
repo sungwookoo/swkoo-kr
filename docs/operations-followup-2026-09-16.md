@@ -7,11 +7,11 @@
 | 앱 | Critical | High | Medium | 조치 |
 |---|---:|---:|---:|---|
 | SprintFlow | 0 | 0 | 0 | 소스 56e07fc 빌드·배포 및 재검사 완료 |
-| PocketPlan | 3 | 67 | 91 | 소스 쓰기 권한 없음. 수정 패치 준비 |
-| hizieun/portfolio | 2 | 31 | 22 | 소스 쓰기 권한 없음. 수정 패치 준비 |
-| sw-koo/nextjs-sample | 5 | 37 | 50 | 소스 쓰기 권한 없음. 수정 패치 준비 |
+| PocketPlan | 3 | 67 | 91 | PostgreSQL 연결 설정 확인 필요. 보안 PR #1 초안 유지 |
+| hizieun/portfolio | 0 | 0 | 0 | PR #1 병합, ARM64 빌드·배포·재검사 완료 |
+| sw-koo/nextjs-sample | 0 | 0 | 0 | PR #1 병합, ARM64 빌드·배포·재검사 완료 |
 
-세 앱의 수정안은 로컬 `C:/sungwoo/resource-rollout/security-patches-20260916/`에 보관한다. 각 수정안의 npm audit 0건과 프로덕션 빌드를 확인했다. PocketPlan은 Prisma 생성기와 Client 버전을 7.10.0으로 맞추고 테스트도 통과했다. PostgreSQL 서비스 연결·실제 사용자 데이터 동작은 검증하지 않았다. 소유자 적용·ARM64 이미지 빌드·운영 재검사는 남아 있다.
+세 앱의 수정안은 로컬 `C:/sungwoo/resource-rollout/security-patches-20260916/`에 보관한다. 각 수정안의 npm audit 0건과 프로덕션 빌드를 확인했다. PocketPlan은 Prisma 생성기와 Client 버전을 7.10.0으로 맞추고 테스트도 통과했다. PostgreSQL 서비스 연결·실제 사용자 데이터 동작은 검증하지 않았다. 기존 GitHub App의 저장소별 쓰기 권한으로 [portfolio PR](https://github.com/hizieun/portfolio/pull/1)과 [sample PR](https://github.com/sw-koo/nextjs-sample/pull/1)을 적용했다. [PocketPlan PR](https://github.com/hatbann/PocketPlan/pull/1)은 초안이다. 최신 소스는 PostgreSQL을 요구하지만 운영 DB 환경변수 Secret이 없고 외부 DB 연결 지원은 보류되어 있으므로 병합하지 않았다.
 
 SprintFlow는 Next.js 16.3.5, Prisma 6 유지, deepmerge-ts 8 override, npm 11.19.1로 변경했다. SQLite 보존 회귀 테스트 2개와 빌드를 통과했다. 자동 DB 백업 도입은 보류 상태다.
 
@@ -41,9 +41,9 @@ SprintFlow는 Next.js 16.3.5, Prisma 6 유지, deepmerge-ts 8 override, npm 11.1
 
 PR #28에서 의도적으로 실패시킨 backend 검사로 실제 merge 거부를 확인했고, 실패 코드를 제거한 뒤 모든 검사가 성공하자 정상 병합했다.
 
-이미지 태그 갱신도 자동 PR로 전환했다. GITHUB_TOKEN의 PR workflow 실행 제약을 피하기 위해 검증 workflow를 명시적으로 dispatch하고, 성공 후 일반 merge를 요청한다. 배포 매니페스트만 변경한 PR은 pull_request 자동 실행에서 제외하고 같은 검사를 workflow_dispatch로 실행한다. 수동으로 만든 매니페스트 전용 PR도 두 workflow를 해당 브랜치에서 실행해야 한다. 관리자 우회는 사용하지 않는다. update-manifests 작업에 한해 contents/pull-requests/actions 쓰기 권한이 필요하다.
+이미지 태그 갱신도 자동 PR로 전환했다. GITHUB_TOKEN의 PR workflow 실행 제약을 피하기 위해 검증 workflow를 명시적으로 dispatch하고, 성공 후 일반 merge를 요청한다. PR merge commit 검사가 필요하므로 매니페스트 전용 PR에도 pull_request 검사를 실행한다. 자동화는 자신이 생성한 브랜치와 동일한 SHA의 두 검증 workflow에 한해서 실행 대기 승인을 요청한다. 관리자 우회는 사용하지 않는다. update-manifests 작업에 한해 contents/pull-requests/actions 쓰기 권한이 필요하다.
 
-자동 배포 PR #29의 필수 검사 성공 및 자동 병합을 확인했다. 첫 실행에서는 GitHub 봇 PR 실행 승인을 운영자가 수행했으며, 매니페스트 전용 PR의 중복 실행을 제외하는 후속 수정으로 정리했다.
+자동 배포 PR #29의 필수 검사 성공 및 자동 병합을 확인했다. 첫 실행에서는 GitHub 봇 PR 실행 승인을 운영자가 수행했으며, dispatch 검사만으로 병합 정책이 충족되지 않는 것을 확인해 PR merge commit 검사도 유지했다.
 
 ## Terraform
 
