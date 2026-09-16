@@ -182,6 +182,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      pull-requests: write
+      actions: write
     steps:
       - uses: actions/checkout@v5
 
@@ -199,34 +201,35 @@ jobs:
           SHA_TAG="${GITHUB_SHA}"
           sed -i "s|image: ${REGISTRY_HOST}/${NAMESPACE}/${FRONTEND_REPO}:.*|image: ${REGISTRY_HOST}/${NAMESPACE}/${FRONTEND_REPO}:${SHA_TAG}|g" deploy/base/frontend/deployment.yaml
 
-      - name: Commit and push manifest updates
-        # When two pushes land seconds apart, the second build's
-        # `git push` here races the first's manifest commit and gets
-        # non-fast-forward rejected. Observed twice on 2026-05-20 (the
-        # backup feature push, then the frontend major upgrade push).
-        # Recover by rebasing on origin/main and retrying — sed-based
-        # tag bumps don't conflict with anything else in deploy/base
-        # so the rebase is safe.
+      - name: Validate and merge manifest PR
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          if git diff --quiet deploy/base/backend/deployment.yaml deploy/base/frontend/deployment.yaml; then
-            echo "No manifest changes to commit"
-            exit 0
-          fi
-
+          if git diff --quiet deploy/base/backend/deployment.yaml deploy/base/frontend/deployment.yaml; then exit 0; fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          BRANCH="deploy/images-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          git switch -c "$BRANCH"
           git add deploy/base/backend/deployment.yaml deploy/base/frontend/deployment.yaml
           git commit -m "chore: update image tags to ${GITHUB_SHA}"
-
-          for attempt in 1 2 3; do
-            if git push; then
-              echo "push succeeded on attempt ${attempt}"
+          git fetch origin main
+          git rebase origin/main
+          git push -u origin "$BRANCH"
+          PR=$(gh pr create --base main --head "$BRANCH" --title "Deploy images ${GITHUB_SHA:0:7}" --body "Update only the successfully built image tags. Required tests and builds must pass before deployment.")
+          # GITHUB_TOKEN-created PRs do not trigger pull_request workflows.
+          # Explicit dispatch attaches the same required checks to this commit.
+          gh workflow run pr-validation.yml --ref "$BRANCH"
+          gh workflow run frontend-smoke.yml --ref "$BRANCH"
+          for attempt in $(seq 1 90); do
+            if gh pr checks "$PR" --required --json state --jq 'length >= 3 and all(.[]; .state == "SUCCESS")' | grep -qx true; then
+              gh pr merge "$PR" --squash --delete-branch
               exit 0
             fi
-            echo "push attempt ${attempt} rejected (likely non-fast-forward); rebasing"
-            git pull --rebase origin main
-            sleep 3
+            if gh pr checks "$PR" --required --json state --jq 'any(.[]; .state == "FAILURE" or .state == "CANCELLED" or .state == "TIMED_OUT")' | grep -qx true; then
+              echo "Manifest PR checks failed: $PR" >&2
+              exit 1
+            fi
+            sleep 10
           done
-
-          echo "push failed after 3 attempts — likely non-race issue"
+          echo "Manifest PR checks did not finish: $PR" >&2
           exit 1
