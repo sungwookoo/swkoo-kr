@@ -23,6 +23,13 @@ describe('security patch HTTP consent', () => {
   });
   afterAll(async () => app.close());
   beforeEach(() => jest.clearAllMocks());
+  it('serializes an absent proposal as JSON null instead of an empty HTTP body', async () => {
+    service.status.mockResolvedValue(null);
+    const response = await request(app.getHttpServer()).get('/deploy/security-patch?repo=alice/app')
+      .set('Cookie', `${SESSION_COOKIE}=session`).expect(200);
+    expect(response.text).toBe('null');
+    expect(response.headers['content-type']).toMatch(/application\/json/);
+  });
   it('rejects anonymous preparation, publication and state access', async () => {
     await request(app.getHttpServer()).post('/deploy/security-patch/prepare').send({}).expect(401);
     await request(app.getHttpServer()).post('/deploy/security-patch/pr').send({}).expect(401);

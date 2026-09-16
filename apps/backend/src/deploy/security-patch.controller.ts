@@ -1,4 +1,5 @@
-import { Body, Controller, Get, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
+import type { Response } from 'express';
 import { Equals, IsString, IsUUID, Matches } from 'class-validator';
 import { AuthedRequest, JwtAuthGuard } from '../onboarding/jwt-auth.guard';
 import { PATCH_POLICY } from './security-patch.policy';
@@ -15,7 +16,11 @@ class CreatePatchPrDto extends PreparePatchDto { @IsUUID() id!: string; }
 export class SecurityPatchController {
   constructor(private readonly service: SecurityPatchService) {}
   @Get()
-  status(@Req() req: AuthedRequest, @Query('repo') repo: string = '') { return this.service.status(req.user, repo); }
+  async status(@Req() req: AuthedRequest, @Res() response: Response, @Query('repo') repo: string = '') {
+    // Nest's default adapter sends an empty body for null. The client expects
+    // JSON even before the user's first proposal or after its expiration.
+    response.json(await this.service.status(req.user, repo));
+  }
   @Post('prepare')
   prepare(@Req() req: AuthedRequest, @Body() body: PreparePatchDto) { return this.service.prepare(req.user, body.repo, body.consent); }
   @Post('pr')
