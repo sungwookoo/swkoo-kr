@@ -49,6 +49,7 @@ export async function installCatchAll(page: Page): Promise<void> {
     console.warn(`[smoke] unmocked API call: ${url}`);
     await json(route, 599, { message: `unmocked: ${url}` });
   });
+  await page.route('**/api/deploy/security-patch?*', route => json(route, 200, null));
 }
 
 /** Stable mocks every authenticated-user scenario needs. Call BEFORE

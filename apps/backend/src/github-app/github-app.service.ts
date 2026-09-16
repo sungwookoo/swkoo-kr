@@ -92,7 +92,7 @@ export class GithubAppService {
   /** Finds the App installation that has access to the given repo and mints
    * a fresh installation token (valid ~1h). Returns INSTALLATION_NOT_FOUND
    * when the App hasn't been installed on that repo. */
-  async getInstallationTokenForRepo(owner: string, repo: string): Promise<string> {
+  async getInstallationTokenForRepo(owner: string, repo: string, permissions?: Record<string, 'read' | 'write'>): Promise<string> {
     let installationId: number;
     try {
       const resp = await axios.get<InstallationResp>(
@@ -107,7 +107,7 @@ export class GithubAppService {
       }
       throw err;
     }
-    return this.mintInstallationToken(installationId);
+    return this.mintInstallationToken(installationId, permissions ? { repositories: [repo], permissions } : undefined);
   }
 
   /** Like getInstallationTokenForRepo but resolves the installation by org —
@@ -131,10 +131,10 @@ export class GithubAppService {
     return this.mintInstallationToken(installationId);
   }
 
-  private async mintInstallationToken(installationId: number): Promise<string> {
+  private async mintInstallationToken(installationId: number, scope?: { repositories: string[]; permissions: Record<string, 'read' | 'write'> }): Promise<string> {
     const tokenResp = await axios.post<InstallationTokenResp>(
       `https://api.github.com/app/installations/${installationId}/access_tokens`,
-      {},
+      scope ?? {},
       { headers: this.appAuthHeaders }
     );
     return tokenResp.data.token;

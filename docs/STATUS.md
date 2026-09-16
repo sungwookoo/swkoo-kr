@@ -2,6 +2,13 @@
 
 기준일: 2026-09-15. 코드 기준선과 아래 운영 검증 기록을 구분한다. Observatory의 정체성은 [VISION](../VISION.md), Deploy의 정체성은 [deploy-vision](./deploy-vision.md)을 따른다.
 
+## 선택형 보안 수정 PR (2026-09-16)
+
+- [설계·권한·사용자 동의 기준](./security-patch-design.md): 수정안 준비와 초안 PR 생성을 각각 사용자가 요청한다. 자동 병합하지 않는다.
+- 공개 npm 단일 프로젝트의 기존 버전 범위 안에서 lockfile만 제안한다. 메이저·0.x minor 변경, 앱 코드·DB·Dockerfile·workflow 변경은 제외한다. 앱 테스트·빌드는 미검증으로 표시한다.
+- 로컬 백엔드 270개, 프런트엔드 93개, Playwright 15개 테스트 및 양쪽 빌드를 확인했다. 실제 제한된 Kubernetes 작업에서 lodash fixture의 npm 취약점 1→0 및 설치 스크립트 미실행을 확인하고 Job을 정리했다.
+- 사용자 저장소는 시험 대상으로 수정하지 않았다. 실제 GitHub PR 쓰기는 모의 API로 검증했다.
+
 ## 후속 운영 점검 (2026-09-16)
 
 [상세 결과 및 미완료 범위](./operations-followup-2026-09-16.md)를 참조한다. PocketPlan PostgreSQL 연결 설정 미확인과 운영 부하 테스트 정책 차단으로 인해 모든 항목의 완료를 주장하지 않는다.

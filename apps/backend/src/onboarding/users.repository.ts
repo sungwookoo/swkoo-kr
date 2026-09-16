@@ -287,6 +287,9 @@ export class UsersRepository implements OnModuleInit, OnModuleDestroy {
         .get(userId) as { github_login: string } | undefined;
       if (!row) return;
       this.db.prepare('DELETE FROM deploy_notifications WHERE user_id = ?').run(userId);
+      if (this.db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='security_patch_plans'").get()) {
+        this.db.prepare('DELETE FROM security_patch_plans WHERE user_id = ?').run(userId);
+      }
       this.db
         .prepare(
           `UPDATE audit_log SET actor = ? WHERE actor = ?`
@@ -463,6 +466,13 @@ export class UsersRepository implements OnModuleInit, OnModuleDestroy {
       SELECT repo, digest, payload, state, first_attempt_at AS firstAttemptAt,
         next_attempt_at AS nextAttemptAt FROM deploy_notifications WHERE user_id = ? ORDER BY id
     `).all(userId);
+  }
+
+  exportSecurityPatch(userId: number): unknown {
+    if (!this.db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='security_patch_plans'").get()) return null;
+    const row = this.db.prepare('SELECT data FROM security_patch_plans WHERE user_id=? AND created_at>=?')
+      .get(userId, Date.now() - 24 * 60 * 60_000) as { data: string } | undefined;
+    return row ? JSON.parse(row.data) : null;
   }
 
   findBySubdomain(subdomain: string): UserRow | undefined {

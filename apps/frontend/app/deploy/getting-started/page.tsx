@@ -54,6 +54,18 @@ const sections = [
     after:
       '기존에 TXT+CNAME 두 레코드로 연결돼 있는 도메인은 자동으로 계속 동작합니다. 새 등록은 CNAME 한 줄이면 됩니다.',
   },
+  {
+    n: 5,
+    title: '보안 수정은 직접 요청하고 PR로 검토합니다',
+    body: '관리 화면의 보안 수정 PR 요청에서 수정안 준비와 초안 PR 생성을 각각 선택할 수 있습니다. 배포 등록이나 스캔만으로 의존성 버전이 자동 변경되지는 않습니다.',
+    bullets: [
+      '공개 npm 패키지·단일 프로젝트·lockfile v2/v3 지원. 현재 버전 범위 안의 package-lock.json 변경만 제안합니다',
+      '수정안 준비 시 의존성 이름·버전을 npm 공개 레지스트리에 보내 검사합니다. GitHub 저장소는 아직 변경하지 않습니다',
+      '변경 목록을 확인하고 동의하면 별도 브랜치와 초안 PR을 생성합니다. 메이저 및 0.x minor 업그레이드·앱 코드·DB·Dockerfile·workflow 변경은 제외합니다',
+      '앱 테스트·프로덕션 빌드·DB 연결은 미검증입니다. 직접 검증하고 병합 여부를 결정하세요. 병합 시 기존 자동 배포가 실행될 수 있습니다',
+      '서비스의 자동 병합은 없습니다. 수정안은 24시간 후 만료되며 열린 보안 PR이 있으면 중복 생성을 막습니다',
+    ],
+  },
 ] as const;
 
 export default function GettingStartedPage(): import("react").ReactNode {

@@ -10,6 +10,7 @@ resources:
   - backend/ingress.yaml
   - backend/pvc.yaml
   - backend/trivy-db-pvc.yaml
+  - backend/security-patch-network-policy.yaml
   - frontend/deployment.yaml
   - frontend/service.yaml
   - frontend/ingress.yaml

@@ -20,6 +20,7 @@ import {
 import { LatestScan, ScanFinding, useLatestScan } from '@/lib/account';
 import { loginUrl } from '@/lib/auth';
 import { DomainPanel } from '@/components/DomainPanel';
+import { SecurityPatchPanel } from '@/components/SecurityPatchPanel';
 
 interface StatusClientProps {
   login: string;
@@ -85,6 +86,7 @@ export function StatusClient({ login, repo }: StatusClientProps): import("react"
         )}
 
         {status && <ScanPanel />}
+        {status && <SecurityPatchPanel key={`${login}/${repo}`} repo={`${login}/${repo}`} />}
 
         {status && <DeleteCard login={login} repo={repo} />}
 
