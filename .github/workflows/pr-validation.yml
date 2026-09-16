@@ -2,6 +2,8 @@ name: Pull Request Validation
 on:
   pull_request:
     branches: [main]
+    # Image-only PRs receive the same checks via explicit workflow_dispatch.
+    paths-ignore: ['deploy/base/**']
   workflow_dispatch:
 permissions:
   contents: read
