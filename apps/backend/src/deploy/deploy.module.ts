@@ -17,6 +17,9 @@ import { DeployService } from './deploy.service';
 import { EnvService } from './env.service';
 import { ScanService } from './scan.service';
 import { DeployNotificationsService } from './deploy-notifications.service';
+import { SecurityPatchController } from './security-patch.controller';
+import { SecurityPatchService } from './security-patch.service';
+import { SecurityPatchRepository } from './security-patch.repository';
 
 @Module({
   imports: [
@@ -30,8 +33,8 @@ import { DeployNotificationsService } from './deploy-notifications.service';
     ConfigModule.forFeature(onboardingConfig),
     ConfigModule.forFeature(emailConfig),
   ],
-  controllers: [DeployController, AccountController],
-  providers: [DeployStatusService, DeployService, EnvService, CleanupService, ScanService, DeployNotificationsService],
+  controllers: [DeployController, AccountController, SecurityPatchController],
+  providers: [DeployStatusService, DeployService, EnvService, CleanupService, ScanService, DeployNotificationsService, SecurityPatchService, SecurityPatchRepository],
   exports: [DeployService, EnvService],
 })
 export class DeployModule {}

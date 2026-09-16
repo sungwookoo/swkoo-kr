@@ -54,6 +54,12 @@ export default function PrivacyPage(): import("react").ReactNode {
           <p>분석·광고 추적 쿠키 사용 없음.</p>
         </Section>
 
+        <Section title="선택 기능: 보안 수정 PR (2026-09-16 추가 안내)">
+          <p>사용자가 별도로 요청한 경우에만 저장소 식별자·기준 commit과 package.json·package-lock.json을 읽어 보안 수정안을 준비합니다. 의존성 이름·버전은 npm 공개 레지스트리에 전송됩니다.</p>
+          <p>수정안은 24시간 후 만료되고 이후 1시간 안에 정리합니다. 계정 삭제 시 저장된 수정안도 삭제합니다. 요청·PR 생성 이력은 감사 로그에 기록합니다. GitHub 인증 토큰과 앱 환경변수는 수정 작업에 전달하지 않습니다.</p>
+          <p>PR 생성은 별도의 동의를 받습니다. GitHub에 생성된 브랜치와 PR은 서비스의 수정안 만료나 계정 삭제로 제거하지 않으며, 사용자가 GitHub에서 관리합니다.</p>
+        </Section>
+
         <Section title="2. 수집·이용 목적">
           <ul className="list-disc space-y-1 pl-5">
             <li>GitHub 계정 기반 인증·세션 유지</li>

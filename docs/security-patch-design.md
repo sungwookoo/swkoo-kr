@@ -1,0 +1,66 @@
+# 선택형 보안 수정 PR — 정책 npm-lockfile-v1
+
+## 책임과 변경 범위
+
+사용자 앱 소스의 보안 수정은 사용자 선택 기능이다. 스캔·배포 등록·운영 점검을 의존성 업데이트나 병합 동의로 간주하지 않는다. 운영자나 에이전트가 GitHub App 권한을 이용하여 사용자 대신 수정·병합하지 않는다. 별도 위임을 받더라도 변경 대상과 병합 권한을 구분해 기록한다.
+
+| 동작 | 변경 |
+|---|---|
+| 정기 이미지 스캔 | 조회·결과 저장만. 수정 PR을 자동 생성하지 않음 |
+| 사용자의 수정안 준비 요청 | 기본 브랜치의 정확한 SHA에서 package.json·lockfile을 읽어 격리 작업 실행. GitHub 쓰기 없음 |
+| 사용자의 PR 생성 요청 | 검토한 lockfile 하나를 새로운 swkoo/security-<UUID> 브랜치에 기록하고 초안 PR 생성 |
+| 병합·배포 | 사용자 결정. 서비스는 merge API·auto-merge를 사용하지 않음. 기존 workflow에 따라 병합 후 배포 가능 |
+
+기존 배포 등록 기능의 Dockerfile/build.yml 생성은 별도 기능이다. 이 변경은 그 흐름을 PR 방식으로 전환하지 않는다. 보안 수정 요청은 Dockerfile·workflow·package.json·앱 코드·DB 스키마·환경변수를 변경하지 않는다.
+
+## 지원 범위와 검증 한계
+
+- 공개 npm 레지스트리, 단일 루트 프로젝트, npm lockfile v2/v3, 안정 버전·무결성 정보가 있는 일반 의존성만 지원한다.
+- workspace, override, git/file 의존성, 외부·비공개 레지스트리, prerelease는 거부한다. 입력 합계 800KB, 압축 입력 90KB까지다.
+- npm 11.19.1의 `audit fix --package-lock-only --ignore-scripts`를 사용한다. `--force`를 사용하지 않는다. package.json 변경이 있으면 중단한다.
+- 결과를 서버에서 다시 검사한다. 메이저 버전 변경, 0.x minor 변경, 다운그레이드를 차단하며 npm audit 총 취약점 수 감소가 있어야 한다. 변경 패키지는 최대 100개다.
+- 앱 소스·.npmrc·설치 스크립트를 실행하지 않는다. 앱 테스트·프로덕션 빌드·DB 연결은 검증하지 못하므로 **항상 초안 PR**이다. 사용자가 GitHub CI 또는 별도 환경에서 검증한다.
+- npm audit과 운영 이미지의 Trivy는 대상·집계가 다르다. npm 결과 감소를 전체 이미지 취약점 해결로 표시하지 않는다. OS 취약점과 범위 밖 업데이트는 수동 검토 대상으로 남는다.
+- 문서: [npm audit](https://docs.npmjs.com/cli/v11/commands/npm-audit/), [ignore-scripts](https://docs.npmjs.com/cli/v11/using-npm/config/#ignore-scripts).
+
+## 사용자 흐름 및 API
+
+1. 배포 관리 화면에서 전송 정보와 지원 범위를 읽고 체크 → `POST /deploy/security-patch/prepare`.
+2. `GET /deploy/security-patch?repo=owner/name`으로 진행 상태·변경 목록·취약점 전후 수 확인. 조회는 PR을 생성하지 않는다.
+3. 미검증 사항과 병합 후 배포 가능성을 확인하고 별도 체크 → `POST /deploy/security-patch/pr`.
+4. GitHub에서 초안 해제·테스트·검토·병합. 서비스는 자동 병합하지 않는다.
+
+두 POST 모두 정책 문자열 `npm-lockfile-v1`이 필요하다. 프런트엔드만의 제약이 아니라 서버에서도 검증한다. GET을 포함한 모든 API는 로그인·allowlist·본인 소유·현재 활성 배포 저장소를 검사한다. 기존 Origin 기반 CSRF 방어와 전역 요청 제한이 적용된다.
+
+상태: preparing → ready 또는 blocked/failed → creating → pr. preparing은 클러스터 Job으로 계속 실행되며 서버 재시작 후에도 조회 가능하다. creating은 동일 브랜치·PR을 조회하여 재시도한다. 사용자 또는 다른 작업이 제안 브랜치를 변경하면 덮어쓰지 않는다.
+
+## 변경 승인과 중복 방지
+
+- 사용자에게 repo·기준 브랜치·SHA·변경 패키지·검증 한계를 표시한다.
+- PR 생성 직전 기본 브랜치 이름과 SHA를 다시 확인한다. 달라지면 blocked로 바꾸고 재분석을 요구한다.
+- 기존 원본 ref를 PATCH하지 않는다. 검토한 SHA를 부모로 한 Git 객체와 새로운 ref만 만든다.
+- 기존 수정안에 대한 재요청은 같은 상태/PR을 반환한다. 해당 저장소의 열린 swkoo/security-* PR이 있으면 새 분석을 막는다.
+- 동일 사용자 동시 요청을 직렬화한다. 서버는 현재 단일 replica 전제이며 다중 replica 도입 전 분산 요청 잠금이 필요하다.
+
+## 권한·격리·보관
+
+- 준비용 GitHub 토큰: 해당 저장소의 contents/read·pull_requests/read.
+- PR용 토큰: 해당 저장소의 contents/write·pull_requests/write. workflow·administration 권한을 요청하지 않는다.
+- 토큰은 서버 메모리에서만 사용하며 작업 Pod에 전달하지 않는다.
+- Pod: 비루트 UID 1000, 읽기 전용 root filesystem, 모든 capability 제거, 서비스계정 토큰 없음, 임시 볼륨만 사용.
+- 네트워크: DNS 및 공개 HTTPS만. 클러스터 내부·사설 IP·메타데이터 주소 차단. 입력의 resolved URL도 공개 npm 호스트로 제한한다.
+- 요청 100m/256Mi, 상한 500m/512Mi, 임시 저장공간 1Gi, 최대 실행 360초. 준비 작업 최대 2개이며 유료 외부 서비스나 영구 볼륨을 추가하지 않는다.
+- 수정안은 기존 SQLite에 사용자당 하나 저장. 24시간 만료, 다음 시간별 정리 시 삭제. 완료 Job은 조회 후 삭제, 미조회 Job은 완료 후 1시간 TTL로 정리한다.
+- 계정 삭제 시 수정안 삭제, 데이터 내보내기에 수정안 포함. 요청·결과·PR 생성의 정책 버전·SHA·행위자를 감사 로그로 기록한다.
+- 외부 GitHub PR·브랜치는 자동 삭제하지 않는다. 닫힌 PR 재생성·기존 브랜치 덮어쓰기를 자동 수행하지 않는다.
+
+## 검증 기준
+
+- 무동의·다른 소유자·allowlist 해제·비활성 배포·만료·기준 SHA 변경 요청 거부.
+- 생성 경로가 lockfile 하나·새 브랜치·초안 PR에만 접근하고 원본 ref 수정·merge를 호출하지 않는지 테스트.
+- 실제 격리 Job에서 취약한 테스트 fixture를 수정해 audit 감소, 설치 스크립트 미실행 및 작업 정리 확인.
+- 사용자의 실제 저장소에 PR을 만들어 시험하지 않는다. GitHub 쓰기는 모의 API로 검증하고 운영 API는 비인증 차단 및 화면 노출을 확인한다.
+
+## 후속 확장 조건
+
+package.json 범위 변경, 메이저 업그레이드, OS/Dockerfile 패치는 각각 변경 영향·추가 동의·격리된 앱 빌드 검증을 설계한 뒤 별도 정책 버전으로 추가한다. 자동 병합은 이번 기능의 범위가 아니다.

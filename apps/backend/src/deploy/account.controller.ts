@@ -93,6 +93,7 @@ export class AccountController {
       latestScan,
       auditLog,
       deployNotifications: this.users.listDeployNotifications(user.id),
+      securityPatch: this.users.exportSecurityPatch(user.id),
     };
   }
 
