@@ -4,11 +4,13 @@
 
 ## 의존성 취약점 정리 (2026-09-16)
 
-- 백엔드·프런트엔드 전체 의존성 `npm audit` 0건 확인. 운영 이미지 OS 취약점 또는 사용자 앱 저장소까지 해결했다는 의미는 아니다.
+- 백엔드·프런트엔드 전체 의존성 `npm audit` 0건 및 GitHub Dependabot 열린 경고 0건 확인. 운영 이미지 OS 취약점 또는 사용자 앱 저장소까지 해결했다는 의미는 아니다.
 - Next.js 16.3.5, sharp 0.35.4, Mermaid 11.17.2, DOMPurify 3.4.15, Axios 1.20.0, js-yaml 4.3.2 등 수정 버전으로 갱신했다.
 - NestJS 11 계열을 유지하며 Multer 2.3.0 override를 적용했다. 상위 플랫폼 패키지가 수정 버전을 채택하면 override 제거를 검토한다. [Multer 보안 공지](https://github.com/advisories/GHSA-wc9g-mqfw-jrwm).
 - Next.js 갱신 후 TypeScript 6에서 더 이상 허용되지 않는 ES5 target과 baseUrl을 ES2017 및 상대 paths로 수정했다.
 - 백엔드 244개·프런트엔드 90개·Playwright 14개 테스트, 양쪽 프로덕션 빌드 통과. 프런트엔드 npm ci 설치 재현 확인.
+
+- [CI 35051607683](https://github.com/sungwookoo/swkoo-kr/actions/runs/35051607683) 성공. 양쪽 운영 이미지 `a36953036b75257dbfd9f8f98595d9e5845bfb5c` rollout 완료, Argo Synced/Healthy. 홈·About·Deploy·가이드·관리 페이지·health API HTTP 200 확인.
 
 ## 배포 관리 로그인 복구 (2026-09-16)
 
