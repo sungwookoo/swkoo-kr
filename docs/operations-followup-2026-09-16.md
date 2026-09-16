@@ -23,7 +23,7 @@ SprintFlow는 Next.js 16.3.5, Prisma 6 유지, deepmerge-ts 8 override, npm 11.1
 
 플랫폼 이미지 `35cd5bdcc73936aaf3a8c0a627184ac60124d634` 두 개를 실제 제한된 Kubernetes 스캔 작업으로 검사해 모든 등급 0건을 확인했다. 기존 OCIR 인증으로 비공개 이미지 조회가 성공했고, 스캐너 자원 상한 500m/512Mi 안에서 작업이 완료됐다. 한 차례 레지스트리 연결 실패는 결과에서 제외하고 재시도 성공을 확인했다.
 
-백엔드 c645d7e의 실제 ScanService 실행으로 비공개 OCIR 이미지 스캔 결과 0건과 Job 정리를 확인했다. 운영 이미지 조회에 필요했던 RBAC를 swkoo-backend·swkoo-frontend 두 Deployment의 get에만 한정해 추가했다. 전체 목록 및 다른 Deployment 조회는 거부되는 것을 확인했다. 한 차례 스캔 실패 후 재실행은 성공했으므로 레지스트리 연결 실패 가능성은 남아 있다.
+백엔드 c645d7e의 실제 ScanService 실행으로 비공개 OCIR 이미지 스캔 결과 0건과 Job 정리를 확인했다. 운영 이미지 조회에 필요했던 RBAC를 swkoo-backend·swkoo-frontend 두 Deployment의 get에만 한정해 추가했다. 전체 목록 및 다른 Deployment 조회는 거부되는 것을 확인했다. 후속 검증에서 OCI 기본 FORWARD REJECT가 Flannel 허용보다 앞서 Pod 외부 통신을 차단하는 것을 확인했다. 기본 FORWARD DROP과 kube-router 정책을 유지하면서 중간 REJECT를 제거하고 /etc/iptables/rules.v4에도 반영했다. iptables-restore --test 통과 후 최종 이미지 959b9f25356cf918894a3fe36754bcac7447fbe1 두 개의 실제 스캔·결과 읽기·Job 정리가 성공했고 Critical/High/Medium 모두 0건이었다.
 
 ## 로그인
 
