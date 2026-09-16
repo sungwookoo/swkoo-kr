@@ -23,6 +23,8 @@ SprintFlow는 Next.js 16.3.5, Prisma 6 유지, deepmerge-ts 8 override, npm 11.1
 
 플랫폼 이미지 `35cd5bdcc73936aaf3a8c0a627184ac60124d634` 두 개를 실제 제한된 Kubernetes 스캔 작업으로 검사해 모든 등급 0건을 확인했다. 기존 OCIR 인증으로 비공개 이미지 조회가 성공했고, 스캐너 자원 상한 500m/512Mi 안에서 작업이 완료됐다. 한 차례 레지스트리 연결 실패는 결과에서 제외하고 재시도 성공을 확인했다.
 
+백엔드 c645d7e의 실제 ScanService 실행으로 비공개 OCIR 이미지 스캔 결과 0건과 Job 정리를 확인했다. 운영 이미지 조회에 필요했던 RBAC를 swkoo-backend·swkoo-frontend 두 Deployment의 get에만 한정해 추가했다. 전체 목록 및 다른 Deployment 조회는 거부되는 것을 확인했다. 후속 검증에서 OCI 기본 FORWARD REJECT가 Flannel 허용보다 앞서 Pod 외부 통신을 차단하는 것을 확인했다. 기본 FORWARD DROP과 kube-router 정책을 유지하면서 중간 REJECT를 제거하고 /etc/iptables/rules.v4에도 반영했다. iptables-restore --test 통과 후 최종 이미지 959b9f25356cf918894a3fe36754bcac7447fbe1 두 개의 실제 스캔·결과 읽기·Job 정리가 성공했고 Critical/High/Medium 모두 0건이었다.
+
 ## 로그인
 
 사용자 확인: 피드백 당사자는 비로그인 상태였으며 로그인 후 정상 동작했다. 세션 소실 장애로 판정하지 않는다. 기존 401 로그인 안내·원래 관리 화면 복귀 수정으로 해결됐다.
@@ -44,6 +46,8 @@ PR #28에서 의도적으로 실패시킨 backend 검사로 실제 merge 거부�
 이미지 태그 갱신도 자동 PR로 전환했다. GITHUB_TOKEN의 PR workflow 실행 제약을 피하기 위해 검증 workflow를 명시적으로 dispatch하고, 성공 후 일반 merge를 요청한다. PR merge commit 검사가 필요하므로 매니페스트 전용 PR에도 pull_request 검사를 실행한다. 자동화는 자신이 생성한 브랜치와 동일한 SHA의 두 검증 workflow에 한해서 실행 대기 승인을 요청한다. 관리자 우회는 사용하지 않는다. update-manifests 작업에 한해 contents/pull-requests/actions 쓰기 권한이 필요하다.
 
 자동 배포 PR #29의 필수 검사 성공 및 자동 병합을 확인했다. 첫 실행에서는 GitHub 봇 PR 실행 승인을 운영자가 수행했으며, dispatch 검사만으로 병합 정책이 충족되지 않는 것을 확인해 PR merge commit 검사도 유지했다.
+
+PR #31도 필수 검사 성공 후 자동 병합됐다. CI 35063092268 성공 및 PR #32 자동 병합으로 운영자 개입 없는 전체 배포 PR 흐름을 재검증했다.
 
 ## Terraform
 
