@@ -39,7 +39,7 @@ SprintFlow는 Next.js 16.3.5, Prisma 6 유지, deepmerge-ts 8 override, npm 11.1
 
 PR #28에서 의도적으로 실패시킨 backend 검사로 실제 merge 거부를 확인했고, 실패 코드를 제거한 뒤 모든 검사가 성공하자 정상 병합했다.
 
-이미지 태그 갱신도 자동 PR로 전환했다. GITHUB_TOKEN의 PR workflow 실행 제약을 피하기 위해 검증 workflow를 명시적으로 dispatch하고, 성공 후 일반 merge를 요청한다. 관리자 우회는 사용하지 않는다. update-manifests 작업에 한해 contents/pull-requests/actions 쓰기 권한이 필요하다.
+이미지 태그 갱신도 자동 PR로 전환했다. GITHUB_TOKEN의 PR workflow 실행 제약을 피하기 위해 검증 workflow를 명시적으로 dispatch하고, 성공 후 일반 merge를 요청한다. 배포 매니페스트만 변경한 PR은 pull_request 자동 실행에서 제외하고 같은 검사를 workflow_dispatch로 실행한다. 수동으로 만든 매니페스트 전용 PR도 두 workflow를 해당 브랜치에서 실행해야 한다. 관리자 우회는 사용하지 않는다. update-manifests 작업에 한해 contents/pull-requests/actions 쓰기 권한이 필요하다.
 
 ## Terraform
 
