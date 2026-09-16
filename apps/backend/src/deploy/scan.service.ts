@@ -8,8 +8,8 @@ import { KubeClient } from '../kube/kube.client';
 import { UsersRepository, ScanResultRow } from '../onboarding/users.repository';
 import { DeployService } from './deploy.service';
 
-const TRIVY_IMAGE = 'aquasec/trivy:0.50.0';
-const TRIVY_VERSION = '0.50.0';
+const TRIVY_IMAGE = 'aquasec/trivy:0.74.0';
+const TRIVY_VERSION = '0.74.0';
 const BACKEND_NS = 'swkoo';
 const SCAN_TIMEOUT_MS = 5 * 60_000;
 const POLL_INTERVAL_MS = 5_000;
