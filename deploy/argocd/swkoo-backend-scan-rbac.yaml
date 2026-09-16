@@ -11,6 +11,10 @@ metadata:
   name: swkoo-backend-scan-jobs
   namespace: swkoo
 rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    resourceNames: ["swkoo-backend", "swkoo-frontend"]
+    verbs: ["get"]
   - apiGroups: ["batch"]
     resources: ["jobs"]
     verbs: ["get", "list", "create", "delete"]
