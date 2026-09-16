@@ -8,8 +8,6 @@ name: Frontend Smoke (Playwright)
 on:
   pull_request:
     branches: [main]
-    # Image-only PRs receive the same checks via explicit workflow_dispatch.
-    paths-ignore: ['deploy/base/**']
   workflow_dispatch:
   schedule:
     # Daily at 02:00 KST = 17:00 UTC. Low-traffic window for OCI; if

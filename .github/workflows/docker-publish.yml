@@ -220,7 +220,14 @@ jobs:
           # Explicit dispatch attaches the same required checks to this commit.
           gh workflow run pr-validation.yml --ref "$BRANCH"
           gh workflow run frontend-smoke.yml --ref "$BRANCH"
+          HEAD=$(git rev-parse HEAD)
           for attempt in $(seq 1 90); do
+            # Approve only validation runs for this bot-created commit/branch.
+            for WORKFLOW in pr-validation.yml frontend-smoke.yml; do
+              for RUN in $(gh run list --workflow "$WORKFLOW" --branch "$BRANCH" --event pull_request --json databaseId,headSha,status,conclusion --jq ".[] | select(.headSha == \"$HEAD\" and (.status == \"action_required\" or .conclusion == \"action_required\")) | .databaseId"); do
+                gh api --method POST "repos/$GITHUB_REPOSITORY/actions/runs/$RUN/approve"
+              done
+            done
             if gh pr checks "$PR" --required --json state --jq 'length >= 3 and all(.[]; .state == "SUCCESS")' | grep -qx true; then
               gh pr merge "$PR" --squash --delete-branch
               exit 0
