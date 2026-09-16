@@ -2,6 +2,14 @@
 
 기준일: 2026-09-15. 코드 기준선과 아래 운영 검증 기록을 구분한다. Observatory의 정체성은 [VISION](../VISION.md), Deploy의 정체성은 [deploy-vision](./deploy-vision.md)을 따른다.
 
+## 의존성 취약점 정리 (2026-09-16)
+
+- 백엔드·프런트엔드 전체 의존성 `npm audit` 0건 확인. 운영 이미지 OS 취약점 또는 사용자 앱 저장소까지 해결했다는 의미는 아니다.
+- Next.js 16.3.5, sharp 0.35.4, Mermaid 11.17.2, DOMPurify 3.4.15, Axios 1.20.0, js-yaml 4.3.2 등 수정 버전으로 갱신했다.
+- NestJS 11 계열을 유지하며 Multer 2.3.0 override를 적용했다. 상위 플랫폼 패키지가 수정 버전을 채택하면 override 제거를 검토한다. [Multer 보안 공지](https://github.com/advisories/GHSA-wc9g-mqfw-jrwm).
+- Next.js 갱신 후 TypeScript 6에서 더 이상 허용되지 않는 ES5 target과 baseUrl을 ES2017 및 상대 paths로 수정했다.
+- 백엔드 244개·프런트엔드 90개·Playwright 14개 테스트, 양쪽 프로덕션 빌드 통과. 프런트엔드 npm ci 설치 재현 확인.
+
 ## 배포 관리 로그인 복구 (2026-09-16)
 
 - 비로그인·세션 만료 시 숫자 401 대신 로그인 안내와 GitHub 로그인 버튼을 표시한다. 인증 실패 후 이전 상태의 환경변수·관리 패널을 숨긴다.
