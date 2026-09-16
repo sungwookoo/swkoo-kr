@@ -21,6 +21,8 @@ SprintFlow는 Next.js 16.3.5, Prisma 6 유지, deepmerge-ts 8 override, npm 11.1
 
 스캔 결과를 읽기 전에 Job을 삭제하던 순서를 바로잡았다. OCIR 검사에만 기존 ocir-credentials를 읽기 전용으로 연결하며, 사용자 GHCR 검사에는 연결하지 않는다. 스캐너의 서비스계정 토큰 자동 마운트를 끄고 메모리 제한을 유지한다.
 
+플랫폼 이미지 `35cd5bdcc73936aaf3a8c0a627184ac60124d634` 두 개를 실제 제한된 Kubernetes 스캔 작업으로 검사해 모든 등급 0건을 확인했다. 기존 OCIR 인증으로 비공개 이미지 조회가 성공했고, 스캐너 자원 상한 500m/512Mi 안에서 작업이 완료됐다. 한 차례 레지스트리 연결 실패는 결과에서 제외하고 재시도 성공을 확인했다.
+
 ## 로그인
 
 사용자 확인: 피드백 당사자는 비로그인 상태였으며 로그인 후 정상 동작했다. 세션 소실 장애로 판정하지 않는다. 기존 401 로그인 안내·원래 관리 화면 복귀 수정으로 해결됐다.
@@ -40,6 +42,8 @@ SprintFlow는 Next.js 16.3.5, Prisma 6 유지, deepmerge-ts 8 override, npm 11.1
 PR #28에서 의도적으로 실패시킨 backend 검사로 실제 merge 거부를 확인했고, 실패 코드를 제거한 뒤 모든 검사가 성공하자 정상 병합했다.
 
 이미지 태그 갱신도 자동 PR로 전환했다. GITHUB_TOKEN의 PR workflow 실행 제약을 피하기 위해 검증 workflow를 명시적으로 dispatch하고, 성공 후 일반 merge를 요청한다. 배포 매니페스트만 변경한 PR은 pull_request 자동 실행에서 제외하고 같은 검사를 workflow_dispatch로 실행한다. 수동으로 만든 매니페스트 전용 PR도 두 workflow를 해당 브랜치에서 실행해야 한다. 관리자 우회는 사용하지 않는다. update-manifests 작업에 한해 contents/pull-requests/actions 쓰기 권한이 필요하다.
+
+자동 배포 PR #29의 필수 검사 성공 및 자동 병합을 확인했다. 첫 실행에서는 GitHub 봇 PR 실행 승인을 운영자가 수행했으며, 매니페스트 전용 PR의 중복 실행을 제외하는 후속 수정으로 정리했다.
 
 ## Terraform
 
