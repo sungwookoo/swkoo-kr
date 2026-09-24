@@ -1,4 +1,5 @@
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
 // Stub Next's <Link> — the "지원 스택" link uses it. In tests we don't
@@ -20,6 +21,8 @@ vi.mock('@/lib/deploy', async (importOriginal) => {
   return {
     ...orig,
     checkSubdomain: vi.fn(async () => ({ available: true })),
+    useSourceSetup: () => ({ data: { repo: 'alice/sample', branch: 'main', sha: 'base-sha', digest: 'reviewed',
+      files: [{ path: 'Dockerfile', action: 'create', before: null, after: 'FROM node' }] }, mutate: vi.fn(), isLoading: false }),
     registerDeploy: vi.fn(async () => ({
       ok: true as const,
       fullName: 'alice/sample',
@@ -127,7 +130,7 @@ describe('PreviewResult — checks list rendering', () => {
     expect(screen.getByText(/Settings → Branches/)).toBeInTheDocument();
   });
 
-  it('all-pass enables the Deploy button (no gate copy)', () => {
+  it('all-pass requires source consent before enabling Deploy', async () => {
     const preview: StackPreview = {
       stack: 'nextjs',
       packageName: 'sample',
@@ -137,6 +140,8 @@ describe('PreviewResult — checks list rendering', () => {
     };
     render(<PreviewResult fullName="alice/sample" preview={preview} />);
 
+    expect(screen.getByRole('button', { name: /Deploy/ })).toBeDisabled();
+    await userEvent.click(screen.getByRole('checkbox', { name: /파일 생성·유지/ }));
     expect(screen.getByRole('button', { name: /Deploy/ })).not.toBeDisabled();
     expect(
       screen.queryByText(/위 점검에서 ✕ 항목이 있어 배포를 시작할 수 없습니다/)
@@ -256,7 +261,7 @@ describe('PreviewResult — Prisma SQLite storage profile', () => {
     expect(screen.queryByText(/영속 저장소/)).not.toBeInTheDocument();
   });
 
-  it('Deploy button stays enabled when prisma_sqlite check is pass + no other fail', () => {
+  it('Prisma preview also requires source consent before enabling Deploy', async () => {
     const preview: StackPreview = {
       stack: 'nextjs',
       packageName: 'sample',
@@ -272,6 +277,8 @@ describe('PreviewResult — Prisma SQLite storage profile', () => {
       },
     };
     render(<PreviewResult fullName="alice/sample" preview={preview} />);
+    expect(screen.getByRole('button', { name: /Deploy/ })).toBeDisabled();
+    await userEvent.click(screen.getByRole('checkbox', { name: /파일 생성·유지/ }));
     expect(screen.getByRole('button', { name: /Deploy/ })).not.toBeDisabled();
   });
 });

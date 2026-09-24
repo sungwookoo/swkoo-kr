@@ -50,6 +50,11 @@ export async function installCatchAll(page: Page): Promise<void> {
     await json(route, 599, { message: `unmocked: ${url}` });
   });
   await page.route('**/api/deploy/security-patch?*', route => json(route, 200, null));
+  await page.route('**/api/deploy/setup?*', route => json(route, 200, {
+    repo: new URL(route.request().url()).searchParams.get('repo'), branch: 'main', sha: 'base-sha', digest: 'reviewed-digest',
+    files: [{ path: 'Dockerfile', action: 'create', before: null, after: 'FROM node:24-alpine' },
+      { path: '.github/workflows/build.yml', action: 'keep', before: 'name: Build', after: 'name: Build' }],
+  }));
 }
 
 /** Stable mocks every authenticated-user scenario needs. Call BEFORE

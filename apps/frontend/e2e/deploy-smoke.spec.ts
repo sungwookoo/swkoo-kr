@@ -250,6 +250,7 @@ test('scenario 5: deploy register error with installUrl shows both recovery link
   await page.goto('/deploy');
   await page.getByRole('button', { name: /sample/ }).first().click();
   // Click Deploy to trigger the failed /register.
+  await page.getByRole('checkbox', { name: /파일 생성·유지/ }).check();
   await page.getByRole('button', { name: /Deploy/ }).click();
 
   // Both recovery anchors visible after the error.

@@ -99,7 +99,7 @@
 | 1.6 | 친구 1명 실제 등록 + 검증 | ✅ | 2026-05-14, 외부 친구 2명 + 본인 부계정으로 Next.js 싱글페이지 배포 성공 (`<login>-<repo>.apps.swkoo.kr` 라이브) |
 | 2.1 | GitHub App OAuth 셀프 등록 (Sign in with GitHub) | ✅ | `/deploy` 진입 → GitHub OAuth → JWT 쿠키 세션 |
 | 2.2 | repo 목록 + 스택 자동 감지 | ✅ | `package.json` → Next.js 식별, 포트·이미지 경로·서브도메인 자동 결정 |
-| 2.3 | 사용자 repo 자동 commit (Dockerfile + GHA workflow) | ✅ | `github-app.service.ts` atomic blobs/trees/commits/refs |
+| 2.3 | 사용자 repo 배포 설정 (Dockerfile + GHA workflow) | ✅ | 동의 후 누락 파일만 atomic commit, 동일 파일 유지, 기존 파일 변경은 요청형 초안 PR. [정책](./source-setup-design.md) |
 | 2.4 | 매니페스트 자동 commit (`deploy/users/<login>/`) | ✅ | namespace + quota + limit-range + netpol + kustomization + metadata + deployment/service/ingress |
 | 2.5 | 진행도 페이지 (5-stage checklist) | ✅ | `/deploy/[login]/[repo]` |
 | 2.6 | unregister 플로우 (배너 + 상세 페이지 카드) | ✅ | `DELETE /deploy` → 매니페스트 제거, ArgoCD prune, banner는 metadata.yaml/Application 상태 둘 다 추적 |

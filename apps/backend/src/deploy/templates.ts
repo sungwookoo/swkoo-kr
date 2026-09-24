@@ -77,7 +77,7 @@ export function sanitizeName(input: string, maxLength = 53): string {
     .slice(0, maxLength);
 }
 
-export function renderUserRepoFiles(params: RenderParams): Record<string, string> {
+export function renderUserRepoFiles(params: Pick<RenderParams, 'port' | 'imageRepo'>): Record<string, string> {
   return {
     Dockerfile: renderDockerfile(params),
     '.github/workflows/build.yml': renderBuildWorkflow(params),
@@ -207,7 +207,7 @@ export function parseStorageProfileBlock(
   };
 }
 
-function renderDockerfile(params: RenderParams): string {
+function renderDockerfile(params: Pick<RenderParams, 'port'>): string {
   // The template is intentionally Prisma-aware AT THE FILE LEVEL —
   // it adapts at docker build time based on `prisma/schema.prisma`
   // presence, so a single Dockerfile works for both stateless and
@@ -262,7 +262,7 @@ CMD ["npx", "next", "start", "-p", "${params.port}"]
 `;
 }
 
-function renderBuildWorkflow(params: RenderParams): string {
+function renderBuildWorkflow(params: Pick<RenderParams, 'imageRepo'>): string {
   // Tag with params.imageRepo (already lowercased — DeployService builds
   // it as `ghcr.io/${loginLc}/${repo.toLowerCase()}`) instead of
   // `ghcr.io/${{ github.repository }}`. Docker/GHCR repository names are

@@ -17,6 +17,8 @@ import {
   useCurrent,
   useRepos,
   usePreview,
+  useSourceSetup,
+  createSetupPr,
 } from '@/lib/deploy';
 
 const GITHUB_ICON_PATH =
@@ -759,7 +761,7 @@ function CheckIcon({ status }: { status: 'pass' | 'warn' | 'fail' }): import("re
 type DeployState =
   | { kind: 'idle' }
   | { kind: 'pending' }
-  | { kind: 'error'; message: string; reason?: string; installUrl?: string };
+  | { kind: 'error'; message: string; reason?: string; installUrl?: string; completed?: string[]; sourceUrl?: string };
 
 function deriveDefaultSlug(fullName: string): string {
   const [owner, repo] = fullName.split('/');
@@ -786,6 +788,12 @@ function DeployTrigger({
   const [slug, setSlug] = useState('');
   const [slugCheck, setSlugCheck] = useState<SubdomainCheckResult | null>(null);
   const [checking, setChecking] = useState(false);
+  const { data: setup, error: setupError, isLoading: setupLoading, mutate: refreshSetup } = useSourceSetup(blocked ? null : fullName);
+  const [setupConsent, setSetupConsent] = useState(false);
+  const [prUrl, setPrUrl] = useState('');
+  const [registered, setRegistered] = useState<{ commit: string; owner: string; repo: string } | null>(null);
+  const needsReview = setup?.files.some(file => file.action === 'review');
+  useEffect(() => { setSetupConsent(false); setPrUrl(''); setRegistered(null); setState({ kind: 'idle' }); }, [fullName, setup?.digest]);
 
   const defaultSlug = deriveDefaultSlug(fullName);
 
@@ -807,27 +815,62 @@ function DeployTrigger({
   };
 
   const handleDeploy = async (): Promise<void> => {
+    if (!setup || !setupConsent) return;
     setState({ kind: 'pending' });
     try {
-      const result = await registerDeploy(fullName, slug.trim() || undefined);
-      const [owner, repo] = result.fullName.split('/');
-      router.push(`/deploy/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`);
+      if (needsReview) {
+        const result = await createSetupPr(fullName, setup.digest);
+        setPrUrl(result.prUrl);
+      } else {
+        const result = await registerDeploy(fullName, slug.trim() || undefined, setup.digest);
+        const [owner, repo] = result.fullName.split('/');
+        setRegistered({ commit: result.userRepoCommit, owner, repo });
+      }
+      setState({ kind: 'idle' }); setSetupConsent(false);
     } catch (err) {
-      const e = err as Error & { reason?: string; installUrl?: string };
+      const e = err as Error & { reason?: string; installUrl?: string; completed?: string[]; sourceUrl?: string };
       setState({
         kind: 'error',
         message: e.message,
         reason: e.reason,
         installUrl: e.installUrl,
+        completed: e.completed, sourceUrl: e.sourceUrl,
       });
     }
   };
 
   const slugUnusable = slugCheck && !slugCheck.available;
-  const canDeploy = state.kind !== 'pending' && !checking && !slugUnusable && !blocked;
+  const canDeploy = state.kind !== 'pending' && !checking && !slugUnusable && !blocked && !!setup && !setupError && !setupLoading && setupConsent && !registered;
 
   return (
     <div className="space-y-3 border-t border-slate-800 pt-4">
+      {!blocked && <section aria-label="저장소 변경 확인" className="space-y-3 rounded border border-slate-800 p-3 text-sm text-slate-300">
+        <h3 className="font-semibold">배포 전 저장소 변경 확인</h3>
+        {setupLoading && <p>파일과 대상 브랜치 확인 중…</p>}
+        {setupError && <div><p role="alert">{setupError.message}</p><a href={installUrl()} className="text-emerald-300 underline">GitHub App 설치·저장소 접근 확인</a></div>}
+        {setup && <>
+          <p>{setup.repo} · 대상 브랜치: {setup.branch} · 기준: {setup.sha.slice(0, 7)}</p>
+          {setup.files.map(file => <details key={file.path} className="rounded border border-slate-800 p-2">
+            <summary className="cursor-pointer break-all">{file.path}: {file.action === 'create' ? '새 파일 생성' : file.action === 'keep' ? '기존 파일 유지' : '차이 있음 — PR 검토 필요'}</summary>
+            <div className="mt-2 space-y-2">
+              {file.before !== null && <><p>현재 내용</p><pre className="max-h-60 overflow-auto whitespace-pre-wrap break-all text-xs">{file.before}</pre></>}
+              {file.action !== 'keep' && <><p>제안 내용</p><pre className="max-h-60 overflow-auto whitespace-pre-wrap break-all text-xs">{file.after}</pre></>}
+            </div>
+          </details>)}
+          <p className="text-xs text-slate-400">{needsReview
+            ? '기존 파일이 서비스 템플릿과 다릅니다. 잘못된 설정이라는 판정은 아닙니다. 변경이 적절한지 검토할 초안 PR만 생성하며 자동 병합하지 않습니다. 병합 후 다시 조회하고 배포를 계속하세요. 이미 배포 중인 앱은 병합 시 기존 자동 배포가 실행될 수 있습니다.'
+            : '없는 파일만 대상 브랜치에 직접 생성하고 기존 파일은 유지합니다. 파일 생성은 GitHub Actions 빌드를 실행할 수 있습니다.'}</p>
+          <label className="flex items-start gap-2"><input type="checkbox" checked={setupConsent} disabled={state.kind === 'pending' || !!registered} onChange={e => setSetupConsent(e.target.checked)} />
+            <span>{needsReview ? '위 변경 제안으로 별도 브랜치와 초안 PR을 요청합니다.' : '위 파일 생성·유지 내용을 확인했고 배포 등록에 동의합니다.'}</span>
+          </label>
+        </>}
+        <button type="button" className="text-emerald-300 underline" disabled={state.kind === 'pending'} onClick={() => { setSetupConsent(false); setRegistered(null); void refreshSetup(); }}>파일 상태 다시 조회</button>
+        {prUrl && <p><a href={prUrl} target="_blank" rel="noreferrer" className="text-emerald-300 underline">GitHub에서 설정 PR 검토</a> · 신규 배포 등록은 아직 시작하지 않았습니다.</p>}
+        {registered && <div className="space-y-2"><p>소스 파일 확인·배포 매니페스트 저장·배포 등록을 완료했습니다.</p>
+          <a href={`https://github.com/${registered.owner}/${registered.repo}/commit/${registered.commit}`} target="_blank" rel="noreferrer" className="text-emerald-300 underline">소스 커밋 확인</a>
+          <button type="button" className="ml-3 text-emerald-300 underline" onClick={() => router.push(`/deploy/${encodeURIComponent(registered.owner)}/${encodeURIComponent(registered.repo)}`)}>배포 진행상황 보기</button>
+        </div>}
+      </section>}
       <div className="space-y-1.5">
         <label className="text-xs font-medium text-slate-400" htmlFor="slug">
           URL 슬러그 <span className="text-slate-600">(선택)</span>
@@ -868,6 +911,8 @@ function DeployTrigger({
       {state.kind === 'error' && (
         <div className="space-y-2">
           <p className="text-sm text-amber-400">{state.message}</p>
+          {state.completed && <p className="text-xs text-slate-300">완료된 단계: {state.completed.join(' → ')}</p>}
+          {state.sourceUrl && <a href={state.sourceUrl} target="_blank" rel="noreferrer" className="text-emerald-300 underline">소스 저장소 확인</a>}
           {state.installUrl && (
             <>
               <div className="flex flex-wrap items-center gap-2">
@@ -904,7 +949,7 @@ function DeployTrigger({
         disabled={!canDeploy}
         className="inline-flex items-center gap-2 rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-emerald-500 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-400"
       >
-        {state.kind === 'pending' ? '배포 시작 중…' : 'Deploy →'}
+        {state.kind === 'pending' ? '요청 처리 중…' : needsReview ? '설정 변경 초안 PR 요청' : 'Deploy →'}
       </button>
       {blocked && (
         <p className="text-xs text-amber-400">
@@ -912,8 +957,7 @@ function DeployTrigger({
         </p>
       )}
       <p className="text-xs text-slate-500">
-        Dockerfile + GitHub Actions workflow를 본인 repo에 commit하고, swkoo-kr에
-        매니페스트를 추가합니다. 한 사용자당 1개 앱만 등록 가능 (v0).
+        파일 생성·유지 확인 후 배포 매니페스트를 등록합니다. 기존 파일 변경은 별도 PR로 검토합니다. 한 사용자당 1개 앱만 등록 가능합니다.
       </p>
     </div>
   );

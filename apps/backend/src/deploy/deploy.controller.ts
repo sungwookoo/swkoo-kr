@@ -44,6 +44,8 @@ class RegisterDto {
   @IsOptional()
   @IsString()
   subdomain?: string;
+  @IsOptional() @IsString() setupDigest?: string;
+  @IsOptional() @IsString() setupConsent?: string;
 }
 
 @Controller('deploy')
@@ -105,6 +107,16 @@ export class DeployController {
     @Body() body: RegisterDto
   ): Promise<RegisterResponse> {
     return this.service.registerForUser(req.user.githubLogin, body);
+  }
+
+  @Get('setup')
+  sourceSetup(@Req() req: AuthedRequest, @Query('repo') repo: string = '') {
+    return this.service.previewSourceSetup(req.user.githubLogin, repo);
+  }
+
+  @Post('setup/pr')
+  sourceSetupPr(@Req() req: AuthedRequest, @Body() body: RegisterDto) {
+    return this.service.requestSourceSetupPr(req.user.githubLogin, body);
   }
 
   @Get('status/:login/:repo')

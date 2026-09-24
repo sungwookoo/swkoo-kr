@@ -32,6 +32,8 @@ describe('Deployment HTTP authorization boundary', () => {
     await request(app.getHttpServer()).get('/deploy/status/alice/app').expect(401);
     await request(app.getHttpServer()).get('/deploy/status/alice/app').set('Cookie', `${SESSION_COOKIE}=invalid`).expect(401);
     expect(service.getDeploymentStatus).not.toHaveBeenCalled();
+    await request(app.getHttpServer()).get('/deploy/setup?repo=alice/app').expect(401);
+    await request(app.getHttpServer()).post('/deploy/setup/pr').send({ fullName: 'alice/app' }).expect(401);
   });
   it.each(['/deploy/status/bob/app', '/deploy/env/bob/app'])('denies cross-user read: %s', async (path) => {
     await request(app.getHttpServer()).get(path).set('Cookie', `${SESSION_COOKIE}=alice-session`).expect(403);

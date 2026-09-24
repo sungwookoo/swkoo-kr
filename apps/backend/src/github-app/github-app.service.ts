@@ -260,6 +260,7 @@ export class GithubAppService {
     files: Record<string, string>;
     message: string;
     token: string;
+    expectedHeadSha?: string;
     replaceDirPath?: string;
     deletePaths?: string[];
   }): Promise<string> {
@@ -271,6 +272,9 @@ export class GithubAppService {
       { headers }
     );
     const baseCommitSha = refResp.data.object.sha;
+    if (args.expectedHeadSha && args.expectedHeadSha !== baseCommitSha) {
+      throw new Error('SOURCE_CHANGED: 기준 브랜치가 변경되었습니다. 다시 조회하고 동의해 주세요.');
+    }
 
     const baseCommitResp = await axios.get<GitCommitResp>(
       `https://api.github.com/repos/${owner}/${repo}/git/commits/${baseCommitSha}`,
@@ -353,7 +357,7 @@ export class GithubAppService {
 
     await axios.patch(
       `https://api.github.com/repos/${owner}/${repo}/git/refs/heads/${branch}`,
-      { sha: newCommitResp.data.sha },
+      { sha: newCommitResp.data.sha, force: false },
       { headers }
     );
 

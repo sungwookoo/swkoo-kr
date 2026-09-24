@@ -95,6 +95,27 @@ export interface RegisterResponse {
   manifestRepoCommit: string;
 }
 
+export interface SourceSetupPlan {
+  repo: string; branch: string; sha: string; digest: string;
+  files: { path: string; action: 'create' | 'keep' | 'review'; before: string | null; after: string }[];
+}
+export function useSourceSetup(fullName: string | null) {
+  return useSWR<SourceSetupPlan>(fullName ? `${API_BASE_URL}/deploy/setup?repo=${encodeURIComponent(fullName)}` : null,
+    requestSourceSetup, { revalidateOnFocus: false, shouldRetryOnError: false });
+}
+async function requestSourceSetup<T>(url: string, body?: object): Promise<T> {
+  const response = await fetch(url, { credentials: 'include', ...(body ? { method: 'POST',
+    headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : {}) });
+  const data = await response.json().catch(() => null);
+  if (!response.ok || !data) throw new Error(response.status === 401 ? '다시 로그인해 주세요.' :
+    response.status === 403 ? 'GitHub App의 저장소 접근 권한과 배포 권한을 확인해 주세요.' :
+    typeof data?.message === 'string' ? data.message : '배포 설정 요청에 실패했습니다. 다시 조회해 주세요.');
+  return data;
+}
+export async function createSetupPr(fullName: string, setupDigest: string): Promise<{ prUrl: string }> {
+  return requestSourceSetup(`${API_BASE_URL}/deploy/setup/pr`, { fullName, setupDigest, setupConsent: 'source-setup-v1' });
+}
+
 export interface CurrentDeployment {
   login: string;
   repo: string;
@@ -155,6 +176,8 @@ export interface RegisterError {
   reason: string;
   message: string;
   installUrl?: string;
+  completed?: string[];
+  sourceUrl?: string;
 }
 
 export type StageStatus = 'pending' | 'running' | 'success' | 'failed';
@@ -285,10 +308,10 @@ export async function saveEnvVars(
 
 export async function registerDeploy(
   fullName: string,
-  subdomain?: string
+  subdomain?: string,
+  setupDigest?: string
 ): Promise<RegisterResponse> {
-  const body: { fullName: string; subdomain?: string } = { fullName };
-  if (subdomain && subdomain.trim()) body.subdomain = subdomain.trim().toLowerCase();
+  const body = { fullName, subdomain: subdomain?.trim().toLowerCase() || undefined, setupDigest, setupConsent: 'source-setup-v1' };
   const response = await fetch(`${API_BASE_URL}/deploy/register`, {
     method: 'POST',
     credentials: 'include',
@@ -296,20 +319,22 @@ export async function registerDeploy(
     body: JSON.stringify(body),
   });
   if (!response.ok) {
-    let payload: { message?: string | RegisterError } = {};
+    let payload: RegisterError & { message: any } = {} as RegisterError;
     try {
       payload = (await response.json()) as typeof payload;
     } catch {
       // ignore parse error
     }
-    const detail = payload.message;
+    const detail = payload.reason ? payload : payload.message;
     if (detail && typeof detail === 'object' && 'reason' in detail) {
       const err = new Error(detail.message ?? detail.reason) as Error & {
         reason?: string;
         installUrl?: string;
+        completed?: string[]; sourceUrl?: string;
       };
       err.reason = detail.reason;
       err.installUrl = detail.installUrl;
+      err.completed = detail.completed; err.sourceUrl = detail.sourceUrl;
       throw err;
     }
     throw new Error(
