@@ -14,11 +14,11 @@ try {
  fs.mkdirSync('/tmp/work'); process.chdir('/tmp/work');
  fs.writeFileSync('package.json',input.manifest);fs.writeFileSync('package-lock.json',input.lockfile);
  const run=(args)=>{const r=cp.spawnSync('node',['/tmp/tool/node_modules/npm/bin/npm-cli.js',...args,'--json','--ignore-scripts','--registry=https://registry.npmjs.org/','--no-fund'],options);if(r.error||r.signal||![0,1].includes(r.status))throw Error('npm 검사 실패');const data=JSON.parse(r.stdout);if(data.error)throw Error('npm 검사 실패');return data;};
- const before=run(['audit','--package-lock-only']).metadata.vulnerabilities.total;
+ const auditBefore=run(['audit','--package-lock-only']);
  run(['audit','fix','--package-lock-only']);
- const after=run(['audit','--package-lock-only']).metadata.vulnerabilities.total;
+ const auditAfter=run(['audit','--package-lock-only']);
  if(fs.readFileSync('package.json','utf8')!==input.manifest)throw Error('package.json 변경 감지');
- console.log(JSON.stringify({lockfile:fs.readFileSync('package-lock.json','utf8'),before,after}));
+ console.log(JSON.stringify({lockfile:fs.readFileSync('package-lock.json','utf8'),before:auditBefore.metadata.vulnerabilities.total,after:auditAfter.metadata.vulnerabilities.total,auditBefore,auditAfter,checkedAt:Date.now()}));
 } catch(e){console.log(JSON.stringify({error:e.message}));process.exitCode=1;}
 `;
 

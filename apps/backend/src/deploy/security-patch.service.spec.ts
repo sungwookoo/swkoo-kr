@@ -16,6 +16,8 @@ function setup() {
   let plan: PatchPlan | null = { id: 'proposal', userId: 1, repo: 'alice/app', base: 'release', sha: 'base-sha', state: 'ready',
     createdAt: Date.now(), updatedAt: Date.now(), manifest, original: lock('1.0.0'), lockfile: lock('1.0.1'), before: 1, after: 0,
     changes: [{ path: 'node_modules/demo', from: '1.0.0', to: '1.0.1' }] };
+  plan.evidence = { checkedAt: Date.now(), before: { total: 1, findings: [{ id: '123', package: 'demo', title: 'Demo issue',
+    url: 'https://github.com/advisories/GHSA-aaaa-bbbb-cccc', severity: 'high', range: '<1.0.1', versions: ['1.0.0'] }] }, after: { total: 0, findings: [] } };
   const plans = { get: jest.fn(() => plan), save: jest.fn(p => { plan = p; }), prune: jest.fn(), countPreparing: jest.fn(() => 0) };
   const gh = { get: jest.fn(async (url: string) => {
     if (url === '') return { data: { default_branch: 'release' } };
@@ -65,6 +67,8 @@ describe('opt-in security PR boundary', () => {
     expect(s.gh.post).toHaveBeenCalledWith('/git/trees', { base_tree: 'base-tree', tree: [{ path: 'package-lock.json', mode: '100644', type: 'blob', sha: 'new-sha' }] });
     expect(s.gh.post).toHaveBeenCalledWith('/git/refs', { ref: 'refs/heads/swkoo/security-proposal', sha: 'new-sha' });
     expect(s.gh.post).toHaveBeenCalledWith('/pulls', expect.objectContaining({ base: 'release', draft: true }));
+    expect(s.gh.post).toHaveBeenCalledWith('/pulls', expect.objectContaining({ body: expect.stringContaining('npm advisory 123') }));
+    expect(s.gh.post).toHaveBeenCalledWith('/pulls', expect.objectContaining({ body: expect.stringContaining('앱 테스트·프로덕션 빌드·DB 연결은 실행하지 않았습니다') }));
   });
   it('returns the same PR on duplicate submission', async () => {
     const s = setup();
@@ -89,6 +93,33 @@ describe('opt-in security PR boundary', () => {
   it('a status read never publishes a PR or exposes source files', async () => {
     const s = setup(); const result = await s.service.status(user, 'alice/app');
     expect(result).not.toHaveProperty('manifest'); expect(result).not.toHaveProperty('lockfile');
+    expect(s.gh.post).not.toHaveBeenCalled();
+  });
+  it('blocks legacy proposals on status and direct publication without requesting write access', async () => {
+    const s = setup(); delete s.getPlan().evidence;
+    await expect(s.service.createPr(user, 'alice/app', 'proposal', PATCH_POLICY)).rejects.toThrow('이전 수정안');
+    expect(s.github.getInstallationTokenForRepo).not.toHaveBeenCalled();
+    expect(await s.service.status(user, 'alice/app')).toMatchObject({ state: 'blocked', message: expect.stringContaining('다시 준비') });
+    expect(s.gh.post).not.toHaveBeenCalled();
+  });
+  it('rejects oversized evidence before creating any GitHub objects', async () => {
+    const s = setup(); const finding = s.getPlan().evidence!.before.findings[0];
+    s.getPlan().evidence!.before.findings = Array.from({ length: 100 }, (_, index) => ({ ...finding, id: String(index), title: 'a'.repeat(1000) }));
+    await expect(s.service.createPr(user, 'alice/app', 'proposal', PATCH_POLICY)).rejects.toThrow('본문 한도');
+    expect(s.getPlan().state).toBe('blocked');
+    expect(s.github.getInstallationTokenForRepo).not.toHaveBeenCalled();
+    expect(s.gh.post).not.toHaveBeenCalled();
+  });
+  it('persists parsed worker evidence and exposes it even when no safe PR can be proposed', async () => {
+    const s = setup(); s.getPlan().state = 'preparing';
+    const audit = { auditReportVersion: 2, metadata: { vulnerabilities: { total: 1 } }, vulnerabilities: {
+      demo: { name: 'demo', nodes: ['node_modules/demo'], via: [{ source: 123, name: 'demo', title: 'Demo issue',
+        url: 'https://github.com/advisories/GHSA-aaaa-bbbb-cccc', severity: 'high', range: '<1.0.1' }] },
+    } };
+    Object.assign(s.kube.batch, { readNamespacedJob: async () => ({ status: { succeeded: 1 } }), deleteNamespacedJob: jest.fn(async () => undefined) });
+    Object.assign(s.kube, { core: { listNamespacedPod: async () => ({ items: [{ metadata: { name: 'worker' } }] }),
+      readNamespacedPodLog: async () => JSON.stringify({ lockfile: lock('1.0.0'), before: 1, after: 1, auditBefore: audit, auditAfter: audit, checkedAt: Date.now() }) } });
+    expect(await s.service.status(user, 'alice/app')).toMatchObject({ state: 'blocked', evidence: { after: { findings: [expect.objectContaining({ id: '123' })] } } });
     expect(s.gh.post).not.toHaveBeenCalled();
   });
 });
