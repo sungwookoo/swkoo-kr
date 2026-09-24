@@ -11,7 +11,7 @@
 | 사용자의 PR 생성 요청 | 검토한 lockfile 하나를 새로운 swkoo/security-<UUID> 브랜치에 기록하고 초안 PR 생성 |
 | 병합·배포 | 사용자 결정. 서비스는 merge API·auto-merge를 사용하지 않음. 기존 workflow에 따라 병합 후 배포 가능 |
 
-기존 배포 등록 기능의 Dockerfile/build.yml 생성은 별도 기능이다. 이 변경은 그 흐름을 PR 방식으로 전환하지 않는다. 보안 수정 요청은 Dockerfile·workflow·package.json·앱 코드·DB 스키마·환경변수를 변경하지 않는다.
+배포 등록의 Dockerfile/build.yml 처리는 별도 [저장소 변경 정책](./source-setup-design.md)을 따른다. 없는 파일은 동의 후 직접 생성하고, 기존 파일 변경은 요청받은 초안 PR으로 제안한다. 보안 수정 요청은 Dockerfile·workflow·package.json·앱 코드·DB 스키마·환경변수를 변경하지 않는다.
 
 ## 지원 범위와 검증 한계
 

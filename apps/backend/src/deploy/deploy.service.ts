@@ -1,4 +1,4 @@
-import { ForbiddenException, Inject, Injectable, Logger } from '@nestjs/common';
+import { ConflictException, ForbiddenException, Inject, Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigType } from '@nestjs/config';
 import { PatchStrategy, setHeaderOptions } from '@kubernetes/client-node';
 import axios from 'axios';
@@ -11,6 +11,7 @@ import { UsersRepository } from '../onboarding/users.repository';
 import { DeployStatusService } from './deploy-status.service';
 import { ArgoCdClient } from '../pipelines/services/argo-cd.client';
 import { GithubAppService } from '../github-app/github-app.service';
+import { SourceSetup } from './source-setup';
 import {
   subdomainErrorMessage,
   validateSubdomainFormat,
@@ -110,6 +111,8 @@ interface GithubContent {
 export interface RegisterRequest {
   fullName: string; // "owner/repo"
   subdomain?: string; // optional user-chosen sub-slug for <slug>.apps.swkoo.kr
+  setupDigest?: string;
+  setupConsent?: string;
 }
 
 export interface RegisterResponse {
@@ -198,6 +201,7 @@ export interface DeploymentStatus {
 @Injectable()
 export class DeployService {
   private readonly logger = new Logger(DeployService.name);
+  private readonly sourceSetup = new SourceSetup(this.githubApp);
   constructor(
     private readonly auth: AuthService,
     private readonly githubApp: GithubAppService,
@@ -572,6 +576,25 @@ export class DeployService {
     };
   }
 
+  async previewSourceSetup(login: string, fullName: string) {
+    const user = this.users.findByLogin(login);
+    if (!user?.isAllowed || !/^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/.test(fullName) ||
+        fullName.split('/')[0].toLowerCase() !== login.toLowerCase()) throw new ForbiddenException('본인 저장소만 설정할 수 있습니다.');
+    const [owner, repo] = fullName.split('/');
+    const preview = await this.detectStack(user.id, owner, repo);
+    if (preview.stack !== 'nextjs') throw new ConflictException('배포 사전 점검을 먼저 해결해 주세요.');
+    return this.sourceSetup.inspect(fullName, renderUserRepoFiles({ port: preview.port, imageRepo: `ghcr.io/${login.toLowerCase()}/${repo.toLowerCase()}` }));
+  }
+
+  async requestSourceSetupPr(login: string, req: RegisterRequest) {
+    const plan = await this.previewSourceSetup(login, req.fullName);
+    this.sourceSetup.assertReviewed(plan, req.setupDigest, req.setupConsent);
+    const result = await this.sourceSetup.createPr(plan);
+    this.users.audit({ actor: login, action: 'DEPLOY_SETUP_PR', target: req.fullName, reason: 'user_requested',
+      metaJson: JSON.stringify({ sha: plan.sha, digest: plan.digest, ...result }) });
+    return result;
+  }
+
   /** Allowlist-gated full registration. Three commits, in order:
    *   1. User source repo: Dockerfile + GHA workflow.
    *   2. Per-user deploy repo (<deployOwner>/<login>, created if missing):
@@ -580,7 +603,8 @@ export class DeployService {
    *      deploy/users/<login>.yaml that the ApplicationSet `files`
    *      generator reads to materialize the Application.
    *
-   * Re-running for the same user overwrites stable-path files in place;
+   * Source files are only created when absent, after explicit review;
+   * differing existing files must go through a user-requested draft PR.
    * the deploy repo persists across re-deploys. Phase 1 caps one app per user. */
   async registerForUser(userLogin: string, req: RegisterRequest): Promise<RegisterResponse> {
     // GitHub logins preserve case; k8s naming needs lowercase.
@@ -637,6 +661,11 @@ export class DeployService {
       throw new ForbiddenException({ reason: 'STACK_UNSUPPORTED', message: preview.reason });
     }
 
+    const sourcePlan = await this.sourceSetup.inspect(req.fullName,
+      renderUserRepoFiles({ port: preview.port, imageRepo: `ghcr.io/${loginLc}/${repo.toLowerCase()}` }));
+    this.sourceSetup.assertReviewed(sourcePlan, req.setupDigest, req.setupConsent);
+    if (sourcePlan.files.some(file => file.action === 'review')) throw new ConflictException('기존 파일 변경은 PR 검토가 필요합니다. 배포 설정을 다시 확인해 주세요.');
+
     const appName = sanitizeName(repo);
     const subdomain = this.claimSubdomainOrDefault(user, loginLc, appName, req.subdomain);
     const deployRepoName = getUserDeployRepoName(loginLc);
@@ -682,22 +711,13 @@ export class DeployService {
       storageProfile: effectiveStorageProfile,
     };
 
-    const userRepoFiles = renderUserRepoFiles(params);
     const deployRepoFiles = renderDeployRepoFiles(params);
     const registrationContent = renderUserRegistration(params);
 
-    // 1. Commit to user repo (creates/updates Dockerfile + workflow).
+    // 1. Create only missing, reviewed source files. Keep existing files.
     let userRepoCommit: string;
     try {
-      const userRepoToken = await this.githubApp.getInstallationTokenForRepo(owner, repo);
-      userRepoCommit = await this.githubApp.commitFilesAtomic({
-        owner,
-        repo,
-        branch: 'main',
-        files: userRepoFiles,
-        message: `chore: swkoo.kr auto-deploy setup (Dockerfile + workflow)\n\nGenerated by https://swkoo.kr/deploy`,
-        token: userRepoToken,
-      });
+      userRepoCommit = await this.sourceSetup.createMissing(sourcePlan);
     } catch (err) {
       const msg = (err as Error).message;
       if (msg.startsWith('INSTALLATION_NOT_FOUND')) {
@@ -709,95 +729,108 @@ export class DeployService {
             : undefined,
         });
       }
-      throw err;
+      if (msg.startsWith('SOURCE_CHANGED')) throw new ConflictException(msg);
+      throw new ServiceUnavailableException({ reason: 'DEPLOY_SOURCE_UNCERTAIN',
+        message: '소스 파일 생성 결과를 확인하지 못했습니다. 저장소의 최근 커밋과 파일을 다시 확인해 주세요. 배포 매니페스트 등록은 시작하지 않았고 URL 예약은 유지됩니다.',
+        completed: ['URL 예약'], sourceUrl: `https://github.com/${owner}/${repo}/tree/main` });
     }
 
-    // 2. Ensure the per-user deploy repo exists (idempotent) and commit
-    //    manifests at its root.
-    let deployRepoCommit: string;
+    const completed = ['소스 파일 생성 또는 기존 파일 유지 확인'];
     try {
-      const orgToken = await this.githubApp.getInstallationTokenForOrg(this.config.deployOwner);
-      await this.githubApp.ensureRepoInOrg({
-        org: this.config.deployOwner,
-        name: deployRepoName,
-        description: `swkoo.kr deploy manifests for ${loginLc}/${repo}. Managed by https://swkoo.kr/deploy — do not edit by hand.`,
-        token: orgToken,
-      });
-      deployRepoCommit = await this.githubApp.commitFilesAtomic({
-        owner: this.config.deployOwner,
-        repo: deployRepoName,
-        branch: 'main',
-        files: deployRepoFiles,
-        message: `feat: deploy ${appName}\n\nImage: ${params.imageRepo}:latest\nURL: https://${subdomain}.${this.config.appsDomain}`,
-        token: orgToken,
-      });
-    } catch (err) {
-      const msg = (err as Error).message;
-      if (msg.startsWith('INSTALLATION_NOT_FOUND')) {
-        throw new ForbiddenException({
-          reason: 'APP_NOT_INSTALLED_ON_DEPLOY_ORG',
-          message: `swkoo-deploy GitHub App이 ${this.config.deployOwner} org에 설치되어 있지 않습니다. 운영자에게 알려주세요.`,
+      // 2. Ensure the per-user deploy repo exists (idempotent) and commit
+      //    manifests at its root.
+      let deployRepoCommit: string;
+      try {
+        const orgToken = await this.githubApp.getInstallationTokenForOrg(this.config.deployOwner);
+        await this.githubApp.ensureRepoInOrg({
+          org: this.config.deployOwner,
+          name: deployRepoName,
+          description: `swkoo.kr deploy manifests for ${loginLc}/${repo}. Managed by https://swkoo.kr/deploy — do not edit by hand.`,
+          token: orgToken,
         });
-      }
-      throw err;
-    }
-
-    // 3. Commit the registration file to the control repo. ApplicationSet
-    //    will materialize an Application that pulls from the deploy repo.
-    const [manifestOwner, manifestRepo] = this.config.manifestRepo.split('/');
-    let manifestRepoCommit: string;
-    try {
-      const manifestToken = await this.githubApp.getInstallationTokenForRepo(
-        manifestOwner,
-        manifestRepo
-      );
-      manifestRepoCommit = await this.githubApp.commitFilesAtomic({
-        owner: manifestOwner,
-        repo: manifestRepo,
-        branch: this.config.manifestBranch,
-        files: { [getUserRegistrationPath(loginLc)]: registrationContent },
-        message: `feat(deploy): register ${loginLc}/${appName} via swkoo.kr/deploy\n\nUser: ${userLogin}\nApp: ${appName}\nDeployRepo: ${deployRepoFullName}\nURL: https://${subdomain}.${this.config.appsDomain}`,
-        token: manifestToken,
-      });
-    } catch (err) {
-      const msg = (err as Error).message;
-      if (msg.startsWith('INSTALLATION_NOT_FOUND')) {
-        throw new ForbiddenException({
-          reason: 'APP_NOT_INSTALLED_ON_MANIFEST_REPO',
-          message: `swkoo-deploy GitHub App이 ${this.config.manifestRepo} 에 설치되어 있지 않습니다. 운영자에게 알려주세요.`,
+        deployRepoCommit = await this.githubApp.commitFilesAtomic({
+          owner: this.config.deployOwner,
+          repo: deployRepoName,
+          branch: 'main',
+          files: deployRepoFiles,
+          message: `feat: deploy ${appName}\n\nImage: ${params.imageRepo}:latest\nURL: https://${subdomain}.${this.config.appsDomain}`,
+          token: orgToken,
         });
+      } catch (err) {
+        const msg = (err as Error).message;
+        if (msg.startsWith('INSTALLATION_NOT_FOUND')) {
+          throw new ForbiddenException({
+            reason: 'APP_NOT_INSTALLED_ON_DEPLOY_ORG',
+            message: `swkoo-deploy GitHub App이 ${this.config.deployOwner} org에 설치되어 있지 않습니다. 운영자에게 알려주세요.`,
+          });
+        }
+        throw err;
       }
-      throw err;
-    }
 
-    this.users.audit({
-      actor: userLogin,
-      action: 'DEPLOY_REGISTER',
-      target: req.fullName,
-      reason: null,
-      metaJson: JSON.stringify({
+      // 3. Commit the registration file to the control repo. ApplicationSet
+      //    will materialize an Application that pulls from the deploy repo.
+      completed.push('배포 매니페스트 저장');
+      const [manifestOwner, manifestRepo] = this.config.manifestRepo.split('/');
+      let manifestRepoCommit: string;
+      try {
+        const manifestToken = await this.githubApp.getInstallationTokenForRepo(
+          manifestOwner,
+          manifestRepo
+        );
+        manifestRepoCommit = await this.githubApp.commitFilesAtomic({
+          owner: manifestOwner,
+          repo: manifestRepo,
+          branch: this.config.manifestBranch,
+          files: { [getUserRegistrationPath(loginLc)]: registrationContent },
+          message: `feat(deploy): register ${loginLc}/${appName} via swkoo.kr/deploy\n\nUser: ${userLogin}\nApp: ${appName}\nDeployRepo: ${deployRepoFullName}\nURL: https://${subdomain}.${this.config.appsDomain}`,
+          token: manifestToken,
+        });
+      } catch (err) {
+        const msg = (err as Error).message;
+        if (msg.startsWith('INSTALLATION_NOT_FOUND')) {
+          throw new ForbiddenException({
+            reason: 'APP_NOT_INSTALLED_ON_MANIFEST_REPO',
+            message: `swkoo-deploy GitHub App이 ${this.config.manifestRepo} 에 설치되어 있지 않습니다. 운영자에게 알려주세요.`,
+          });
+        }
+        throw err;
+      }
+
+      completed.push('배포 등록 파일 저장');
+      this.users.audit({
+        actor: userLogin,
+        action: 'DEPLOY_REGISTER',
+        target: req.fullName,
+        reason: null,
+        metaJson: JSON.stringify({
+          subdomain,
+          appName,
+          userRepoCommit,
+          sourceReview: { sha: sourcePlan.sha, digest: sourcePlan.digest, files: sourcePlan.files.map(file => ({ path: file.path, action: file.action })) },
+          deployRepoFullName,
+          deployRepoCommit,
+          manifestRepoCommit,
+        }),
+      });
+
+      // Nudge ArgoCD to pick up the new metadata.yaml immediately instead of
+      // waiting for the default ~3 min git poll. Failure is non-fatal — the
+      // poll still gets it eventually.
+      void this.refreshUsersApplicationSet();
+
+      return {
+        ok: true,
+        fullName: req.fullName,
         subdomain,
-        appName,
+        liveUrl: `https://${subdomain}.${this.config.appsDomain}`,
         userRepoCommit,
-        deployRepoFullName,
-        deployRepoCommit,
         manifestRepoCommit,
-      }),
-    });
-
-    // Nudge ArgoCD to pick up the new metadata.yaml immediately instead of
-    // waiting for the default ~3 min git poll. Failure is non-fatal — the
-    // poll still gets it eventually.
-    void this.refreshUsersApplicationSet();
-
-    return {
-      ok: true,
-      fullName: req.fullName,
-      subdomain,
-      liveUrl: `https://${subdomain}.${this.config.appsDomain}`,
-      userRepoCommit,
-      manifestRepoCommit,
-    };
+      };
+    } catch {
+      throw new ServiceUnavailableException({ reason: 'DEPLOY_PARTIAL',
+        message: '배포 등록을 완료하지 못했습니다. 아래 완료된 단계를 확인하세요. 변경은 자동 취소되지 않았습니다. 파일을 다시 조회하고 재시도하거나 운영자에게 문의하세요.',
+        completed, sourceUrl: `https://github.com/${owner}/${repo}/commit/${userRepoCommit}` });
+    }
   }
 
   /** Returns the user's currently-registered deployment, if any.
