@@ -9,6 +9,7 @@ import { DeployService } from './deploy.service';
 import { PATCH_POLICY, PatchResult, validatePatchInput, validatePatchResult } from './security-patch.policy';
 import { PatchPlan, SecurityPatchRepository } from './security-patch.repository';
 import { patchJob } from './security-patch.worker';
+import { auditMarkdown, summarizeAudit, validateAuditEvidence } from './security-patch.audit';
 
 @Injectable()
 export class SecurityPatchService {
@@ -67,7 +68,8 @@ export class SecurityPatchService {
       await this.ownedRepo(user, repo);
       this.plans.prune();
       const prior = this.plans.get(user.id);
-      if (prior && prior.repo.toLowerCase() === repo.toLowerCase() && ['preparing', 'ready', 'creating'].includes(prior.state)) return this.view(prior);
+      if (prior && prior.repo.toLowerCase() === repo.toLowerCase() &&
+          (prior.state === 'preparing' || (prior.evidence && ['ready', 'creating'].includes(prior.state)))) return this.view(prior);
       if (prior && Date.now() - prior.createdAt < 60_000) throw new ConflictException('수정안 준비는 1분에 한 번 요청할 수 있습니다.');
       if (!this.kube.available()) throw new ServiceUnavailableException('수정안 준비 작업을 실행할 수 없습니다.');
       const jobs = await this.kube.batch!.listNamespacedJob({ namespace: 'swkoo' });
@@ -114,6 +116,10 @@ export class SecurityPatchService {
       this.plans.prune();
       const plan = this.plans.get(user.id);
       if (!plan || plan.repo.toLowerCase() !== repo.toLowerCase()) return null;
+      if (['ready', 'creating'].includes(plan.state) && !plan.evidence) {
+        plan.state = 'blocked'; plan.message = '취약점별 근거가 없는 이전 수정안입니다. 수정안을 다시 준비하세요.';
+        plan.updatedAt = Date.now(); this.plans.save(plan);
+      }
       if (plan.state !== 'preparing') return this.view(plan);
       const name = `security-patch-${plan.id}`;
       try {
@@ -124,8 +130,16 @@ export class SecurityPatchService {
         const pod = pods.items[0]?.metadata?.name;
         if (!pod) throw new Error('작업 결과가 만료되었습니다. 다시 요청하세요.');
         const logs = await this.kube.core!.readNamespacedPodLog({ namespace: 'swkoo', name: pod, container: 'patch', limitBytes: 2_000_000 });
-        const result: PatchResult = JSON.parse(logs);
+        const result: PatchResult & { auditBefore?: unknown; auditAfter?: unknown; checkedAt?: number } = JSON.parse(logs);
         try {
+          if (!Number.isInteger(result.checkedAt) || result.checkedAt! < plan.createdAt || result.checkedAt! > Date.now() + 60_000) {
+            throw new Error('검사 시각을 확인할 수 없습니다. 수정안을 다시 준비하세요.');
+          }
+          plan.evidence = { checkedAt: result.checkedAt!, before: summarizeAudit(result.auditBefore, plan.original),
+            after: summarizeAudit(result.auditAfter, result.lockfile) };
+          plan.before = plan.evidence.before.total; plan.after = plan.evidence.after.total;
+          result.before = plan.before; result.after = plan.after;
+          validateAuditEvidence(plan.evidence);
           plan.changes = validatePatchResult(plan.manifest, plan.original, result);
           plan.lockfile = result.lockfile; plan.before = result.before; plan.after = result.after; plan.state = 'ready';
         } catch (err) { plan.state = 'blocked'; plan.message = (err as Error).message; }
@@ -146,7 +160,26 @@ export class SecurityPatchService {
       }
       if (plan.state === 'pr') return this.view(plan);
       if (!['ready', 'creating'].includes(plan.state) || !plan.lockfile) throw new ConflictException('PR을 생성할 수 있는 수정안이 아닙니다.');
+      try { validateAuditEvidence(plan.evidence); }
+      catch (err) { throw new ConflictException((err as Error).message); }
       validatePatchResult(plan.manifest, plan.original, { lockfile: plan.lockfile, changes: plan.changes!, before: plan.before!, after: plan.after! });
+      const body = [
+        '## 사용자가 요청한 npm 의존성 취약점 수정 제안',
+        `정책: ${PATCH_POLICY} · 기준 commit: ${plan.sha}`,
+        '변경 파일: package-lock.json만. package.json·앱 코드·DB·Dockerfile·workflow는 변경하지 않습니다.',
+        `npm audit 취약 패키지 집계: ${plan.before} → ${plan.after}. 운영 이미지 Trivy 결과와 집계 기준이 다릅니다.`,
+        ...auditMarkdown(plan.evidence!),
+        '기존 버전 범위 안의 수정안입니다. 메이저 업그레이드 및 0.x minor 변경은 차단했습니다.',
+        '## 검증 한계',
+        'npm audit 재검사와 정책 검사를 수행했습니다. 앱 테스트·프로덕션 빌드·DB 연결은 실행하지 않았습니다. GitHub에서 별도로 검증한 뒤 초안을 해제하고 병합하세요.',
+        '**swkoo.kr는 이 PR을 자동 병합하지 않습니다. 사용자가 병합하면 기존 자동 배포가 실행될 수 있습니다.**',
+        '## 패키지 변경',
+        ...(plan.changes ?? []).map(c => `- ${c.path}: ${c.from ?? '(추가)'} → ${c.to ?? '(제거)'}`),
+      ].join('\n\n');
+      if (body.length > 60_000) {
+        plan.state = 'blocked'; plan.message = '취약점 근거가 PR 본문 한도를 초과합니다. 화면의 근거를 확인하고 수동으로 검토하세요.';
+        this.plans.save(plan); throw new ConflictException(plan.message);
+      }
       const gh = await this.client(repo, true);
       const branch = `swkoo/security-${plan.id}`;
       const findPr = async () => (await gh.get('/pulls', { params: { state: 'all', head: `${repo.split('/')[0]}:${branch}`, base: plan.base } })).data[0];
@@ -176,19 +209,7 @@ export class SecurityPatchService {
             throw new ConflictException('제안 브랜치가 변경되었습니다. 기존 브랜치를 덮어쓰지 않습니다.');
           }
         }
-        const body = [
-          '## 사용자가 요청한 보안 수정 제안',
-          `정책: ${PATCH_POLICY} · 기준 commit: ${plan.sha}`,
-          '변경 파일: package-lock.json만. package.json·앱 코드·DB·Dockerfile·workflow는 변경하지 않습니다.',
-          `npm audit 취약점 집계: ${plan.before} → ${plan.after}. 운영 이미지 Trivy 결과와 집계 기준이 다릅니다.`,
-          '기존 버전 범위 안의 수정안입니다. 메이저 업그레이드 및 0.x minor 변경은 차단했습니다.',
-          '## 검증 한계',
-          'npm audit 재검사와 정책 검사를 수행했습니다. 앱 테스트·프로덕션 빌드·DB 연결은 실행하지 않았습니다. GitHub에서 별도로 검증한 뒤 초안을 해제하고 병합하세요.',
-          '**swkoo.kr는 이 PR을 자동 병합하지 않습니다. 사용자가 병합하면 기존 자동 배포가 실행될 수 있습니다.**',
-          '## 패키지 변경',
-          ...(plan.changes ?? []).map(c => `- ${c.path}: ${c.from ?? '(추가)'} → ${c.to ?? '(제거)'}`),
-        ].join('\n\n');
-        try { pr = (await gh.post('/pulls', { title: '보안 수정 제안: npm lockfile (사용자 검토 필요)', head: branch, base: plan.base, body, draft: true })).data; }
+        try { pr = (await gh.post('/pulls', { title: 'npm 의존성 취약점 수정 제안 (사용자 검토 필요)', head: branch, base: plan.base, body, draft: true })).data; }
         catch (err) { pr = await findPr(); if (!pr) throw err; }
       }
       plan.state = 'pr'; plan.prUrl = pr.html_url; plan.updatedAt = Date.now(); this.plans.save(plan);

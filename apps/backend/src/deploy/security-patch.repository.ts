@@ -5,6 +5,7 @@ import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { webhooksConfig } from '../config/webhooks.config';
 import type { PackageChange } from './security-patch.policy';
+import type { AuditEvidence } from './security-patch.audit';
 
 export interface PatchPlan {
   id: string; userId: number; repo: string; base: string; sha: string;
@@ -12,6 +13,7 @@ export interface PatchPlan {
   createdAt: number; updatedAt: number; manifest: string; original: string;
   lockfile?: string; changes?: PackageChange[]; before?: number; after?: number;
   message?: string; prUrl?: string;
+  evidence?: AuditEvidence;
 }
 
 @Injectable()
