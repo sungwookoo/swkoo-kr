@@ -13,20 +13,25 @@
 @media(max-width:760px){.validation-figure{padding:14px}.validation-figure figcaption{display:block;margin-bottom:16px}.validation-figure figcaption span{display:block;margin-top:4px}.view-label span{display:block;margin:3px 0 0}.validation-split{grid-template-columns:82px 1fr}.applicant-list>div,.applicant-list>.field-label{padding-left:8px;padding-right:8px}.selected span{display:block;float:none}.score-detail{padding:12px 10px}.score-values{gap:6px}.score-values dd{font-size:20px}.comparison-table{font-size:11px}.comparison-table th,.comparison-table td{padding:7px 4px}.related-work a{display:block;width:fit-content;margin:5px 0 0}}
 @media(max-width:360px){.validation-figure{padding:10px}.validation-split{grid-template-columns:65px 1fr}.score-values{grid-template-columns:1fr;gap:5px}.score-values dd{font-size:18px}.score-detail{padding:10px 8px}}
 @media print{.validation-figure{break-inside:avoid;print-color-adjust:exact;-webkit-print-color-adjust:exact}}
+
+.summary a{position:relative;padding-right:30px}.summary-arrow{position:absolute;right:12px;top:18px;font-style:normal;color:var(--green)}.summary a:hover,.summary a:focus-visible{background:var(--tint)}.summary a:focus-visible{outline-offset:-2px}.summary a:hover strong,.summary a:focus-visible strong{text-decoration:underline;text-underline-offset:4px}
+.case-brief{display:grid;grid-template-columns:1fr 1fr;margin:24px 0;border-block:1px solid var(--line);background:var(--tint)}.case-brief>div{padding:20px}.case-brief>div+div{border-left:1px solid var(--line)}.case-brief dt{font-size:13px;color:var(--green);font-weight:700;margin-bottom:8px}.case-brief dd{font-size:16px;line-height:1.75;margin:0}.contributions{margin:20px 0}.contributions>div{display:grid;grid-template-columns:108px 1fr;gap:20px;padding:16px 0;border-top:1px solid var(--line)}.contributions dt{font-size:14px;color:var(--green);font-weight:700}.contributions dd{margin:0;font-size:15px;line-height:1.85}
+@media screen and (max-width:760px){html{scroll-padding-top:116px}.section-nav .wrap{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:0 8px;padding-top:4px;padding-bottom:4px}.section-nav a{font-size:14px;min-height:44px;display:flex;align-items:center;justify-content:center;padding:9px 0 7px}.summary a,.summary li+li a{display:block;padding:13px 28px 13px 0}.summary span{display:block;text-align:left;font-size:12px;margin-top:3px}.summary-arrow{top:15px;right:4px}.case-brief{grid-template-columns:1fr}.case-brief>div{padding:16px}.case-brief>div+div{border-left:0;border-top:1px solid var(--line)}.case-brief dd{font-size:15px}.contributions>div{grid-template-columns:1fr;gap:5px}}
+@media print{.summary-arrow{display:none}.case-brief{break-inside:avoid;background:none}.case-brief dd,.contributions dd{font-size:10pt}.contributions>div{break-inside:avoid}}
 </style>
 </head>
 <body>
 <a class="skip" href="#work">주요 작업으로 이동</a>
-<header class="wrap masthead"><a href="#top">구성우 · 포트폴리오</a><button type="button" onclick="window.print()">인쇄</button></header>
+<header class="wrap masthead"><a href="#top">구성우 · 포트폴리오</a><button type="button" onclick="window.print()">인쇄 / PDF 저장</button></header>
 <main id="top">
 <section class="wrap"><div class="hero">
 <div class="identity"><h1>구성우</h1><p class="occupation">풀스택·웹 서비스 개발자</p></div>
 <p class="career-line">진학어플라이 · 2023.08–현재 &nbsp; / &nbsp; 경력 3년 1개월 <span>(2026.09 기준)</span></p>
 <p class="lead">입학전형시스템 개발에 참여하고, 함께 구성된 성적산출 시스템의 요구사항·화면 설계부터 프론트엔드·서버 구현까지 맡았습니다. 개발한 성적산출 시스템은 <strong>가천대학교 포함 4개 대학의 실제 입시에 사용되고 있습니다.</strong></p>
 <ul class="summary" aria-label="대표 작업 요약">
-<li><a href="#score-system"><strong>성적산출 신규 개발</strong><span>화면 설계부터 서버 구현까지</span></a></li>
-<li><a href="#delivery"><strong>부서 전체 배포 전환</strong><span>PM2·k8s → k3s</span></a></li>
-<li><a href="#performance"><strong>성적산출 저장 병목 개선</strong><span>단계별 측정과 저장 방식 변경</span></a></li>
+<li><a href="#score-system"><strong>성적산출 신규 개발</strong><span>화면 설계부터 서버 구현까지</span><i class="summary-arrow" aria-hidden="true">→</i></a></li>
+<li><a href="#delivery"><strong>부서 전체 배포 전환</strong><span>PM2·k8s → k3s</span><i class="summary-arrow" aria-hidden="true">→</i></a></li>
+<li><a href="#performance"><strong>성적산출 저장 병목 개선</strong><span>단계별 측정과 저장 방식 변경</span><i class="summary-arrow" aria-hidden="true">→</i></a></li>
 </ul>
 <div class="contact"><div><a href="mailto:sungwookoo.dev@gmail.com">sungwookoo.dev@gmail.com</a><!-- submission-contact --></div><span>TypeScript · Next.js · NestJS · PostgreSQL</span></div>
 </div></section>
@@ -56,11 +61,13 @@
 <p class="note">개발 이후 현재까지 유지보수·개선 개발을 이어가고 있습니다. 학교별 추가개발·유지보수와 운영은 부서 운영자·동료 개발자들과 함께 진행합니다.</p><p class="related-work">같은 시스템의 다른 작업 <a href="#performance">저장 성능 개선 ↗</a><a href="#integration">학생부 데이터 연계 ↗</a></p><p class="tech">Next.js · NestJS · PostgreSQL · Prisma · Redis</p></div></article>
 <article class="case" id="admissions">
 <div class="case-head"><div class="case-meta"><b>02 · 입학전형</b><span>입학전형시스템<br> 팀 프로젝트 개발 참여</span></div><div><h3>접수 현황이 바뀌어도 출력 당시의 기록은 보존</h3><p class="result">입학전형시스템의 웹 전환에 참여해, <strong>현재 접수 현황과 이미 출력한 보고서를 구분해 관리하도록 설계·개발했습니다.</strong> 업로드 결과 확인과 자료 일괄 수정도 맡았습니다.</p></div></div>
-<div class="case-body"><p class="note">성적산출 시스템과 함께 구성된 제품으로, 2027학년도 수시에 사용 중입니다.</p><h4>늦게 도착한 원서와 달라지는 집계</h4><p>학교별 양식에 맞춰 접수처·전형·모집단위별 일계·누계와 경쟁률을 화면·Excel·PDF로 제공했습니다. 늦게 수신된 원서가 집계에 추가되면 같은 날짜의 숫자도 달라질 수 있어, 현재 현황과 출력 당시의 결과를 구분해야 했습니다.</p>
-<h4>출력 시점의 결과를 스냅샷과 버전으로 보존</h4><p><strong>출력 당시의 집계 결과를 스냅샷으로 남기고, 변경된 결과는 새 버전으로 보존</strong>하도록 했습니다. 현황을 갱신해도 이전 보고서의 수치를 확인할 수 있도록 구성했습니다. 충원 보고에서는 합격 통보·등록·포기·환불 상태와 보고구간의 집계 기준을 정리했습니다.</p>
-<h4>업로드의 부분 실패와 미확인 상태를 구분</h4><p>여러 파일을 올린 작업을 하나의 실행 이력으로 묶고 파일별 처리 결과를 표시했습니다. <strong>성공·실패·미확인을 구분</strong>해, 담당자가 일부 파일만 처리된 상태를 전체 완료로 오해하지 않도록 했습니다.</p>
-<h4>선택한 자료만 바꾸는 일괄 수정</h4><p>수정 대상으로 선택하지 않은 필드와 다른 서비스의 데이터를 보존하도록 저장 경로를 개선했습니다. 중복 열·대상 매핑을 검증하고, 500건 단위로 저장해 실패한 묶음을 롤백하도록 했습니다. 이전에 성공한 묶음은 유지되며 파일 전체가 한 번에 취소되는 방식은 아닙니다.</p>
-<h4>개인정보 비교와 제품 간 자료 전달</h4><p>동일인 비교를 서버에서 처리하고 권한·감사 기록을 확인하는 출력 경로에 연결했습니다. 외부 전달에는 원본 식별번호 대신 서비스·용도별 가상 식별키를 사용하는 기능을 개발했습니다. 성적산출 시스템으로 보내는 대량 학생부 자료의 전용 반출 경로도 구현했습니다.</p>
+<div class="case-body"><p class="note">성적산출 시스템과 함께 구성된 제품으로, 2027학년도 수시에 사용 중입니다.</p>
+<dl class="case-brief" aria-label="보고 기능의 문제와 설계 판단"><div><dt>업무 문제</dt><dd>늦게 수신된 원서가 추가되면 <strong>같은 날짜의 집계도 달라집니다.</strong> 현재 현황과 이미 출력한 보고서를 구분해야 했습니다.</dd></div><div><dt>설계 판단</dt><dd><strong>출력 당시의 결과를 스냅샷으로 보존</strong>하고, 변경된 결과는 새 버전으로 남겼습니다.</dd></div></dl>
+<p>학교별 접수처·전형·모집단위별 일계·누계와 경쟁률을 화면·Excel·PDF로 제공했습니다. 현황을 갱신해도 이전 보고서의 수치를 확인할 수 있도록 구성하고, 충원 보고의 합격 통보·등록·포기·환불 상태와 보고구간별 집계 기준을 정리했습니다.</p>
+<h4>함께 담당한 기능</h4>
+<dl class="contributions"><div><dt>업로드 결과</dt><dd>여러 파일을 하나의 실행 이력으로 묶고, 파일별 <strong>성공·실패·미확인</strong>을 표시했습니다. 일부 처리 상태를 전체 완료로 오해하지 않도록 했습니다.</dd></div>
+<div><dt>일괄 수정</dt><dd>선택하지 않은 필드와 다른 서비스의 데이터를 보존하고, 중복 열·대상 매핑을 검증했습니다. <strong>500건 단위로 저장·롤백</strong>하며, 실패 이전에 성공한 묶음은 유지합니다.</dd></div>
+<div><dt>개인정보·연계</dt><dd>서버에서 동일인을 비교하고 권한·감사 기록을 확인하는 출력 경로에 연결했습니다. 외부 전달에는 <strong>서비스·용도별 가상 식별키</strong>를 사용하고, 성적산출 시스템으로 대량 학생부 자료를 보내는 전용 경로를 구현했습니다.</dd></div></dl>
 <p class="related-work">제품 간 연계 사례 <a href="#integration">학생부 데이터 연계 ↗</a></p><p class="tech">TypeScript · Next.js · Prisma · PostgreSQL · Excel / PDF</p></div></article>
 <article class="case" id="delivery">
 <div class="case-head"><div class="case-meta"><b>03 · 배포 전환</b><span>이전 팀<br> 부서 전체 솔루션</span></div><div><h3>두 운영 환경을 k3s·Argo CD로</h3><p class="result">부서 최초 k3s 애플리케이션 이관을 주도하고, <strong>모든 솔루션 프로젝트의 k3s·Argo CD 전환을 이끌었습니다.</strong></p></div></div>
