@@ -4,7 +4,16 @@ const nextConfig = {
   experimental: {
     typedRoutes: true
   },
-  output: 'standalone'
+  output: 'standalone',
+  async rewrites() {
+    return [{ source: '/portfolio', destination: '/portfolio/index.html' }];
+  },
+  async headers() {
+    return [{
+      source: '/portfolio/:path*',
+      headers: [{ key: 'X-Robots-Tag', value: 'noindex, nofollow' }]
+    }];
+  }
 };
 
 export default nextConfig;
