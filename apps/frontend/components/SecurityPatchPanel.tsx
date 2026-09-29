@@ -65,6 +65,7 @@ export function SecurityPatchPanel({ repo }: { repo: string }) {
     <h2 className="text-lg font-semibold text-slate-100">npm 의존성 취약점 수정 PR</h2>
     <p className="text-sm text-slate-300">원할 때만 수정안을 준비하고, 변경 내용을 확인한 후 GitHub 초안 PR을 만들 수 있습니다. 서비스는 자동 병합하지 않습니다.</p>
     <p className="text-sm text-slate-400">현재는 공개 npm 패키지의 기존 버전 범위 안에서 package-lock.json만 수정합니다. 메이저 버전·0.x minor 업그레이드, 앱 코드·DB·Dockerfile 변경은 지원하지 않습니다.</p>
+    <p className="text-sm text-slate-400">기존 overrides의 단순 버전 지정과 $직접의존성 참조는 유지하며 검사합니다. 조건부·중첩 overrides와 workspace·번들 의존성은 아직 지원하지 않습니다. 고정된 버전 때문에 수정할 수 없는 취약점은 남을 수 있습니다.</p>
     <p className="text-sm text-slate-400">요청 시 npm에 등록된 취약점을 조회합니다. AI 코드 분석이나 정기 재검사·알림은 제공하지 않습니다. 알려지지 않은 취약점과 앱 코드·OS 문제는 확인하지 못합니다.</p>
     {(error || loadError) && <p role="alert" className="text-sm text-amber-400">{error || loadError.message}</p>}
     {isLoading && <p className="text-sm text-slate-400">수정 요청 상태 확인 중…</p>}

@@ -10,6 +10,10 @@ const empty = { auditReportVersion: 2, metadata: { vulnerabilities: { total: 0 }
 const evidence = (): AuditEvidence => ({ checkedAt: Date.now(), before: summarizeAudit(report(), lock), after: summarizeAudit(empty, lock) });
 
 describe('npm audit evidence', () => {
+  it('explains a clean npm report without suggesting the app is entirely vulnerability-free', () => {
+    const clean = summarizeAudit(empty, lock);
+    expect(() => validateAuditEvidence({ checkedAt: Date.now(), before: clean, after: clean })).toThrow('수정 PR이 필요하지 않습니다');
+  });
   it('separates package totals from advisories and keeps evidence plus installed versions', () => {
     expect(summarizeAudit(report(), lock)).toEqual({ total: 2, findings: [expect.objectContaining({ id: '123', package: 'demo', versions: ['1.0.0'], url: advisory.url, severity: 'high' })] });
     expect(() => validateAuditEvidence(evidence())).not.toThrow();

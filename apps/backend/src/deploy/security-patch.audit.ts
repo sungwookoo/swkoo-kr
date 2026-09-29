@@ -48,6 +48,7 @@ export function resolvedFindings(evidence: AuditEvidence): AuditFinding[] {
 
 export function validateAuditEvidence(evidence?: AuditEvidence): void {
   if (!evidence) throw new Error('취약점별 근거가 없는 이전 수정안입니다. 수정안을 다시 준비하세요.');
+  if (evidence.before.total === 0 && evidence.after.total === 0) throw new Error('현재 npm 검사에서 알려진 의존성 취약점이 발견되지 않아 수정 PR이 필요하지 않습니다. 앱 코드·OS 취약점은 별도 검사 대상입니다.');
   const before = new Map(evidence.before.findings.map(finding => [key(finding), finding]));
   if (evidence.after.findings.some(finding => !before.has(key(finding)) ||
       severityOrder.indexOf(finding.severity) > severityOrder.indexOf(before.get(key(finding))!.severity))) {
