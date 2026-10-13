@@ -31,7 +31,7 @@
 <main id="top">
 <section class="wrap"><div class="hero">
 <div class="identity"><h1>구성우</h1><p class="occupation">풀스택·웹 서비스 개발자</p></div>
-<p class="career-line">진학어플라이 · 2023.08–현재 &nbsp; / &nbsp; 경력 3년 1개월 <span>(2026.09 기준)</span></p>
+<p class="career-line">진학어플라이 · 2023.08–현재 &nbsp; / &nbsp; 경력 3년 1개월 <span>(2026.10 기준)</span></p>
 <p class="lead">입학전형시스템 개발에 참여하고, 함께 구성된 성적산출 시스템의 요구사항·화면 설계부터 프론트엔드·서버 구현까지 맡았습니다. 개발한 성적산출 시스템은 <strong>가천대학교 포함 4개 대학의 실제 입시에 사용되고 있습니다.</strong></p>
 <ul class="summary" aria-label="대표 작업 요약">
 <li><a href="#score-system"><strong>4개 대학 실제 적용</strong><span>성적산출 시스템 신규 개발</span><i class="summary-arrow" aria-hidden="true">→</i></a></li>
@@ -64,7 +64,7 @@
 <p class="figure-note">실제 서비스 화면이 아닌 구조 설명입니다. 점수와 보정 사유는 예시입니다.</p>
 </figure>
 <p>보정된 점수는 <strong>원래 산출점수·적용점수·변경 사유를 구분</strong>해, 담당자가 현재 점수의 근거를 함께 확인하도록 설계했습니다. <strong>동시 수정은 버전 검사와 DB 잠금으로 보호</strong>하고, 원천 자료가 삭제돼도 보정 사유와 변경 이력이 남도록 구현했습니다.</p><h4>대학별 요구와 공통 처리의 경계</h4><p>대학별 산식 변경이 공통 자료 처리에 영향을 주는 범위를 줄이기 위해, 학생부 계산 로직과 자료 조회·저장을 분리했습니다. 수능은 산출 설정과 환산표를 기반으로 처리하도록 구성했습니다.</p>
-<p class="note">개발 이후 현재까지 유지보수·개선 개발을 이어가고 있습니다. 학교별 추가개발·유지보수와 운영은 부서 운영자·동료 개발자들과 함께 진행합니다.</p><p class="related-work">같은 시스템의 다른 작업 <a href="#performance">저장 성능 개선 ↗</a><a href="#integration">학생부 데이터 연계 ↗</a></p><p class="tech">Next.js · NestJS · PostgreSQL · Prisma · Redis</p></div></article>
+<h4>재산출 실패로 기존 결과가 사라지지 않도록</h4><p>선택한 전형의 계산이 <strong>모두 성공했을 때 새 결과로 교체</strong>하고, 계산 중이거나 실패하면 기존 완료 결과를 유지하도록 개발했습니다. 검증 화면·PDF·Excel·외부 반출이 같은 저장 결과를 사용하도록 연결했습니다.</p><p class="note">해당 워크플로 전환은 병합·개발 환경 배포 및 출력·연동 검증을 완료했습니다. 개발 환경의 재산출·반출 동시 실행 최종 검증은 진행 중입니다.</p><p class="note">개발 이후 현재까지 유지보수·개선 개발을 이어가고 있습니다. 학교별 추가개발·유지보수와 운영은 부서 운영자·동료 개발자들과 함께 진행합니다.</p><p class="related-work">같은 시스템의 다른 작업 <a href="#performance">저장 성능 개선 ↗</a><a href="#integration">학생부 데이터 연계 ↗</a></p><p class="tech">Next.js · NestJS · PostgreSQL · Prisma · Redis</p></div></article>
 <article class="case" id="admissions">
 <div class="case-head"><div class="case-meta"><b>02 · 입학전형</b><span>입학전형시스템<br> 팀 프로젝트 개발 참여</span></div><div><h3>접수 현황이 바뀌어도 출력 당시의 기록은 보존</h3><p class="result">입학전형시스템의 웹 전환에 참여해, <strong>현재 접수 현황과 이미 출력한 보고서를 구분해 관리하도록 설계·개발했습니다.</strong> 업로드 결과 확인과 자료 일괄 수정도 맡았습니다.</p></div></div>
 <div class="case-body"><p class="note">성적산출 시스템과 함께 구성된 제품으로, 2027학년도 수시에 사용 중입니다.</p>
@@ -90,12 +90,12 @@
 <h4>저장 방식 변경과 데이터 처리 조건</h4><p>Prisma <code>createMany</code>를 파라미터 바인딩 PostgreSQL JSONB 일괄 삽입으로 교체했습니다. 과목 상세는 최대 8,000행씩 나눠 저장하고, 비정상 점수가 JSON 변환 중 null로 바뀌는 경우를 차단했습니다.</p>
 <h4>변경 후 확인한 범위</h4><p>변경 전후 산출 결과·실패·과목 상세의 <strong>건수 일치</strong>와 관련 집중 테스트·빌드 통과를 확인했습니다. 후속 검증에서는 <strong>실제 PostgreSQL에 저장한 뒤 필드별로 다시 조회</strong>해 JSONB 매핑을 확인하고, 비정상 점수가 해당 지원자의 실패로 격리되는지도 검증했습니다.</p>
 <div class="benchmark" aria-label="동일 시즌 16,511명 로컬 전체 산출 시간 비교"><p class="benchmark-label">측정 결과 · 동일 시즌 16,511명 · 로컬 전체 산출 시간</p><div class="bar-row"><span>변경 전</span><div class="bar-track"><div class="bar before">225.1초</div></div></div><div class="bar-row"><span>변경 후</span><div class="bar-track"><div class="bar after">107.7초</div></div></div><div class="bench-result"><span>같은 로컬 DB·실행 방식에서 설정별 실행 기록 비교</span><span>측정값 기준 52.1% 감소</span></div></div>
-<p class="note">2026.08.24 로컬 Windows · NestJS · PostgreSQL 환경의 실행 기록입니다. 각 설정의 실행값을 비교했으며, 반복 측정 평균을 의미하지 않습니다.</p><h4>효과가 작은 추가 실험은 제외했습니다</h4><p>스냅샷을 100명씩 생성·직렬화하는 실험도 진행했지만, 메모리 감소가 작고 DB 왕복이 늘어 적용하지 않았습니다. 메모리 사용량 개선은 후속 과제로 남겼습니다.</p><p class="tech">NestJS · Prisma · PostgreSQL / JSONB</p></div></article>
+<p class="note">2026.08.24 로컬 Windows · NestJS · PostgreSQL 환경의 실행 기록입니다. 각 설정의 실행값을 비교했으며, 반복 측정 평균을 의미하지 않습니다.</p><h4>조회에서도 반복 처리와 화면 대기를 줄였습니다</h4><p>지원자 목록의 상세는 <strong>현재 페이지에 필요한 자료만 조회</strong>하고, 통계는 전체 결과를 반복해서 읽는 대신 DB에서 집계하도록 개선했습니다. 대량 자료의 목록·집계 결과가 유지되는지 로컬 PostgreSQL과 실제 자료 복사본으로 검증했습니다.</p><h4>효과가 작은 추가 실험은 제외했습니다</h4><p>스냅샷을 100명씩 생성·직렬화하는 실험도 진행했지만, 메모리 감소가 작고 DB 왕복이 늘어 적용하지 않았습니다. 메모리 사용량 개선은 후속 과제로 남겼습니다.</p><p class="tech">NestJS · Prisma · PostgreSQL / JSONB</p></div></article>
 <article class="case" id="integration">
 <div class="case-head"><div class="case-meta"><b>05 · 데이터 연계</b><span>입학전형 관리 ↔ 성적산출<br> 송신·수신 경로 구현</span></div><div><h3>학생부 자료를 스트리밍으로 전달</h3><p class="result">일반 조회의 10만 행 제한을 해결할 전용 경로를 만들고, <strong>수신 완료를 확인한 자료만 사용 데이터로 교체하도록 했습니다.</strong></p></div></div>
 <div class="case-body"><p>성적산출 시스템에 학생부 자료를 넘겨야 했지만, 일반 조회에는 행 수 제한이 있었고 대형 JSON 응답에도 제약이 있었습니다. PostgreSQL COPY로 추출한 CSV를 gzip으로 압축해 전송하도록 바꿨습니다.</p>
 <div class="flow" aria-label="학생부 송수신 순서"><div><strong>1. COPY</strong><small>PostgreSQL 추출</small></div><div><strong>2. CSV · gzip</strong><small>HTTP 전송</small></div><div><strong>3. 임시 적재</strong><small>SQLite 수신</small></div><div><strong>4. 검증 후 교체</strong><small>완료 상태·행 수 비교</small></div></div>
-<h4>덜 받은 자료가 반영되지 않도록</h4><p>학생정보·교과·출결을 각각 임시 테이블에 받았습니다. 송신 측 완료 상태와 기록된 행 수가 로컬 적재 건수와 일치할 때만 교체했습니다. 중단, 행 수 불일치, 압축 데이터 절단 시에는 기존 자료를 유지했습니다.</p><p class="note">진행 상태: 전용 송수신 경로 구현 및 로컬 검증 완료.</p><p class="tech">PostgreSQL COPY · HTTP streaming · gzip · SQLite</p></div></article>
+<h4>덜 받은 자료가 반영되지 않도록</h4><p>학생정보·교과·출결을 각각 임시 테이블에 받았습니다. 송신 측 완료 상태와 기록된 행 수가 로컬 적재 건수와 일치할 때만 교체했습니다. 중단, 행 수 불일치, 압축 데이터 절단 시에는 기존 자료를 유지했습니다.</p><p class="note">학생부 전용 송수신 경로: 구현 및 로컬 검증 완료.</p><h4>산출 성적을 돌려보내는 경로도 개선</h4><p>성적 반출은 <strong>같은 조회 시점의 완료 결과를 고정</strong>하고 반복 집계를 재사용합니다. 수신 측 저장은 배치로 처리하면서 기존 점수·미산출 null·다른 서비스 자료를 보존하고, 중간 실패 시 전체를 되돌리도록 했습니다.</p><p class="note">개발·로컬 환경에서 실제 PostgreSQL의 필드 대조, 연동 자료 저장·재조회와 강제 실패 롤백을 검증했습니다. 대학 운영 성능 수치를 의미하지 않습니다.</p><p class="tech">PostgreSQL COPY · HTTP streaming · gzip · SQLite</p></div></article>
 </section>
 <section class="career-section" id="experience" aria-labelledby="career-title"><h2 id="career-title">회사 경력</h2>
 <div class="career"><div class="career-date">진학어플라이<br>2023.08 입사 · 재직 중</div><div><h3>2026.03–현재 · 컴패스팀</h3><p>2025년 12월 착수한 성적산출 시스템의 개발과 유지보수·개선을 이어가고 있습니다. 입학전형시스템의 보고·업로드·연계와 수능최저 관리·후보 인원 설정을 개발했습니다. 기존 시스템의 대학별 산식·출력물 개선에도 참여했습니다.</p><p class="tech">TypeScript · NestJS · PostgreSQL · SQLite · MSSQL / Oracle · C# / Crystal Reports</p></div></div>
@@ -108,7 +108,7 @@
 <div class="career"><div class="career-date">2022.07–2023.06</div><div><h3>삼성 청년 SW 아카데미 8기</h3><p>Java 전공 트랙</p><p style="margin-top:12px">교육 프로젝트인 <strong>AI 사진 생성·편집 앱</strong>에서 인프라를 맡았습니다(2023.04–05). EC2 두 대로 Kubernetes 클러스터를 구성하고, Jenkins 배포 파이프라인과 EFK 로그 수집 환경을 구축했습니다.</p></div></div>
 </section>
 </div></main>
-<footer class="wrap"><span>구성우 · 2026년 9월</span><a href="mailto:sungwookoo.dev@gmail.com">sungwookoo.dev@gmail.com</a></footer>
+<footer class="wrap"><span>구성우 · 2026년 10월</span><a href="mailto:sungwookoo.dev@gmail.com">sungwookoo.dev@gmail.com</a></footer>
 <script>
 const navLinks=[...document.querySelectorAll('.section-nav a')];
 const sections=navLinks.map(link=>document.querySelector(link.hash));
