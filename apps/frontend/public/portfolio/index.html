@@ -32,25 +32,25 @@
 <section class="wrap"><div class="hero">
 <div class="identity"><h1>구성우</h1><p class="occupation">풀스택·웹 서비스 개발자</p></div>
 <p class="career-line">진학어플라이 · 2023.08–현재 &nbsp; / &nbsp; 경력 3년 1개월 <span>(2026.10 기준)</span></p>
-<p class="lead">입학전형시스템 개발에 참여하고, 함께 구성된 성적산출 시스템의 요구사항·화면 설계부터 프론트엔드·서버 구현까지 맡았습니다. 개발한 성적산출 시스템은 <strong>가천대학교 포함 4개 대학의 실제 입시에 사용되고 있습니다.</strong></p>
+<p class="lead">입학전형·성적산출 웹 서비스를 개발합니다. 성적산출 시스템의 요구사항 정의부터 검증 화면·계산 및 저장 로직 구현까지 맡았습니다. 개발한 시스템은 <strong>가천대학교 포함 4개 대학의 실제 입시에 사용되고 있습니다.</strong></p>
 <ul class="summary" aria-label="대표 작업 요약">
 <li><a href="#score-system"><strong>4개 대학 실제 적용</strong><span>성적산출 시스템 신규 개발</span><i class="summary-arrow" aria-hidden="true">→</i></a></li>
 <li><a href="#delivery"><strong>부서 전체 배포 전환</strong><span>PM2·k8s → k3s</span><i class="summary-arrow" aria-hidden="true">→</i></a></li>
-<li><a href="#score-system"><strong>화면부터 서버까지</strong><span>요구사항·설계·구현 담당</span><i class="summary-arrow" aria-hidden="true">→</i></a></li>
+<li><a href="#score-system"><strong>점수의 근거까지 확인</strong><span>검증 화면·데이터 정합성 설계</span><i class="summary-arrow" aria-hidden="true">→</i></a></li>
 </ul>
 <div class="contact"><div><a href="mailto:sungwookoo.dev@gmail.com">sungwookoo.dev@gmail.com</a><!-- submission-contact --></div></div>
 <dl class="stack-overview" aria-label="주요 기술"><div><dt>Frontend</dt><dd>React · Next.js</dd></div><div><dt>Backend</dt><dd>NestJS · PostgreSQL</dd></div><div><dt>Deployment</dt><dd>k3s · Argo CD</dd></div></dl></div></section>
 <nav class="section-nav" aria-label="포트폴리오 목차"><div class="wrap">
-<a href="#score-system" aria-current="location"><span class="nav-num" aria-hidden="true">01 </span>성적산출</a><a href="#admissions"><span class="nav-num" aria-hidden="true">02 </span>입학전형</a><a href="#delivery"><span class="nav-num" aria-hidden="true">03 </span>배포 전환</a><a href="#performance"><span class="nav-num" aria-hidden="true">04 </span>성능 개선</a><a href="#integration"><span class="nav-num" aria-hidden="true">05 </span>데이터 연계</a><a href="#experience">회사 경력</a><a href="#side">사이드 프로젝트</a>
+<a href="#score-system" aria-current="location"><span class="nav-num" aria-hidden="true">01 </span>성적산출</a><a href="#admissions"><span class="nav-num" aria-hidden="true">02 </span>입학전형</a><a href="#delivery"><span class="nav-num" aria-hidden="true">03 </span>배포 전환</a><a href="#performance"><span class="nav-num" aria-hidden="true">04 </span>저장·검증</a><a href="#integration"><span class="nav-num" aria-hidden="true">05 </span>데이터 연계</a><a href="#experience">회사 경력</a><a href="#side">사이드 프로젝트</a>
 </div></nav>
 <div class="wrap"><section id="work" aria-labelledby="work-title"><h2 class="section-title" id="work-title">회사 프로젝트 · 주요 작업</h2>
 <div class="project-previews" aria-label="대표 작업 미리보기"><a href="#score-system"><div class="preview-art" aria-hidden="true"><div class="preview-list">지원자 A<br>지원자 B<br>지원자 C</div><div class="preview-detail">산출점수 → 적용점수<b>82.50 → 84.00</b>변경 사유 · 계산 근거</div></div><strong>성적산출 · 검증 화면 ↗</strong><small>설명용 재구성 · 가상 데이터</small></a><a href="#delivery"><div class="preview-art preview-flow" aria-hidden="true"><span>Linux · PM2<br>기존 k8s</span><b>→ k3s<br>Argo CD</b></div><strong>부서 전체 · 배포 전환 ↗</strong><small>담당한 애플리케이션 이관 흐름</small></a></div>
 <article class="case" id="score-system">
-<div class="case-head"><div class="case-meta"><b>01 · 신규 개발</b><span>2025.12–현재<br> 성적산출 시스템</span></div><div><h3>성적산출 시스템을 웹으로</h3><p class="result">요구사항 정리·설계·구현을 맡아 개발한 시스템이 <strong>가천대학교 포함 4개 대학의 실제 입시에 사용되고 있습니다.</strong></p></div></div>
+<div class="case-head"><div class="case-meta"><b>01 · 신규 개발</b><span>2025.12–현재<br> 성적산출 시스템</span></div><div><h3>성적 계산부터 결과 검증까지</h3><p class="result">요구사항·화면·서버 구현을 맡은 성적산출 시스템이 <strong>가천대학교 포함 4개 대학의 실제 입시에 사용되고 있습니다.</strong></p></div></div>
 <div class="case-body"><p>회사는 C# WinForms 기반 입학전형 프로그램을 웹으로 전환하기 시작했습니다. 그 과정에서 성적산출 영역이 분리되었고, 제가 해당 시스템을 맡았습니다.</p>
 <p class="note">두 시스템은 함께 구성된 제품입니다. 입학전형시스템에서는 팀 프로젝트의 보고·업로드·연계 기능 개발에 참여했고, 별도 개발 프로젝트로 분리된 성적산출 시스템은 요구사항부터 구현까지 맡았습니다.</p>
 <h4>교차검증을 거쳐 실제 입시에 적용</h4><p>2025년 12월 개발을 시작했습니다. <strong>2026학년도 정시에는 약 10개 대학의 수능성적 계산을 기존 시스템과 교차검증</strong>하는 데 활용했습니다. 현재는 <strong>2027학년도 수시 내신성적 계산에 4개 대학이 사용</strong>하고 있습니다.</p>
-<h4>자료 수신부터 결과 확인까지</h4><p>학생부·수능 자료 수신, 산출, 검증, 출력을 개발했습니다. 대학과 모집시기별 자료를 관리하고, 입학전형 관리시스템과 원천 자료·산출 결과를 주고받도록 연결했습니다.</p>
+<h4>담당 범위: 자료 수신·계산·검증·출력</h4><p>학생부·수능 자료 수신, 산출, 검증, 출력을 개발했습니다. 대학과 모집시기별 자료를 관리하고, 입학전형 관리시스템과 원천 자료·산출 결과를 주고받도록 연결했습니다.</p>
 <h4>여러 지원자의 결과를 검증하는 화면</h4><p>화면 설계와 Next.js 프론트엔드 구현도 직접 담당했습니다. 목록과 상세 화면을 왕복하지 않고 학생별 계산 근거를 확인하게 했으며, 여러 학생을 비교할 때는 전체 목록형으로 전환할 수 있게 했습니다.</p>
 <figure class="validation-figure" aria-labelledby="validation-caption">
 <figcaption id="validation-caption"><strong>성적 검증 화면의 두 가지 보기</strong><span>설명용 재구성 · 가상 데이터</span></figcaption>
@@ -64,7 +64,7 @@
 <p class="figure-note">실제 서비스 화면이 아닌 구조 설명입니다. 점수와 보정 사유는 예시입니다.</p>
 </figure>
 <p>보정된 점수는 <strong>원래 산출점수·적용점수·변경 사유를 구분</strong>해, 담당자가 현재 점수의 근거를 함께 확인하도록 설계했습니다. <strong>동시 수정은 버전 검사와 DB 잠금으로 보호</strong>하고, 원천 자료가 삭제돼도 보정 사유와 변경 이력이 남도록 구현했습니다.</p><h4>대학별 요구와 공통 처리의 경계</h4><p>대학별 산식 변경이 공통 자료 처리에 영향을 주는 범위를 줄이기 위해, 학생부 계산 로직과 자료 조회·저장을 분리했습니다. 수능은 산출 설정과 환산표를 기반으로 처리하도록 구성했습니다.</p>
-<h4>재산출 실패로 기존 결과가 사라지지 않도록</h4><p>선택한 전형의 계산이 <strong>모두 성공했을 때 새 결과로 교체</strong>하고, 계산 중이거나 실패하면 기존 완료 결과를 유지하도록 개발했습니다. 검증 화면·PDF·Excel·외부 반출이 같은 저장 결과를 사용하도록 연결했습니다.</p><p class="note">해당 워크플로 전환은 병합·개발 환경 배포 및 출력·연동 검증을 완료했습니다. 개발 환경의 재산출·반출 동시 실행 최종 검증은 진행 중입니다.</p><p class="note">개발 이후 현재까지 유지보수·개선 개발을 이어가고 있습니다. 학교별 추가개발·유지보수와 운영은 부서 운영자·동료 개발자들과 함께 진행합니다.</p><p class="related-work">같은 시스템의 다른 작업 <a href="#performance">저장 성능 개선 ↗</a><a href="#integration">학생부 데이터 연계 ↗</a></p><p class="tech">Next.js · NestJS · PostgreSQL · Prisma · Redis</p></div></article>
+<h4>재산출 실패로 기존 결과가 사라지지 않도록</h4><p>선택한 전형의 계산이 <strong>모두 성공했을 때 새 결과로 교체</strong>하고, 계산 중이거나 실패하면 기존 완료 결과를 유지하도록 개발했습니다. 검증 화면·PDF·Excel·외부 반출이 같은 저장 결과를 사용하도록 연결했습니다.</p><p class="note">해당 워크플로 전환은 병합·개발 환경 배포 및 출력·연동 검증을 완료했습니다. 개발 환경의 재산출·반출 동시 실행 최종 검증은 진행 중입니다.</p><p class="note">개발 이후 현재까지 유지보수·개선 개발을 이어가고 있습니다. 학교별 추가개발·유지보수와 운영은 부서 운영자·동료 개발자들과 함께 진행합니다.</p><p class="related-work">이 시스템에서 이어진 개선 <a href="#performance">저장 병목·결과 검증 ↗</a><a href="#integration">실패에 대비한 자료 연계 ↗</a></p><p class="tech">Next.js · NestJS · PostgreSQL · Prisma · Redis</p></div></article>
 <article class="case" id="admissions">
 <div class="case-head"><div class="case-meta"><b>02 · 입학전형</b><span>입학전형시스템<br> 팀 프로젝트 개발 참여</span></div><div><h3>접수 현황이 바뀌어도 출력 당시의 기록은 보존</h3><p class="result">입학전형시스템의 웹 전환에 참여해, <strong>현재 접수 현황과 이미 출력한 보고서를 구분해 관리하도록 설계·개발했습니다.</strong> 업로드 결과 확인과 자료 일괄 수정도 맡았습니다.</p></div></div>
 <div class="case-body"><p class="note">성적산출 시스템과 함께 구성된 제품으로, 2027학년도 수시에 사용 중입니다.</p>
@@ -75,7 +75,7 @@
 <div><dt>후보 인원 설정</dt><dd>최초합격자 최종심사에서 모집단위별 후보 인원을 설정하도록 개발했습니다. <strong>변경 사유·이력과 동시 수정 검사</strong>를 연결하고, 재선발 전에는 최종 마감을 차단했습니다.</dd></div>
 <div><dt>업로드·자료 수정</dt><dd>파일별 <strong>성공·실패·미확인</strong>을 실행 이력으로 구분했습니다. 일괄 수정은 미선택 필드·다른 서비스 자료를 보존하고 500건 단위로 저장·롤백하며, 앞서 성공한 묶음은 유지합니다.</dd></div>
 <div><dt>개인정보·연계</dt><dd>서버에서 동일인을 비교하고 권한·감사 기록을 확인하는 출력 경로에 연결했습니다. 외부 전달용 <strong>서비스·용도별 가상 식별키</strong>와 성적산출용 대량 학생부 반출 경로를 구현했습니다.</dd></div></dl>
-<p class="related-work">제품 간 연계 사례 <a href="#integration">학생부 데이터 연계 ↗</a></p><p class="tech">TypeScript · Next.js · Prisma · PostgreSQL · Excel / PDF</p></div></article>
+<p class="related-work">제품 간 연계 사례 <a href="#integration">실패에 대비한 자료 연계 ↗</a></p><p class="tech">TypeScript · Next.js · Prisma · PostgreSQL · Excel / PDF</p></div></article>
 <article class="case" id="delivery">
 <div class="case-head"><div class="case-meta"><b>03 · 배포 전환</b><span>이전 팀<br> 부서 전체 솔루션</span></div><div><h3>두 운영 환경을 k3s·Argo CD로</h3><p class="result">부서 최초 k3s 애플리케이션 이관을 주도하고, <strong>모든 솔루션 프로젝트의 k3s·Argo CD 전환을 이끌었습니다.</strong></p></div></div>
 <div class="case-body"><div class="ownership"><span>클러스터 구축: <b>시스템부서</b></span><span>애플리케이션 이관·배포 전환·확산: <b>구성우</b></span></div>
@@ -84,7 +84,7 @@
 <h4>배포 설정 재사용과 기술공유로 부서 전체에 적용</h4><p>파이프라인이 GitOps 매니페스트의 이미지 버전을 갱신하도록 연결하고, <strong>빌드 환경변수 처리와 설정 갱신 단계를 모듈화해 다른 배포 환경에도 적용</strong>했습니다. k3s 이관 기술공유 세션을 진행하며 프로젝트별 적용을 이끌었고, 부서 내 모든 솔루션 프로젝트가 k3s·Argo CD 방식으로 전환했습니다.</p>
 <h4>애플리케이션과 연결된 운영 환경도 이관</h4><p>출결 서비스의 이관에 맞춰 <strong>Azure 파일 저장 공통 모듈을 만들고 업로드·다운로드 경로를 전환</strong>했습니다. 도메인·인증 연동 서버를 이관하고, 논술 서비스의 로그 수집 경로도 k3s 운영 환경에 맞췄습니다.</p><p class="tech">k3s · Argo CD · Bitbucket Pipelines · Azure Storage</p></div></article>
 <article class="case" id="performance">
-<div class="case-head"><div class="case-meta"><b>04 · 성능 개선</b><span>성적산출 시스템<br> 저장 경로 개선</span></div><div><h3>계산 로직을 유지하며 저장 경로 개선</h3><p class="result">단계별 실행 시간을 측정해 <strong>스냅샷·산출 결과·과목 상세 저장을 병목으로 특정하고, 저장 경로를 중심으로 개선했습니다.</strong></p></div></div>
+<div class="case-head"><div class="case-meta"><b>04 · 성적산출 개선</b><span>성적산출 시스템<br> 저장 경로 개선</span></div><div><h3>저장 병목을 줄이고 결과를 검증</h3><p class="result">성적산출 시스템의 <strong>저장 병목을 측정해 변경 범위를 좁히고, 저장된 값과 실패 처리까지 검증했습니다.</strong></p></div></div>
 <div class="case-body"><h4>단계별 측정으로 개선 대상을 좁혔습니다</h4><p>전체 산출 과정의 실행 시간을 나눠 확인해 저장 구간을 개선 대상으로 잡았습니다. <strong>스냅샷 저장부터 변경하고, 과목 상세와 최종 결과 저장 순으로 확대하며 각 변경의 효과를 확인</strong>했습니다. 계산 규칙·산출 대상·트랜잭션 순서는 유지했습니다.</p>
 <div class="decision"><h4>AI 활용과 변경 범위 결정</h4><p>코드 분석·구현·검증에 Codex를 활용했습니다. 광범위한 리팩터링안은 적용하지 않고, <strong>측정에서 확인한 저장 병목으로 변경 범위를 한정</strong>했습니다.</p></div>
 <h4>저장 방식 변경과 데이터 처리 조건</h4><p>Prisma <code>createMany</code>를 파라미터 바인딩 PostgreSQL JSONB 일괄 삽입으로 교체했습니다. 과목 상세는 최대 8,000행씩 나눠 저장하고, 비정상 점수가 JSON 변환 중 null로 바뀌는 경우를 차단했습니다.</p>
@@ -92,7 +92,7 @@
 <div class="benchmark" aria-label="동일 시즌 16,511명 로컬 전체 산출 시간 비교"><p class="benchmark-label">측정 결과 · 동일 시즌 16,511명 · 로컬 전체 산출 시간</p><div class="bar-row"><span>변경 전</span><div class="bar-track"><div class="bar before">225.1초</div></div></div><div class="bar-row"><span>변경 후</span><div class="bar-track"><div class="bar after">107.7초</div></div></div><div class="bench-result"><span>같은 로컬 DB·실행 방식에서 설정별 실행 기록 비교</span><span>측정값 기준 52.1% 감소</span></div></div>
 <p class="note">2026.08.24 로컬 Windows · NestJS · PostgreSQL 환경의 실행 기록입니다. 각 설정의 실행값을 비교했으며, 반복 측정 평균을 의미하지 않습니다.</p><h4>조회에서도 반복 처리와 화면 대기를 줄였습니다</h4><p>지원자 목록의 상세는 <strong>현재 페이지에 필요한 자료만 조회</strong>하고, 통계는 전체 결과를 반복해서 읽는 대신 DB에서 집계하도록 개선했습니다. 대량 자료의 목록·집계 결과가 유지되는지 로컬 PostgreSQL과 실제 자료 복사본으로 검증했습니다.</p><h4>효과가 작은 추가 실험은 제외했습니다</h4><p>스냅샷을 100명씩 생성·직렬화하는 실험도 진행했지만, 메모리 감소가 작고 DB 왕복이 늘어 적용하지 않았습니다. 메모리 사용량 개선은 후속 과제로 남겼습니다.</p><p class="tech">NestJS · Prisma · PostgreSQL / JSONB</p></div></article>
 <article class="case" id="integration">
-<div class="case-head"><div class="case-meta"><b>05 · 데이터 연계</b><span>입학전형 관리 ↔ 성적산출<br> 송신·수신 경로 구현</span></div><div><h3>학생부 자료를 스트리밍으로 전달</h3><p class="result">일반 조회의 10만 행 제한을 해결할 전용 경로를 만들고, <strong>수신 완료를 확인한 자료만 사용 데이터로 교체하도록 했습니다.</strong></p></div></div>
+<div class="case-head"><div class="case-meta"><b>05 · 데이터 연계</b><span>입학전형 관리 ↔ 성적산출<br> 송신·수신 경로 구현</span></div><div><h3>자료 연계가 중단돼도 기존 데이터 보존</h3><p class="result">일반 조회의 10만 행 제한을 해결할 전용 경로를 만들고, <strong>수신 완료를 확인한 자료만 사용 데이터로 교체하도록 했습니다.</strong></p></div></div>
 <div class="case-body"><p>성적산출 시스템에 학생부 자료를 넘겨야 했지만, 일반 조회에는 행 수 제한이 있었고 대형 JSON 응답에도 제약이 있었습니다. PostgreSQL COPY로 추출한 CSV를 gzip으로 압축해 전송하도록 바꿨습니다.</p>
 <div class="flow" aria-label="학생부 송수신 순서"><div><strong>1. COPY</strong><small>PostgreSQL 추출</small></div><div><strong>2. CSV · gzip</strong><small>HTTP 전송</small></div><div><strong>3. 임시 적재</strong><small>SQLite 수신</small></div><div><strong>4. 검증 후 교체</strong><small>완료 상태·행 수 비교</small></div></div>
 <h4>덜 받은 자료가 반영되지 않도록</h4><p>학생정보·교과·출결을 각각 임시 테이블에 받았습니다. 송신 측 완료 상태와 기록된 행 수가 로컬 적재 건수와 일치할 때만 교체했습니다. 중단, 행 수 불일치, 압축 데이터 절단 시에는 기존 자료를 유지했습니다.</p><p class="note">학생부 전용 송수신 경로: 구현 및 로컬 검증 완료.</p><h4>산출 성적을 돌려보내는 경로도 개선</h4><p>성적 반출은 <strong>같은 조회 시점의 완료 결과를 고정</strong>하고 반복 집계를 재사용합니다. 수신 측 저장은 배치로 처리하면서 기존 점수·미산출 null·다른 서비스 자료를 보존하고, 중간 실패 시 전체를 되돌리도록 했습니다.</p><p class="note">개발·로컬 환경에서 실제 PostgreSQL의 필드 대조, 연동 자료 저장·재조회와 강제 실패 롤백을 검증했습니다. 대학 운영 성능 수치를 의미하지 않습니다.</p><p class="tech">PostgreSQL COPY · HTTP streaming · gzip · SQLite</p></div></article>
