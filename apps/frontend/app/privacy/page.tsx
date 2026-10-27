@@ -156,11 +156,16 @@ export default function PrivacyPage(): import("react").ReactNode {
         </Section>
 
         <Section title="8. 쿠키">
-          <p>서비스는 필수 쿠키 1개만 사용합니다.</p>
+          <p>서비스는 로그인에 필요한 쿠키만 사용합니다.</p>
           <ul className="list-disc space-y-1 pl-5">
             <li>
-              <code className="font-mono text-zinc-300">swkoo_session</code> —
-              사인인 세션. HTTP-only, Secure, 30일 만료. 비활성화 시 사인인 불가.
+              <code className="font-mono text-zinc-300">__Host-swkoo_session</code> —
+              사인인 세션. HTTP-only, Secure, SameSite=Lax, 30일 만료. 로그아웃 시 서버에서도 폐기합니다. 비활성화 시 사인인 불가.
+            </li>
+            <li>
+              <code className="font-mono text-zinc-300">__Host-swkoo_oauth_state</code>와{' '}
+              <code className="font-mono text-zinc-300">__Host-swkoo_oauth_return</code> —
+              로그인 요청 확인과 로그인 후 복귀 경로를 위한 임시 쿠키. HTTP-only, Secure, SameSite=Lax, 10분 만료.
             </li>
           </ul>
         </Section>
