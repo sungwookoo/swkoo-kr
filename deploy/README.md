@@ -6,6 +6,7 @@
   - `frontend/`: Next.js UI Deployment/Service/Ingress (`swkoo-frontend`)
   - `common/namespace.yaml`: `swkoo` 네임스페이스 생성
 - `argocd/application.yaml`: Argo CD `Application` 매니페스트
+- `workers/`: 제한된 패치·스캔 작업 공간. `argocd/workers-application.yaml`로 동기화한다.
 
 ## 선행 조건
 - OCI Container Registry 이미지
@@ -20,11 +21,12 @@
     --docker-password='<auth-token>'
   ```
 
-  > **OCI auth token rotation 시 주의**: 같은 token 이 두 곳에 박혀있습니다:
+  > **OCI auth token rotation 시 주의**: 같은 token을 세 곳에서 사용합니다:
   > 1. GitHub Actions repo secret `OCI_AUTH_TOKEN` — 빌드 시 push 용
   > 2. 클러스터 `swkoo/ocir-credentials` Secret — 런타임 pull 용
+  > 3. 클러스터 `swkoo-workers/ocir-credentials` Secret — 운영 이미지 스캔 용
   >
-  > **두 곳 모두** 갱신해야 합니다. GHA 만 갱신하면 push 는 통과하지만 새 이미지를 cluster 가 pull 못 해 `ImagePullBackOff` 로 backend 다운. 갱신 명령 (token 노출 최소화):
+  > **세 곳 모두** 갱신해야 합니다. 아래 Secret 갱신은 `swkoo`와 `swkoo-workers` 각각 실행합니다. GHA만 갱신하면 새 이미지 pull 또는 스캔이 실패합니다.
   > ```bash
   > kubectl create secret docker-registry ocir-credentials -n swkoo \
   >   --docker-server=nrt.ocir.io \
@@ -35,7 +37,8 @@
   > kubectl -n swkoo delete pod -l app=swkoo-backend
   > kubectl -n swkoo delete pod -l app=swkoo-frontend
   > ```
-- 백엔드 환경 변수 시크릿: `swkoo-backend-env` — 백엔드가 `envFrom: secretRef:`로 흡수하는 단일 Secret. 모든 토큰·비밀키·환경 의존 값이 여기에 모임.
+- 토큰 암호화 Secret: `swkoo/swkoo-token-encryption`의 `key`에 무작위 32바이트 base64 값을 보관한다. `TOKEN_ENCRYPTION_KEY`로 주입되며 기존 암호문이 있는 환경에서 재생성하면 안 된다. 신규 배포 전 worker namespace·registry Secret·암호화 Secret을 먼저 준비한다. [보안 운영 절차](../docs/security-remediation-2026-10-27.md)를 따른다.
+- 백엔드 환경 변수 시크릿: `swkoo-backend-env` — 백엔드가 `envFrom: secretRef:`로 읽는다. 토큰 암호화 키는 위 별도 Secret으로 분리한다.
 
   ```bash
   kubectl create secret generic swkoo-backend-env \
