@@ -31,13 +31,13 @@ export class AccountController {
   ) {}
 
   /** Latest Trivy scan for the requesting user, or null if never scanned.
-   * Lightweight (single DB row) — safe to call on page load. Decodes the
+   * Compares the stored result with the running image. Decodes the
    * findings JSON for the frontend (it doesn't need to know we stored it
    * as a string). The full record lives in /account/export. */
   @Get('scan')
-  async getLatestScan(@Req() req: AuthedRequest): Promise<unknown> {
+  async getLatestScan(@Req() req: AuthedRequest, @Res() res: Response): Promise<unknown> {
     const row = this.users.latestScanResultForUser(req.user.id);
-    if (!row) return null;
+    if (!row) return res.json(null);
     let currentImage: string | null = null;
     try {
       const deployment = await this.deploy.getCurrentDeployment(req.user.githubLogin);
@@ -55,7 +55,7 @@ export class AccountController {
         // legacy or corrupted blob — treat as empty
       }
     }
-    return {
+    return res.json({
       id: row.id,
       userId: row.userId,
       image: row.image,
@@ -68,7 +68,7 @@ export class AccountController {
       currentImage,
       matchesCurrentImage: currentImage === null ? null : currentImage === row.image,
       stale: Date.now() - Date.parse(row.scannedAt) > 48 * 60 * 60_000,
-    };
+    });
   }
 
   /** GDPR Art.20 / K-PIPA right to data portability. Returns everything the
