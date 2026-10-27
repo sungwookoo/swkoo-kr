@@ -1,0 +1,37 @@
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: swkoo-worker-jobs
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [batch]
+        apiVersions: [v1]
+        operations: [CREATE, UPDATE]
+        resources: [jobs]
+  matchConditions:
+    - name: worker-namespace
+      expression: "request.namespace == 'swkoo-workers'"
+  variables:
+    - name: pod
+      expression: object.spec.template.spec
+  validations:
+    - expression: "variables.pod.serviceAccountName == 'security-worker' && has(variables.pod.automountServiceAccountToken) && variables.pod.automountServiceAccountToken == false"
+      message: Worker service account and disabled token mount are required.
+    - expression: "!has(variables.pod.initContainers) && variables.pod.containers.size() == 1 && variables.pod.containers.all(c, c.image in ['aquasec/trivy:0.74.0', 'node:24.18.1-alpine'])"
+      message: Only the reviewed worker images are permitted.
+    - expression: "!has(variables.pod.volumes) || variables.pod.volumes.all(v, has(v.emptyDir) || (has(v.persistentVolumeClaim) && v.persistentVolumeClaim.claimName == 'trivy-db-cache') || (has(v.secret) && v.secret.secretName == 'ocir-credentials'))"
+      message: Only worker cache, temporary volumes and registry credentials are permitted.
+    - expression: "variables.pod.containers.all(c, !has(c.envFrom) && (!has(c.env) || c.env.all(e, !has(e.valueFrom))))"
+      message: Environment secret references are not permitted.
+    - expression: "has(object.spec.activeDeadlineSeconds) && object.spec.activeDeadlineSeconds <= 360"
+      message: Worker jobs must have a bounded deadline.
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: swkoo-worker-jobs
+spec:
+  policyName: swkoo-worker-jobs
+  validationActions: [Deny]

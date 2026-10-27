@@ -75,17 +75,17 @@ describe('AuthController — GitHub App install vs login flow', () => {
     const cap = makeRes();
     await controller.handleCallback(makeReq({ code: 'code', state: 'st-123' }, {
       [OAUTH_STATE_COOKIE]: 'st-123',
-      swkoo_oauth_return: JSON.stringify({ state: savedState, path }),
+      '__Host-swkoo_oauth_return': JSON.stringify({ state: savedState, path }),
     }), cap.res);
     expect(cap.redirectedTo).toBe(`https://swkoo.kr${expected}`);
-    expect(cap.cleared).toContain('swkoo_oauth_return');
+    expect(cap.cleared).toContain('__Host-swkoo_oauth_return');
   });
 
   it('stores a validated return path with the login state', () => {
     const { controller } = makeController();
     const cap = makeRes();
     controller.startOauth(cap.res, makeReq({ returnTo: '/deploy/hizieun/portfolio' }));
-    const saved = JSON.parse(cap.cookies.find(c => c.name === 'swkoo_oauth_return')!.value);
+    const saved = JSON.parse(cap.cookies.find(c => c.name === '__Host-swkoo_oauth_return')!.value);
     expect(saved.path).toBe('/deploy/hizieun/portfolio');
     expect(saved.state).toBe(cap.cookies.find(c => c.name === OAUTH_STATE_COOKIE)!.value);
   });

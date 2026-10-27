@@ -381,6 +381,9 @@ function ScanResult({ scan }: { scan: LatestScan }): import("react").ReactNode {
       <p className="text-xs text-slate-500">
         <span className="font-mono text-slate-400">{scan.image}</span>{' '}
         · 스캔: {formatScanRelative(scan.scannedAt)}
+        {scan.stale && ' · 48시간이 지난 검사 결과입니다.'}
+        {scan.matchesCurrentImage === false && ' · 현재 운영 이미지와 다릅니다. 다음 검사 결과를 확인하세요.'}
+        {scan.matchesCurrentImage == null && ' · 현재 운영 이미지와 일치 여부를 확인하지 못했습니다.'}
       </p>
       {hasAction && (
         <p className="text-xs text-amber-400/90">

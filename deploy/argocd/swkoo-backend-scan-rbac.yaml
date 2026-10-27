@@ -1,7 +1,5 @@
-# Lets swkoo-backend SA dispatch Trivy scan Jobs and read their logs.
-# Jobs run in the swkoo namespace (same as backend) so they share the
-# trivy-db-cache PVC. Pods/log is needed because we extract Trivy's JSON
-# output by reading the completed pod's logs.
+# Read platform images for scanning. Job execution is granted separately
+# in swkoo-workers; the backend cannot create Jobs beside platform secrets.
 #
 # Apply once with:
 #   kubectl apply -f deploy/argocd/swkoo-backend-scan-rbac.yaml
@@ -15,9 +13,6 @@ rules:
     resources: ["deployments"]
     resourceNames: ["swkoo-backend", "swkoo-frontend"]
     verbs: ["get"]
-  - apiGroups: ["batch"]
-    resources: ["jobs"]
-    verbs: ["get", "list", "create", "delete"]
   - apiGroups: [""]
     resources: ["pods"]
     verbs: ["get", "list"]

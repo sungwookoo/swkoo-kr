@@ -26,8 +26,11 @@ async function bootstrap(): Promise<void> {
   // nothing reads it intentionally, and removing it costs nothing.
   const expressApp = app.getHttpAdapter().getInstance() as {
     disable: (name: string) => void;
+    set: (name: string, value: unknown) => void;
   };
   expressApp.disable('x-powered-by');
+  const trustedProxies = process.env.TRUSTED_PROXY_CIDRS?.split(',').map(value => value.trim()).filter(Boolean);
+  if (trustedProxies?.length) expressApp.set('trust proxy', trustedProxies);
 
   // Security headers applied to every response. HSTS + nosniff are the
   // load-bearing pair; the rest are policy hints the browser respects
@@ -35,6 +38,7 @@ async function bootstrap(): Promise<void> {
   // Report-Only mode so violations log without breaking anything; we
   // promote to enforce after observing reports.
   app.use((_req: Request, res: Response, next: NextFunction) => {
+    res.setHeader('Cache-Control', 'no-store');
     // 2 years, includeSubDomains, preload — matches hstspreload.org form.
     // Only safe to set this once apps.swkoo.kr children all run HTTPS,
     // which they do (cert-manager-issued).

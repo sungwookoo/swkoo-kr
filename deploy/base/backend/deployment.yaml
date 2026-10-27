@@ -21,6 +21,13 @@ spec:
         app: swkoo-backend
     spec:
       serviceAccountName: swkoo-backend
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 100
+        runAsGroup: 101
+        fsGroup: 101
+        seccompProfile:
+          type: RuntimeDefault
       imagePullSecrets:
         - name: ocir-credentials
       volumes:
@@ -29,6 +36,10 @@ spec:
             claimName: swkoo-backend-data
       containers:
         - name: backend
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
           image: nrt.ocir.io/nrznn4yiltsz/swkoo/backend:f8bcc6cd7354899fb86415cc042e58249475fc23
           imagePullPolicy: Always
           ports:
@@ -38,6 +49,13 @@ spec:
             - name: data
               mountPath: /data
           env:
+            - name: TRUSTED_PROXY_CIDRS
+              value: "10.42.0.0/16,10.0.0.147/32"
+            - name: TOKEN_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: swkoo-token-encryption
+                  key: key
             - name: PORT
               value: "3000"
             - name: OBSERVATORY_DB_PATH

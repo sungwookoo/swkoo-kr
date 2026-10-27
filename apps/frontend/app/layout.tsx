@@ -4,6 +4,8 @@ import { IBM_Plex_Sans_KR, JetBrains_Mono } from 'next/font/google';
 import './globals.css';
 import { Header } from '@/components/Header';
 import { Footer } from '@/components/Footer';
+// A fresh CSP nonce is attached to every rendered document.
+export const dynamic = 'force-dynamic';
 
 const sans = IBM_Plex_Sans_KR({
   subsets: ['latin'],

@@ -15,6 +15,8 @@ import { UsersRepository } from '../onboarding/users.repository';
 import { DeployService } from './deploy.service';
 import { EnvService } from './env.service';
 import { Req } from '@nestjs/common';
+import { KubeClient } from '../kube/kube.client';
+import { runningImage } from './running-image';
 
 @Controller('account')
 @UseGuards(JwtAuthGuard)
@@ -24,7 +26,8 @@ export class AccountController {
   constructor(
     private readonly users: UsersRepository,
     private readonly deploy: DeployService,
-    private readonly env: EnvService
+    private readonly env: EnvService,
+    private readonly kube: KubeClient
   ) {}
 
   /** Latest Trivy scan for the requesting user, or null if never scanned.
@@ -32,9 +35,17 @@ export class AccountController {
    * findings JSON for the frontend (it doesn't need to know we stored it
    * as a string). The full record lives in /account/export. */
   @Get('scan')
-  getLatestScan(@Req() req: AuthedRequest): unknown {
+  async getLatestScan(@Req() req: AuthedRequest): Promise<unknown> {
     const row = this.users.latestScanResultForUser(req.user.id);
     if (!row) return null;
+    let currentImage: string | null = null;
+    try {
+      const deployment = await this.deploy.getCurrentDeployment(req.user.githubLogin);
+      if (deployment?.state === 'active' && this.kube.available()) {
+        const pods = await this.kube.core!.listNamespacedPod({ namespace: `user-${req.user.githubLogin.toLowerCase()}`, labelSelector: `app=${deployment.appName}` });
+        currentImage = runningImage(pods.items, deployment.appName);
+      }
+    } catch { /* Unknown is never displayed as a match. */ }
     let findings: unknown[] = [];
     if (row.findingsJson) {
       try {
@@ -54,6 +65,9 @@ export class AccountController {
       scannedAt: row.scannedAt,
       trivyVersion: row.trivyVersion,
       findings,
+      currentImage,
+      matchesCurrentImage: currentImage === null ? null : currentImage === row.image,
+      stale: Date.now() - Date.parse(row.scannedAt) > 48 * 60 * 60_000,
     };
   }
 
@@ -132,7 +146,7 @@ export class AccountController {
     });
     this.users.softDeleteUser(user.id);
 
-    res.clearCookie(SESSION_COOKIE, { path: '/' });
+    res.clearCookie(SESSION_COOKIE, { path: '/', secure: true, httpOnly: true, sameSite: 'lax' });
     return { ok: true };
   }
 }

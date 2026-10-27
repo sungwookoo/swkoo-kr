@@ -27,7 +27,7 @@
 </head>
 <body>
 <a class="skip" href="#work">주요 작업으로 이동</a>
-<header class="wrap masthead"><a href="#top">구성우 · 포트폴리오</a><button type="button" onclick="window.print()">인쇄 / PDF 저장</button></header>
+<header class="wrap masthead"><a href="#top">구성우 · 포트폴리오</a><button type="button" id="print-portfolio">인쇄 / PDF 저장</button></header>
 <main id="top">
 <section class="wrap"><div class="hero">
 <div class="identity"><h1>구성우</h1><p class="occupation">풀스택·웹 서비스 개발자</p></div>
@@ -110,6 +110,7 @@
 </div></main>
 <footer class="wrap"><span>구성우 · 2026년 10월</span><a href="mailto:sungwookoo.dev@gmail.com">sungwookoo.dev@gmail.com</a></footer>
 <script>
+document.getElementById("print-portfolio").addEventListener("click", () => window.print());
 const navLinks=[...document.querySelectorAll('.section-nav a')];
 const sections=navLinks.map(link=>document.querySelector(link.hash));
 let queued=false;
