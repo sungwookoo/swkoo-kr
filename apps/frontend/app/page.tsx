@@ -108,6 +108,12 @@ function Hero(): import("react").ReactNode {
               </span>
             </Link>
           </div>
+          <Link
+            href="/notices"
+            className="text-xs leading-relaxed text-zinc-400 underline-offset-4 transition-colors hover:text-zinc-200 hover:underline focus-visible:rounded focus-visible:outline focus-visible:outline-offset-4 focus-visible:outline-zinc-400"
+          >
+            공지사항 · 보안 및 안정성 업데이트 <span aria-hidden>→</span>
+          </Link>
         </div>
 
         {/* Right: spec strip — mono terminal mock, offset down */}
