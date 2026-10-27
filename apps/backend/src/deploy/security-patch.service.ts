@@ -72,7 +72,7 @@ export class SecurityPatchService {
           (prior.state === 'preparing' || (prior.evidence && ['ready', 'creating'].includes(prior.state)))) return this.view(prior);
       if (prior && Date.now() - prior.createdAt < 60_000) throw new ConflictException('수정안 준비는 1분에 한 번 요청할 수 있습니다.');
       if (!this.kube.available()) throw new ServiceUnavailableException('수정안 준비 작업을 실행할 수 없습니다.');
-      const jobs = await this.kube.batch!.listNamespacedJob({ namespace: 'swkoo' });
+      const jobs = await this.kube.batch!.listNamespacedJob({ namespace: 'swkoo-workers' });
       if (jobs.items.filter(j => j.metadata?.name?.startsWith('security-patch-') && !j.status?.succeeded && !j.status?.failed).length >= 2) {
         throw new ConflictException('다른 수정안을 준비 중입니다. 잠시 후 다시 요청하세요.');
       }
@@ -104,7 +104,7 @@ export class SecurityPatchService {
       if (this.plans.countPreparing() >= 2) throw new ConflictException('다른 수정안을 준비 중입니다. 잠시 후 다시 요청하세요.');
       this.plans.save(plan);
       this.audit(user, 'SECURITY_PATCH_REQUESTED', plan);
-      try { await this.kube.batch!.createNamespacedJob({ namespace: 'swkoo', body: job }); }
+      try { await this.kube.batch!.createNamespacedJob({ namespace: 'swkoo-workers', body: job }); }
       catch { plan.state = 'failed'; plan.message = '격리 작업을 시작하지 못했습니다. 다시 요청하세요.'; this.plans.save(plan); }
       return this.view(plan);
     });
@@ -123,13 +123,13 @@ export class SecurityPatchService {
       if (plan.state !== 'preparing') return this.view(plan);
       const name = `security-patch-${plan.id}`;
       try {
-        const job = await this.kube.batch!.readNamespacedJob({ namespace: 'swkoo', name });
+        const job = await this.kube.batch!.readNamespacedJob({ namespace: 'swkoo-workers', name });
         if (!job.status?.succeeded && !job.status?.failed && Date.now() - plan.createdAt < 420_000) return this.view(plan);
         if (!job.status?.succeeded) throw new Error('수정안 준비에 실패했습니다. 지원 범위 또는 npm 연결 상태를 확인하고 다시 요청하세요.');
-        const pods = await this.kube.core!.listNamespacedPod({ namespace: 'swkoo', labelSelector: `job-name=${name}` });
+        const pods = await this.kube.core!.listNamespacedPod({ namespace: 'swkoo-workers', labelSelector: `job-name=${name}` });
         const pod = pods.items[0]?.metadata?.name;
         if (!pod) throw new Error('작업 결과가 만료되었습니다. 다시 요청하세요.');
-        const logs = await this.kube.core!.readNamespacedPodLog({ namespace: 'swkoo', name: pod, container: 'patch', limitBytes: 2_000_000 });
+        const logs = await this.kube.core!.readNamespacedPodLog({ namespace: 'swkoo-workers', name: pod, container: 'patch', limitBytes: 2_000_000 });
         const result: PatchResult & { auditBefore?: unknown; auditAfter?: unknown; checkedAt?: number } = JSON.parse(logs);
         try {
           if (!Number.isInteger(result.checkedAt) || result.checkedAt! < plan.createdAt || result.checkedAt! > Date.now() + 60_000) {
@@ -145,7 +145,7 @@ export class SecurityPatchService {
         } catch (err) { plan.state = 'blocked'; plan.message = (err as Error).message; }
       } catch { plan.state = 'failed'; plan.message = '작업이 실패하거나 결과가 만료되었습니다. 자동 변경은 적용되지 않았습니다.'; }
       plan.updatedAt = Date.now(); this.plans.save(plan); this.audit(user, 'SECURITY_PATCH_PREPARED', plan);
-      await this.kube.batch!.deleteNamespacedJob({ namespace: 'swkoo', name, propagationPolicy: 'Background' }).catch(() => undefined);
+      await this.kube.batch!.deleteNamespacedJob({ namespace: 'swkoo-workers', name, propagationPolicy: 'Background' }).catch(() => undefined);
       return this.view(plan);
     });
   }

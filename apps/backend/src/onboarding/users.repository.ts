@@ -7,6 +7,7 @@ import { randomUUID } from 'node:crypto';
 
 import { webhooksConfig } from '../config/webhooks.config';
 import type { DeploySuccessEmail } from '../email/email.service';
+import { TokenCipher } from './token-cipher';
 
 export interface DeployNotification {
   id: number;
@@ -88,6 +89,7 @@ export interface ScanResultRow {
 export class UsersRepository implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(UsersRepository.name);
   private db!: Db;
+  private readonly tokenCipher = new TokenCipher();
 
   constructor(
     @Inject(webhooksConfig.KEY)
@@ -98,6 +100,7 @@ export class UsersRepository implements OnModuleInit, OnModuleDestroy {
     mkdirSync(dirname(this.config.dbPath), { recursive: true });
     this.db = new Database(this.config.dbPath);
     this.db.pragma('journal_mode = WAL');
+    this.db.pragma('secure_delete = ON');
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS users (
         id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -138,6 +141,20 @@ export class UsersRepository implements OnModuleInit, OnModuleDestroy {
     this.addColumnIfMissing('users', 'access_token', 'TEXT');
     this.addColumnIfMissing('users', 'refresh_token', 'TEXT');
     this.addColumnIfMissing('users', 'token_expires_at', 'TEXT');
+    this.db.exec(`CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, user_id INTEGER NOT NULL, expires_at INTEGER NOT NULL)`);
+    this.db.transaction(() => {
+      const rows = this.db.prepare('SELECT id, access_token, refresh_token FROM users WHERE access_token IS NOT NULL OR refresh_token IS NOT NULL').all() as Array<{ id: number; access_token: string | null; refresh_token: string | null }>;
+      for (const row of rows) {
+        for (const column of ['access_token', 'refresh_token'] as const) {
+          const value = row[column];
+          if (!value) continue;
+          const context = `${row.id}:${column}`;
+          if (value.startsWith('enc1:')) this.tokenCipher.decrypt(value, context); // fail closed on a wrong key
+          else this.db.prepare(`UPDATE users SET ${column} = ? WHERE id = ?`).run(this.tokenCipher.encrypt(value, context), row.id);
+        }
+      }
+    })();
+    this.db.pragma('wal_checkpoint(TRUNCATE)');
     // Phase 2.7: allowlist moved from env (DEPLOY_ALLOWLIST) to DB column.
     // Env still seeds initial state on boot via seedAllowlist(); after that
     // the /admin UI is the source of truth.
@@ -286,6 +303,7 @@ export class UsersRepository implements OnModuleInit, OnModuleDestroy {
         .prepare(`SELECT github_login FROM users WHERE id = ?`)
         .get(userId) as { github_login: string } | undefined;
       if (!row) return;
+      this.db.prepare('DELETE FROM sessions WHERE user_id = ?').run(userId);
       this.db.prepare('DELETE FROM deploy_notifications WHERE user_id = ?').run(userId);
       if (this.db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='security_patch_plans'").get()) {
         this.db.prepare('DELETE FROM security_patch_plans WHERE user_id = ?').run(userId);
@@ -517,7 +535,9 @@ export class UsersRepository implements OnModuleInit, OnModuleDestroy {
             token_expires_at = @expiresAt
         WHERE id = @userId
       `)
-      .run({ userId, ...tokens });
+      .run({ userId, ...tokens,
+        accessToken: this.tokenCipher.encrypt(tokens.accessToken, `${userId}:access_token`),
+        refreshToken: tokens.refreshToken ? this.tokenCipher.encrypt(tokens.refreshToken, `${userId}:refresh_token`) : null });
   }
 
   getTokens(userId: number): TokenSet | null {
@@ -531,9 +551,21 @@ export class UsersRepository implements OnModuleInit, OnModuleDestroy {
       .get(userId) as { accessToken: string | null; refreshToken: string | null; expiresAt: string | null } | undefined;
     if (!row?.accessToken || !row.expiresAt) return null;
     return {
-      accessToken: row.accessToken,
-      refreshToken: row.refreshToken,
+      accessToken: this.tokenCipher.decrypt(row.accessToken, `${userId}:access_token`),
+      refreshToken: row.refreshToken ? this.tokenCipher.decrypt(row.refreshToken, `${userId}:refresh_token`) : null,
       expiresAt: row.expiresAt,
     };
   }
+
+  createSession(id: string, userId: number, expiresAt: number): void {
+    this.db.prepare('DELETE FROM sessions WHERE expires_at <= ?').run(Math.floor(Date.now() / 1000));
+    this.db.prepare('INSERT INTO sessions (id, user_id, expires_at) VALUES (?, ?, ?)').run(id, userId, expiresAt);
+  }
+
+  hasSession(id: string, userId: number): boolean {
+    return !!this.db.prepare('SELECT 1 FROM sessions WHERE id = ? AND user_id = ? AND expires_at > ?')
+      .get(id, userId, Math.floor(Date.now() / 1000));
+  }
+
+  revokeSession(id: string): void { this.db.prepare('DELETE FROM sessions WHERE id = ?').run(id); }
 }

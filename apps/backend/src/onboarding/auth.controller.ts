@@ -19,7 +19,7 @@ import { AuthService, OAUTH_STATE_COOKIE, SESSION_COOKIE } from './auth.service'
 import { UsersRepository } from './users.repository';
 
 const SESSION_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
-const RETURN_COOKIE = 'swkoo_oauth_return';
+const RETURN_COOKIE = '__Host-swkoo_oauth_return';
 
 function safeReturnPath(value: unknown): string {
   if (typeof value !== 'string' || !/^\/deploy\/[a-zA-Z0-9_-]+\/[a-zA-Z0-9_.-]+$/.test(value)) return '/deploy';
@@ -55,6 +55,7 @@ export class AuthController {
    * Apps). Does NOT grant repo access; new users should use /install. */
   @Get('github/login')
   startOauth(@Res() res: Response, @Req() req?: Request): void {
+    this.clearLegacyCookies(res);
     const state = this.auth.generateOauthState();
     const url = this.auth.buildAuthorizeUrl(state);
 
@@ -111,7 +112,7 @@ export class AuthController {
     // Either way there's nothing to exchange; clear the state cookie we may
     // have set on /install and bounce to /deploy (they sign in there).
     if (!code && setupAction) {
-      res.clearCookie(OAUTH_STATE_COOKIE, { path: '/' });
+      res.clearCookie(OAUTH_STATE_COOKIE, { path: '/', secure: true, httpOnly: true, sameSite: 'lax' });
       res.redirect(`${this.config.appBaseUrl}/deploy`);
       return;
     }
@@ -123,13 +124,13 @@ export class AuthController {
       throw new BadRequestException('invalid oauth state');
     }
 
-    res.clearCookie(OAUTH_STATE_COOKIE, { path: '/' });
+    res.clearCookie(OAUTH_STATE_COOKIE, { path: '/', secure: true, httpOnly: true, sameSite: 'lax' });
     let returnPath = '/deploy';
     try {
       const saved = JSON.parse(readCookie(req, RETURN_COOKIE) ?? '{}');
       if (saved.state === state) returnPath = safeReturnPath(saved.path);
     } catch { /* Invalid return cookie falls back to the deployment list. */ }
-    res.clearCookie(RETURN_COOKIE, { path: '/' });
+    res.clearCookie(RETURN_COOKIE, { path: '/', secure: true, httpOnly: true, sameSite: 'lax' });
 
     try {
       const user = await this.auth.exchangeCodeForUser(code);
@@ -216,8 +217,18 @@ export class AuthController {
 
   @Post('logout')
   @HttpCode(204)
-  logout(@Res() res: Response): void {
-    res.clearCookie(SESSION_COOKIE, { path: '/' });
+  logout(@Res() res: Response, @Req() req: Request): void {
+    const token = readCookie(req, SESSION_COOKIE);
+    if (token) this.auth.revokeSession(token);
+    res.clearCookie(SESSION_COOKIE, { path: '/', secure: true, httpOnly: true, sameSite: 'lax' });
+    this.clearLegacyCookies(res);
     res.send();
+  }
+
+  private clearLegacyCookies(res: Response): void {
+    for (const name of ['swkoo_session', 'swkoo_oauth_state', 'swkoo_oauth_return']) {
+      res.clearCookie(name, { path: '/', secure: true, httpOnly: true, sameSite: 'lax' });
+      res.clearCookie(name, { path: '/', domain: 'swkoo.kr', secure: true, httpOnly: true, sameSite: 'lax' });
+    }
   }
 }

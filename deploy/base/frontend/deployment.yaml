@@ -15,10 +15,21 @@ spec:
       labels:
         app: swkoo-frontend
     spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 100
+        runAsGroup: 101
+        seccompProfile:
+          type: RuntimeDefault
       imagePullSecrets:
         - name: ocir-credentials
       containers:
         - name: frontend
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
           image: nrt.ocir.io/nrznn4yiltsz/swkoo/frontend:f8bcc6cd7354899fb86415cc042e58249475fc23
           imagePullPolicy: Always
           ports:

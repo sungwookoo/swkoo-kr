@@ -27,13 +27,14 @@ export function patchJob(id: string, manifest: string, lockfile: string): V1Job 
   if (input.length > 90_000) throw new Error('압축된 입력이 너무 큽니다. 수동 PR을 사용하세요.');
   return {
     apiVersion: 'batch/v1', kind: 'Job',
-    metadata: { name: `security-patch-${id}`, namespace: 'swkoo' },
+    metadata: { name: `security-patch-${id}`, namespace: 'swkoo-workers' },
     spec: {
       backoffLimit: 0, activeDeadlineSeconds: 360, ttlSecondsAfterFinished: 3600,
       template: {
         metadata: { labels: { 'swkoo.kr/security-patch': 'true' } },
         spec: {
           restartPolicy: 'Never', automountServiceAccountToken: false,
+          serviceAccountName: 'security-worker',
           securityContext: { runAsNonRoot: true, runAsUser: 1000, runAsGroup: 1000, fsGroup: 1000, seccompProfile: { type: 'RuntimeDefault' } },
           containers: [{
             name: 'patch', image: 'node:24.18.1-alpine', command: ['node', '-e', PATCH_WORKER_SCRIPT],

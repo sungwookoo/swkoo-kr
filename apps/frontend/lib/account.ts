@@ -22,6 +22,9 @@ export interface LatestScan {
   scannedAt: string;
   trivyVersion: string | null;
   findings: ScanFinding[];
+  currentImage?: string | null;
+  matchesCurrentImage?: boolean | null;
+  stale?: boolean;
 }
 
 async function fetcher<T>(url: string): Promise<T> {

@@ -2,7 +2,7 @@ import { Inject, Injectable, Logger, OnApplicationBootstrap } from '@nestjs/comm
 import { ConfigType } from '@nestjs/config';
 import axios from 'axios';
 import { sign, verify } from 'jsonwebtoken';
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 
 import { onboardingConfig } from '../config/onboarding.config';
 import { UserRow, UsersRepository } from './users.repository';
@@ -18,8 +18,8 @@ interface GithubTokenResponse {
   error_description?: string;
 }
 
-export const SESSION_COOKIE = 'swkoo_session';
-export const OAUTH_STATE_COOKIE = 'swkoo_oauth_state';
+export const SESSION_COOKIE = '__Host-swkoo_session';
+export const OAUTH_STATE_COOKIE = '__Host-swkoo_oauth_state';
 
 interface GithubUserResponse {
   id: number;
@@ -36,6 +36,7 @@ interface GithubEmailResponse {
 }
 
 export interface SessionPayload {
+  sid: string;
   uid: number;
   login: string;
   iat: number;
@@ -271,17 +272,26 @@ export class AuthService implements OnApplicationBootstrap {
     if (!this.config.jwtSecret) {
       throw new Error('JWT_SECRET not configured');
     }
-    return sign({ uid: user.id, login: user.githubLogin }, this.config.jwtSecret, {
+    const sid = randomUUID();
+    const token = sign({ uid: user.id, login: user.githubLogin, sid }, this.config.jwtSecret, {
       expiresIn: '30d',
     });
+    this.users.createSession(sid, user.id, Math.floor(Date.now() / 1000) + 30 * 86400);
+    return token;
   }
 
   verifySessionToken(token: string): SessionPayload | null {
     if (!this.config.jwtSecret) return null;
     try {
-      return verify(token, this.config.jwtSecret) as SessionPayload;
+      const payload = verify(token, this.config.jwtSecret, { algorithms: ['HS256'] }) as SessionPayload;
+      return typeof payload.sid === 'string' && Number.isInteger(payload.uid) && this.users.hasSession(payload.sid, payload.uid) ? payload : null;
     } catch {
       return null;
     }
+  }
+
+  revokeSession(token: string): void {
+    const payload = this.verifySessionToken(token);
+    if (payload) this.users.revokeSession(payload.sid);
   }
 }

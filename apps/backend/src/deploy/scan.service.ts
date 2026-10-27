@@ -7,10 +7,12 @@ import { onboardingConfig } from '../config/onboarding.config';
 import { KubeClient } from '../kube/kube.client';
 import { UsersRepository, ScanResultRow } from '../onboarding/users.repository';
 import { DeployService } from './deploy.service';
+import { runningImage } from './running-image';
 
 const TRIVY_IMAGE = 'aquasec/trivy:0.74.0';
 const TRIVY_VERSION = '0.74.0';
 const BACKEND_NS = 'swkoo';
+const WORKER_NS = 'swkoo-workers';
 const SCAN_TIMEOUT_MS = 5 * 60_000;
 const POLL_INTERVAL_MS = 5_000;
 
@@ -53,8 +55,8 @@ interface ScanResult {
 const MAX_STORED_FINDINGS = 50;
 
 /**
- * Dispatches Trivy image scans as Kubernetes Jobs in the backend's own
- * namespace. The backend pod never runs the scanner itself — Jobs are
+ * Dispatches Trivy image scans as Kubernetes Jobs in swkoo-workers.
+ * The backend pod never runs the scanner itself — Jobs are
  * ephemeral, isolated, and share a small PVC for Trivy's vulnerability DB
  * so subsequent scans don't redownload the ~50MB DB.
  *
@@ -92,7 +94,8 @@ export class ScanService {
           name,
           namespace: BACKEND_NS,
         });
-        const image = dep.spec?.template?.spec?.containers?.[0]?.image;
+        const pods = await this.kube.core!.listNamespacedPod({ namespace: BACKEND_NS, labelSelector: `app=${name}` });
+        const image = runningImage(pods.items, dep.spec?.template?.spec?.containers?.[0]?.name ?? '');
         if (image) images.push({ name, image });
       }
     } catch (err) {
@@ -117,6 +120,8 @@ export class ScanService {
             critical: result.critical,
             high: result.high,
             medium: result.medium,
+            findings: result.findings,
+            scannedAt: new Date().toISOString(),
           }),
         });
         // Reuse the existing notification path. previous=null forces a
@@ -141,7 +146,9 @@ export class ScanService {
       try {
         const deployment = await this.deploy.getCurrentDeployment(u.githubLogin);
         if (!deployment || deployment.state !== 'active') continue;
-        const image = `ghcr.io/${u.githubLogin.toLowerCase()}/${deployment.repo.toLowerCase()}:latest`;
+        const pods = await this.kube.core!.listNamespacedPod({ namespace: `user-${u.githubLogin.toLowerCase()}`, labelSelector: `app=${deployment.appName}` });
+        const image = runningImage(pods.items, deployment.appName);
+        if (!image) continue;
         const result = await this.runScan(u.githubLogin, image);
         if (!result) continue;
         const previous = this.users.latestScanResultForUser(u.id);
@@ -179,7 +186,7 @@ export class ScanService {
     const jobName = `scan-${login.toLowerCase()}-${Date.now()}`;
     const body = this.buildJobSpec(jobName, login, image);
     try {
-      await this.kube.batch!.createNamespacedJob({ namespace: BACKEND_NS, body });
+      await this.kube.batch!.createNamespacedJob({ namespace: WORKER_NS, body });
     } catch (err) {
       this.logger.error(`createJob ${jobName}: ${(err as Error).message}`);
       return null;
@@ -204,7 +211,7 @@ export class ScanService {
       kind: 'Job',
       metadata: {
         name: jobName,
-        namespace: BACKEND_NS,
+        namespace: WORKER_NS,
         labels: {
           'swkoo.kr/scan': login.toLowerCase(),
           'app.kubernetes.io/component': 'image-scanner',
@@ -213,17 +220,21 @@ export class ScanService {
       spec: {
         ttlSecondsAfterFinished: 600,
         backoffLimit: 0,
+        activeDeadlineSeconds: 360,
         template: {
           metadata: {
             labels: { 'swkoo.kr/scan': login.toLowerCase() },
           },
           spec: {
             restartPolicy: 'Never',
+            serviceAccountName: 'security-worker',
             automountServiceAccountToken: false,
+            securityContext: { runAsNonRoot: true, runAsUser: 1000, runAsGroup: 1000, fsGroup: 1000, seccompProfile: { type: 'RuntimeDefault' } },
             containers: [
               {
                 name: 'trivy',
                 image: TRIVY_IMAGE,
+                securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: ['ALL'] } },
                 args: [
                   'image',
                   '--quiet',
@@ -243,6 +254,7 @@ export class ScanService {
                 ],
                 volumeMounts: [
                   { name: 'cache', mountPath: '/cache' },
+                  { name: 'tmp', mountPath: '/tmp' },
                   ...(privateRegistry ? [{ name: 'registry', mountPath: '/registry', readOnly: true }] : []),
                 ],
                 resources: {
@@ -252,6 +264,7 @@ export class ScanService {
               },
             ],
             volumes: [
+              { name: 'tmp', emptyDir: { sizeLimit: '256Mi' } },
               ...(privateRegistry ? [{ name: 'registry', secret: { secretName: 'ocir-credentials', items: [{ key: '.dockerconfigjson', path: 'config.json' }] } }] : []),
               {
                 name: 'cache',
@@ -271,7 +284,7 @@ export class ScanService {
       try {
         const job = await this.kube.batch!.readNamespacedJob({
           name: jobName,
-          namespace: BACKEND_NS,
+          namespace: WORKER_NS,
         });
         if (job.status?.succeeded) return job;
         if (job.status?.failed) return job;
@@ -286,7 +299,7 @@ export class ScanService {
   private async readJobLogs(jobName: string): Promise<string | null> {
     try {
       const pods = await this.kube.core!.listNamespacedPod({
-        namespace: BACKEND_NS,
+        namespace: WORKER_NS,
         labelSelector: `job-name=${jobName}`,
       });
       const podName = pods.items[0]?.metadata?.name;
@@ -296,7 +309,7 @@ export class ScanService {
       }
       const log = await this.kube.core!.readNamespacedPodLog({
         name: podName,
-        namespace: BACKEND_NS,
+        namespace: WORKER_NS,
         container: 'trivy',
       });
       return typeof log === 'string' ? log : null;
@@ -310,7 +323,7 @@ export class ScanService {
     try {
       await this.kube.batch!.deleteNamespacedJob({
         name: jobName,
-        namespace: BACKEND_NS,
+        namespace: WORKER_NS,
         propagationPolicy: 'Background',
       });
     } catch (err) {
