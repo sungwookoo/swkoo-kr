@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import Link from 'next/link';
 
 import { ArchitectureDiagram } from '@/components/ArchitectureDiagram';
 import { PatternList } from '@/components/about/PatternList';
@@ -46,6 +47,18 @@ export default function AboutPage(): import('react').ReactNode {
             </li>
           ))}
         </ul>
+      </section>
+
+      <section aria-labelledby="operations-heading" className="mt-16 border-y border-slate-800 py-8">
+        <p className="font-mono text-xs tracking-widest text-slate-500">OPERATIONS NOTE · 2026.10</p>
+        <h2 id="operations-heading" className="mt-3 text-lg font-semibold text-slate-100">만든 서비스를 계속 운영한다는 것</h2>
+        <p className="mt-3 text-sm leading-relaxed text-slate-400">
+          실제 이용자의 피드백에서 출발해 저장소 변경의 동의 절차, 로그인 보호, 작업 환경과 보안 점검을 개선했다.
+          무엇을 자동화하고 어디서 사용자의 결정을 기다려야 하는지 정하고, 운영 배포 후에도 동작을 확인한 기록이다.
+        </p>
+        <Link href="/about/operating-a-side-project" className="mt-5 inline-block text-sm text-emerald-300 underline-offset-4 hover:underline focus-visible:outline focus-visible:outline-offset-4 focus-visible:outline-emerald-300">
+          운영 개선 회고 읽기 <span aria-hidden>→</span>
+        </Link>
       </section>
 
       {/* Technology matrix — interactive chip grid. */}
