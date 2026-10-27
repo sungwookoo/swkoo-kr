@@ -33,14 +33,18 @@
 ## 검증 기록
 
 - 1차 의존성 수정 PR #62 및 이미지 반영 PR #63 운영 적용 완료.
-- backend 전체 321개 테스트 및 추가 마이그레이션/계정 삭제 테스트 통과.
-- frontend 단위 테스트 95개, 브라우저 테스트 19개 통과. 운영 빌드 CSP 테스트도 별도 통과.
+- backend 전체 326개 테스트 통과(토큰 마이그레이션·세션 폐기·계정별 스캔 조회 포함).
+- frontend 단위 테스트 95개, 브라우저 테스트 20개 통과. 운영 빌드 CSP 테스트 3개도 별도 통과.
 - 격리된 실제 패치 fixture: 취약 패키지 1→0, 설치 스크립트 실행 없이 lockfile 변경 검증 통과. 비허용 서비스 계정 Job은 admission에서 거부.
 - 1차 운영 이미지의 실제 digest 검사: backend/frontend 각각 Critical·High·Medium 0건. npm audit도 양쪽 0건. 공지 DB 시점과 검사 범위에 한정된 결과다.
 - K3s v1.35.9+k3s1, cert-manager v1.21.3 전환 완료. 중간 minor별 준비 상태와 인증서를 확인했다. 기존 인증서 10개 Ready 및 별도 테스트 도메인의 Let's Encrypt staging 인증서 신규 발급 성공. 테스트 namespace는 제거했다.
 - kubeconfig의 전체 사용자 읽기 권한을 600으로 제한하고 K3s 서비스의 생성 옵션에도 반영했다. Terraform의 기존 클러스터 삭제 bootstrap을 제거했다. 현재 checkout에 유효한 운영 state가 없어 전체 apply는 수행하지 않았으며, 기존 서비스에 직접 업그레이드를 적용했다. 인프라 저장소 PR #1에 절차와 설정을 기록했다.
 - 허용하지 않은 이미지·Secret 환경변수 참조·서비스 계정을 가진 Job은 admission에서 거부했다.
 - 스캔 기록이 없을 때 JSON null을 반환하고, 로그인 사용자별 조회 및 비로그인 차단을 HTTP 테스트로 확인했다. 쿠키 안내도 세션/OAuth 실제 이름과 수명에 맞췄다.
+- 운영 DB 사용자 4개 행에서 평문 access/refresh token 0개를 확인했다(값은 출력하지 않음). 운영자 계정에 임시 검증 세션만 만들어 GET me 200 → logout 204 → 동일 토큰 GET me 401을 확인하고 테스트 세션을 삭제했다.
+- 실제 HTTPS에서 비로그인 계정/배포/관리자 조회 401, 타 서브도메인 logout 403, 압축 JSON 415, API no-store, OAuth host-only/Secure/HttpOnly cookie를 확인했다. `/deploy`, `/portfolio/`, `/about`, 엑셀 샘플 동작은 브라우저에서 CSP 위반 없이 통과했다.
+- backend 서비스 계정은 `swkoo`에서 Job을 생성할 수 없고 `swkoo-workers`에서만 가능하다. worker 서비스 계정은 Secret을 읽을 수 없다. 이 권한으로 실제 운영 digest 스캔을 실행해 양쪽 Critical·High·Medium 0건을 확인했다.
+- 추가 연결 시험에서 OCI metadata TCP 접근이 가능했던 사례를 발견했다. Kubernetes NetworkPolicy와 별도로 노드 raw PREROUTING에 Pod→metadata TCP 80/443 차단을 적용하고 기존 netfilter-persistent에 저장했다. 새 worker에서 metadata·내부 API 차단과 npm HTTPS 허용, 방화벽 DROP 카운터 증가를 검증했다. 인프라 PR #2에 재적용 가능한 스크립트와 검증 결과를 기록했다. 사용자 앱 저장소는 수정하지 않았다.
 
 ## 남는 범위
 
