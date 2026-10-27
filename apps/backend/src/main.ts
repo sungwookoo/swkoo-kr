@@ -1,7 +1,7 @@
 import { Logger, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import cookieParser from 'cookie-parser';
-import { json, urlencoded } from 'express';
+import { bodyParsers } from './http-body';
 import type { Request, Response, NextFunction } from 'express';
 
 import { AppModule } from './app.module';
@@ -19,7 +19,7 @@ function resolveAllowedOrigins(): string[] {
 }
 
 async function bootstrap(): Promise<void> {
-  const app = await NestFactory.create(AppModule, { bufferLogs: true });
+  const app = await NestFactory.create(AppModule, { bufferLogs: true, bodyParser: false });
   const logger = new Logger('Bootstrap');
 
   // Strip the Express advertisement header. Cheap recon prevention —
@@ -74,11 +74,7 @@ async function bootstrap(): Promise<void> {
   app.use(cookieParser());
 
   // Preserve raw body buffer for HMAC signature verification on webhook routes.
-  const captureRaw = (req: Request & { rawBody?: Buffer }, _res: unknown, buf: Buffer) => {
-    req.rawBody = Buffer.from(buf);
-  };
-  app.use(json({ limit: '1mb', verify: captureRaw }));
-  app.use(urlencoded({ extended: true, verify: captureRaw }));
+  app.use(...bodyParsers());
 
   const allowedOrigins = resolveAllowedOrigins();
 
