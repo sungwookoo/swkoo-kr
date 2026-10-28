@@ -70,15 +70,25 @@ Gitleaks 8.30.1 공식 배포 파일 checksum을 검증하고 원격 refs 갱신
 - 환경변수 저장 503 후 입력 유지·재저장, GitHub 연결 실패에 따른 제거 503 후 앱 화면 유지·다시 확인 후 제거를 브라우저 대역 시험으로 확인했다. 기존 소스 등록 부분 실패 안내도 전체 회귀 시험에 포함한다.
 - 정기 정리·스캔이 호스트 UTC를 따라 실행되는 시간대 오류를 발견해 `Asia/Seoul` 03:00으로 명시했고 실제 스케줄 등록 시각을 테스트했다. 기존 플랫폼 백업 일정이나 보존 정책은 변경하지 않았다.
 
-실제 OCI 장애 fixture는 별도 namespace에서만 실행한다. 64Mi 컨테이너 OOM, 기존 작업을 선점하지 않는 낮은 우선순위의 4 CPU 예약 대기, 존재하지 않는 SQLite 경로의 연결 실패를 관측하고 저장된 Kubernetes 응답을 실제 backend 판정 함수로 검사한다. 전체 노드를 메모리 부족으로 만들거나 GitHub 장애를 실제로 유발하지 않는다. 검증 자원과 임시 PriorityClass는 정리한다.
+실제 OCI 장애 fixture는 별도 namespace에서만 실행했다. 64Mi 컨테이너 OOM, 기존 작업을 선점하지 않는 낮은 우선순위의 4 CPU 예약 대기, 존재하지 않는 SQLite 경로의 연결 실패를 관측했다. 저장된 Kubernetes 응답을 실제 backend 판정 함수에 넣어 각각 `MEMORY_LIMIT_EXCEEDED`·`CLUSTER_CAPACITY_PENDING`·`POD_NOT_READY`와 사용자 조치가 반환됨을 확인했다. 전체 노드를 메모리 부족으로 만들거나 GitHub 장애를 실제로 유발하지 않았다. 검증 자원과 임시 PriorityClass는 정리했다.
 
 ## 검증과 재실행
 
 - backend: 34 suites / 349 tests, TypeScript 프로덕션 빌드 통과.
 - frontend: 12 files / 100 tests, 프로덕션 빌드 통과.
 - 브라우저: 28개 시나리오 통과. API 대역 시험이며, 앞선 [일반 계정 실제 배포 검증](./user-flow-verification-2026-10-28.md)과 구분한다.
-- 인프라 운영 적용은 완료했다. 이번 플랫폼 UI·판정 코드의 배포 근거는 이 문서의 후속 운영 확인 기록과 해당 PR의 이미지 반영 이력을 따른다.
+- 로컬 운영 빌드의 파일 처리 브라우저 3개 시험도 통과했다. 인프라·플랫폼 운영 반영과 배포 후 검증은 아래 기록을 따른다.
 
 검증 스크립트는 먼저 backend 빌드 후 실행한다. 저장소의 `render-storage-validation.cjs`로 JSON을 만들고 `validate-user-storage.py`·`validate-capacity.py`는 운영자 관리 호스트에서 현재 소유자 이미지 digest를 인자로 실행한다. 전용 namespace가 이미 있으면 중단한다. `validate-runtime-failures.py`의 응답 JSON은 `check-runtime-snapshots.cjs`로 검사한다. 일반 사용자에게 이 관리 실행 경로를 노출하지 않는다.
 
 남는 범위는 수정판 없는 개발 도구 Low 공지, 두 신규 GitHub 계정 각각의 전체 OAuth 흐름, 장시간·여러 SSR 앱의 부하 측정, 외부 인증된 침투 테스트다. 일반 DB 호스팅·고가용성·사용자 앱 자동 백업은 별도 제품 결정이 필요한 범위다.
+
+## 운영 배포 후 확인
+
+- [기능 PR #80](https://github.com/sungwookoo/swkoo-kr/pull/80), [이미지 반영 PR #81](https://github.com/sungwookoo/swkoo-kr/pull/81) 병합 완료. 양쪽 검사와 브라우저 검사 통과 후 [배포 workflow 40641676082](https://github.com/sungwookoo/swkoo-kr/actions/runs/40641676082)가 성공했다.
+- 실제 backend/frontend image tag는 `a04ef11dbddbc36b3937482bca76339cb36278b3`. 양쪽 새 Pod Ready·재시작 0, 모든 Argo Application Synced/Healthy를 확인했다.
+- 실제 실행 digest: backend `sha256:ad120f92f2beaf879e44e2c61edf8533b2131e527c5a59235ba1d86688fb5611`, frontend `sha256:beed76b49f9bb1e597e3ba178198afcaec81481d363268a01b9af7cb7355c8e8`.
+- 이 digest를 Trivy 0.74.0의 제한된 전용 worker Job으로 각각 검사해 Critical·High·Medium 모두 0건을 확인했다. Low를 검사한 결과로 확대하지 않으며 개발 도구의 Low 잔존과도 별개다. 검사 Job은 제거했고 알림 발송이나 사용자 저장소 변경은 수행하지 않았다.
+- 실제 `https://swkoo.kr`의 엑셀 데모에서 정상 업로드·과도한 압축 거부·시간 초과 복구 3개 브라우저 시험이 통과했다. 파일은 브라우저 안에서 처리했고 테스트 경로로 서버 업로드하지 않았다.
+- health API·후속 공지·엑셀 데모와 기존 사용자 앱 3개의 TLS 검증을 포함한 HTTPS 200을 확인했다. 공개 공지에 후속 개선 문구가 표시된다.
+- 테스트 namespace 4개·PriorityClass·worker Job·검증용 서버 임시 파일을 정리했다. 운영 state·감사 자료는 권한 제한 경로에 유지한다. 새 유료 자원과 사용자 앱 백업 기능은 추가하지 않았다.
