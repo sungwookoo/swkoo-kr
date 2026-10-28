@@ -68,7 +68,7 @@ export class ArgoCdClient {
     }
   }
 
-  async getApplication(name: string): Promise<ArgoCdApplication | null> {
+  async getApplication(name: string, project?: string): Promise<ArgoCdApplication | null> {
     if (!this.isConfigured()) {
       return null;
     }
@@ -76,7 +76,7 @@ export class ArgoCdClient {
     const url = this.buildUrl(`/api/v1/applications/${encodeURIComponent(name)}`);
 
     try {
-      const response = await this.getWithAuth<ArgoCdApplication>(url);
+      const response = await this.getWithAuth<ArgoCdApplication>(url, project ? { project } : undefined);
 
       return response.data;
     } catch (error: unknown) {
