@@ -35,10 +35,7 @@ export class CleanupService {
     private readonly config: ConfigType<typeof onboardingConfig>
   ) {}
 
-  // Daily at 03:00 KST (UTC offset varies; just pick a low-traffic hour).
-  // Production schedule would pull this from config; for now a constant is
-  // fine — one replica and a short user list.
-  @Cron(CronExpression.EVERY_DAY_AT_3AM)
+  @Cron(CronExpression.EVERY_DAY_AT_3AM, { timeZone: 'Asia/Seoul' })
   async runDailyCleanup(): Promise<void> {
     this.logger.log('daily housekeeping cron tick');
     await this.cleanupSoftDeletedUsers();

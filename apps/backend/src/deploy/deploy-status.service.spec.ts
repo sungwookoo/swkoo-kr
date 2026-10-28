@@ -94,6 +94,36 @@ describe('Deployment status evidence chain', () => {
     pod.status.containerStatuses[0].ready = false;
     expect((await stages()).deploy.status).toBe('running');
   });
+  it.each(['terminated', 'waiting'])('reports %s OOM even when Argo is Degraded', async (state) => {
+    app.status.health.status = 'Degraded';
+    pod.status.containerStatuses[0] = { name: 'app', ready: false,
+      state: state === 'terminated' ? { terminated: { reason: 'OOMKilled', exitCode: 137 } }
+        : { waiting: { reason: 'CrashLoopBackOff' } },
+      lastState: { terminated: { reason: 'OOMKilled', exitCode: 137 } } };
+    expect((await stages()).deploy).toMatchObject({ status: 'failed', reason: 'MEMORY_LIMIT_EXCEEDED',
+      userAction: { label: expect.stringContaining('자동으로 늘어나지 않습니다') } });
+  });
+  it('does not fail a recovered ready pod because of an old OOM', async () => {
+    pod.status.containerStatuses[0].lastState = { terminated: { reason: 'OOMKilled', exitCode: 137 } };
+    expect((await stages()).deploy.status).toBe('success');
+  });
+  it.each(['cpu', 'memory'])('keeps insufficient %s guidance while Argo is pending or Degraded', async (resource) => {
+    app.status.health.status = 'Degraded';
+    pod.status.containerStatuses = [];
+    pod.status.conditions = [{ type: 'PodScheduled', status: 'False', reason: 'Unschedulable',
+      message: `0/1 nodes are available: 1 Insufficient ${resource}.` }];
+    expect((await stages()).deploy).toMatchObject({ status: 'running', reason: 'CLUSTER_CAPACITY_PENDING' });
+  });
+  it('does not misclassify a storage scheduling failure as a capacity shortage', async () => {
+    app.status.health.status = 'Progressing';
+    pod.status.conditions = [{ type: 'PodScheduled', status: 'False', reason: 'Unschedulable',
+      message: 'pod has unbound immediate PersistentVolumeClaims' }];
+    expect((await stages()).deploy.reason).toBeUndefined();
+  });
+  it('retains Argo errors when the runtime does not identify an app failure', async () => {
+    app.status.health.status = 'Degraded';
+    expect((await stages()).deploy.reason).toBe('ARGO_SYNC_FAILED');
+  });
   it('does not treat a terminating pod as a ready replacement', async () => {
     pod.metadata.deletionTimestamp = new Date().toISOString();
     expect((await stages()).deploy.status).toBe('running');

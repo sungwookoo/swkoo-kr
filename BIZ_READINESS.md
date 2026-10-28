@@ -8,6 +8,8 @@
 
 > 현재 구현 및 운영 검증 상태는 [docs/STATUS.md](./docs/STATUS.md)를 따른다. 아래 날짜가 붙은 체크리스트는 당시 작업 이력이며 운영 검증을 대신하지 않는다.
 
+2026-10-28 갱신: [운영 준비도 점검](./docs/operational-readiness-2026-10-28.md)에서 Terraform 실제 state·네트워크 연결, SQLite 수명주기, 제한된 부하와 장애 복구 안내를 검증했다. 앱 기본 상한은 공유 CPU 0.5코어·512MiB(예약 0.1코어·256MiB), 계정당 앱 1개·allowlist 운영이다. 6명 또는 특정 동시 사용자 수를 보장하지 않는다. 기존 플랫폼 DB 백업과 사용자 앱 DB는 구분하며, 사용자 앱 자동 백업은 보류다.
+
 ## 0. 활성화 신호
 
 이 중 하나가 발생하면 §1·§2를 본격 점검·실행 시점:
@@ -40,7 +42,7 @@
 
 남은 검증·제한:
 - Trivy는 보고형이며 admission 단계의 이미지 차단은 없음.
-- 기존 사용자 namespace의 PSA label 적용과 NetworkPolicy의 실제 차단 동작은 클러스터에서 별도 검증 필요.
+- 기존 namespace 적용 확인에 더해, 2026-10-28 분리 환경에서 restricted Pod 기동·양성 대조 후 namespace 간 차단·DNS 허용·서비스계정 토큰 미마운트를 재검증했다. 공유 커널의 강격리를 보장하지는 않는다.
 - 공유 노드 기반 격리의 적합성은 공개 서비스 전환 전에 재평가.
 
 **해결 (P0 블로커는 아니지만 강력 권장)**:
@@ -52,7 +54,7 @@
 
 ### 1.3 매니페스트 repo 단일성
 
-Phase 3.1에서 사용자별 private 배포 저장소(`swkoo-deploy/<login>`)로 분리되었다. 공통 저장소의 `deploy/users/<login>.yaml`에는 등록 정보가 남으며 ApplicationSet이 이를 읽는다.
+Phase 3.1에서 사용자별 private 배포 저장소(`swkoo-deploy/<login>`)로 분리되었다. 공통 저장소의 `deployment-data` 브랜치 `deploy/users/<login>.yaml`에는 등록 정보가 남으며 ApplicationSet이 이를 읽는다. 보호된 main에는 사용자 등록 자료를 쓰지 않는다.
 
 남은 검토 대상은 공통 등록 정보의 공개 범위, 사용자별 저장소 접근 권한, 공통 ApplicationSet 변경의 영향이다. 매니페스트 저장소 분리를 미완료 과제로 다시 취급하지 않는다.
 
@@ -143,7 +145,7 @@ Phase 2 빌드 중 적용할 "사업 전환 준비" 패턴:
 
 Phase 2 셀프서비스가 동작하면서 노출된, 사업화 전이라도 손볼 만한 소규모 UX 항목:
 
-- ~~**ApplicationSet 강제 refresh on register/delete**~~ — ✅ Phase 2.9. 백엔드 `swkoo-backend` SA + `deploy/argocd/swkoo-backend-applicationset-rbac.yaml` Role로 register/delete 끝에 `argocd.argoproj.io/refresh=hard` patch 호출.
+- ~~**ApplicationSet 강제 refresh on register/delete**~~ — ✅ Phase 2.9 도입, 2026-10-28 수정. 백엔드 `swkoo-backend` SA + `deploy/argocd/swkoo-backend-applicationset-rbac.yaml` Role로 `argocd.argoproj.io/application-set-refresh=true`를 요청한다. 실제 삭제 후 자동 정리까지 확인했다.
 - ~~**Re-deploy 시 user repo no-op 감지**~~ — ✅ Phase 2.10. `commitFilesAtomic`이 새 tree-sha가 base와 동일하면 commit/ref-patch 건너뜀 (GitHub blob dedupe 활용). git history 노이즈 + GHA 빌드 사이클 절약.
 - ~~**Build 실패 시 명시적 알림**~~ — ✅ Phase 2.9 (운영자 한정). 진행도 페이지 폴링이 빌드 'failed' 감지 시 `DISCORD_BUILD_FAILURE_WEBHOOK_URL`로 한 번만 알림. 사용자 직접 알림 채널은 별도 작업.
 

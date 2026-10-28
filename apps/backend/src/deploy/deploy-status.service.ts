@@ -63,9 +63,11 @@ export class DeployStatusService {
     }
     stages.imageDetected = { status: 'success', imageDigest: expected, message: `최신 빌드 이미지 확인 (${expected.slice(0, 19)}…)` };
     stages.deploy = this.checkDeployStage(app);
-    if (stages.deploy.status === 'failed') return stages;
     const runtime = await this.checkRuntime(login, repo, expected);
-    if (runtime.status === 'failed') { stages.deploy = runtime; return stages; }
+    if (runtime.status === 'failed' || runtime.reason === 'CLUSTER_CAPACITY_PENDING') {
+      stages.deploy = runtime; return stages;
+    }
+    if (stages.deploy.status === 'failed') return stages;
     if (readyImageDigest(app, login, repo) !== expected) {
       stages.deploy = { status: 'running', message: '최신 이미지의 Argo CD 동기화 완료를 기다리는 중입니다.' };
       return stages;
@@ -96,11 +98,25 @@ export class DeployStatusService {
         && p.spec?.containers.some((c) => c.name === appName && matches(c.image)));
       for (const pod of current) {
         const statuses = [...(pod.status?.initContainerStatuses ?? []), ...(pod.status?.containerStatuses ?? [])];
+        const oom = statuses.some((c) => c.state?.terminated?.reason === 'OOMKilled'
+          || (!c.ready && c.state?.waiting && c.lastState?.terminated?.reason === 'OOMKilled'));
+        if (oom) return { status: 'failed', reason: 'MEMORY_LIMIT_EXCEEDED',
+          message: '컨테이너가 메모리 한도를 초과해 종료됐습니다.',
+          userAction: { kind: 'docs', label: '앱 로그와 메모리 사용량을 확인하고 동시 처리량·캐시를 줄여주세요. 메모리 한도는 자동으로 늘어나지 않습니다.' },
+          operatorHint: '현재 이미지 Pod의 OOMKilled 상태와 메모리 한도를 확인하세요.' };
         const broken = statuses.find((c) => ['ImagePullBackOff', 'ErrImagePull', 'CrashLoopBackOff', 'CreateContainerConfigError'].includes(c.state?.waiting?.reason ?? '')
           || (c.state?.terminated && c.state.terminated.exitCode !== 0));
         if (broken) return { status: 'failed', reason: 'POD_NOT_READY',
           message: `컨테이너 시작 실패 (${broken.state?.waiting?.reason ?? broken.state?.terminated?.reason ?? 'Error'})`,
+          userAction: { kind: 'docs', label: '앱 로그를 확인하고 필수 환경변수와 DB 연결 설정을 점검해주세요. 환경변수를 수정하면 앱이 재시작됩니다.' },
           operatorHint: '해당 Pod의 이벤트와 로그를 확인하세요.' };
+        if (pod.status?.conditions?.some((c) => c.type === 'PodScheduled' && c.status === 'False'
+          && c.reason === 'Unschedulable' && /Insufficient (cpu|memory)/i.test(c.message ?? ''))) {
+          return { status: 'running', reason: 'CLUSTER_CAPACITY_PENDING',
+            message: '서버의 CPU 또는 메모리 여유를 기다리고 있습니다.',
+            userAction: { kind: 'docs', label: '잠시 기다려주세요. 대기가 계속되면 운영자에게 문의해주세요. 반복 배포로 해결되지는 않습니다.' },
+            operatorHint: 'Pod 스케줄링 이벤트와 노드의 예약 자원을 확인하세요.' };
+        }
       }
       const count = deployment.spec?.replicas ?? 1;
       if (count < 1 || (deployment.status?.observedGeneration ?? 0) < (deployment.metadata?.generation ?? 1)
