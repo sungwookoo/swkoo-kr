@@ -1,22 +1,23 @@
 # 현재 구현 및 검증 기준선
 
-기준일: 2026-10-28. 아래 날짜가 붙은 내용은 당시 이력이다. 현재 기준은 이 요약과 [운영 준비도 점검 보고서](./operational-readiness-2026-10-28.md)를 우선한다. Observatory의 정체성은 [VISION](../VISION.md), Deploy의 정체성은 [deploy-vision](./deploy-vision.md)을 따른다.
+기준일: 2026-10-28. 아래 날짜가 붙은 내용은 당시 이력이다. 현재 기준은 이 요약과 [후속 개선 보고서](./platform-followup-2026-10-28.md), [운영 준비도 점검 보고서](./operational-readiness-2026-10-28.md)를 우선한다. Observatory의 정체성은 [VISION](../VISION.md), Deploy의 정체성은 [deploy-vision](./deploy-vision.md)을 따른다.
 
 ## 현재 운영 기준 (2026-10-28)
 
 - GitHub 토큰 후속 보강: 모든 저장소 호출의 권한을 명시하고 조직 생성·목록 예외도 플랫폼 조직으로 제한했다. [변경 및 실제 API 검증](./github-token-scope-2026-10-28.md)을 참조한다. 운영 반영 이력은 해당 기능·이미지 PR을 따른다.
 
-- 실제 일반 GitHub 계정으로 로그인·신규 ARM64 빌드·등록·HTTPS·환경변수 저장·삭제를 검증했다. [실제 흐름과 한계](./user-flow-verification-2026-10-28.md)를 참조한다. 두 신규 GitHub 계정의 전체 OAuth 흐름을 각각 검증한 것은 아니다.
+- 관리자와 일반 GitHub 계정의 실제 로그인 및 일반 계정의 신규 ARM64 빌드·등록·HTTPS·SQLite 초기화·환경변수 변경·새 이미지 배포 후 데이터 보존·삭제를 검증했다. [실제 흐름과 한계](./user-flow-verification-2026-10-28.md) 및 [후속 결과](./platform-followup-2026-10-28.md)를 참조한다. 두 신규 일반 계정의 검증은 아니다.
 - 공통 등록 정보는 `deployment-data` 브랜치에서 관리한다. [보호된 main과 운영 데이터 분리](./deployment-registration-data.md) 및 올바른 ApplicationSet refresh 적용 완료.
 - 신규·기존 앱 기본 상한은 공유 CPU 500m·메모리 512Mi, 예약량은 100m·256Mi다. namespace quota는 교체 배포 여유를 포함하며 앱 한도와 다르다. 자동 증설·보장 사용자 수를 제공하지 않는다.
 - 현재 소유자 관리 이미지로 분리된 Prisma SQLite 환경의 빈 DB 초기화, Pod 교체, 환경변수 변경, 별도 PVC 복구, 격리와 삭제 시 데이터 회수를 재검증했다. 사용자 앱 자동 백업은 도입하지 않았다. 기존 플랫폼 DB 백업은 별개다.
-- 소규모 Node/SQLite API에 한정한 5·10·20 요청/초 측정은 총 525회 오류 없이 통과했다. SSR 앱 전체나 모든 사용자 수용량을 보장하는 결과가 아니다.
+- Next.js/SQLite 앱 3개의 SSR·읽기·쓰기 혼합 부하 5,805회에서 오류·누락 0건, 15분 지속 구간을 통과했다. 초기 지연·내부 HTTP 등 측정 한계를 기록했고 일반 수용 인원을 보장하지 않는다. [초기 운영자 승인 기준](./platform-followup-2026-10-28.md#초기-운영자-승인-기준)은 자동 강제 한도가 아니다.
+- [반복 실행 절차](./operational-validation-runbook.md)에 사전 확인·중단·시간 제한·결과 기록·정리 확인을 통일했다. 실제 저장소·장애 분류 검증을 통과했고 의도적 중단은 실패로 기록하면서 임시 namespace를 모두 회수했다. 안전성 검사 9개를 CI에 추가했다.
 - Terraform 운영 state와 실제 네트워크 자원 연결을 복구했고 운영 plan 변경 없음으로 확인했다. 현재 cert-manager는 v1.21.3, K3s는 v1.35.9+k3s1이다. 관리 접근 제한·IAM 범위 조정과 인증서 정상 상태를 확인했다.
 - 엑셀 데모의 압축 파일 사전 검사와 별도 worker·시간 제한을 추가했다. 장애 안내는 메모리 한도 초과·서버 자원 대기·일반 시작 실패를 구분한다. 정기 정리·스캔의 03:00 KST 시간대도 명시했다.
 - 운영 의존성 npm audit는 양쪽 0건. backend 개발 도구 경로에는 수정 버전이 없는 deepmerge Low 공지 1개가 7개 영향 패키지로 남는다. 구버전 테스트 도구로 강제 다운그레이드하지 않는다.
-- PR #80·#81로 운영 이미지 `a04ef11dbddbc36b3937482bca76339cb36278b3` 반영 완료. 실제 실행 digest의 Trivy Critical·High·Medium 0건, 운영 사이트 파일 처리 브라우저 시험 3개, health·공지·기존 앱 HTTPS 200을 확인했다.
+- PR #83~#86으로 backend `4aeb2fdca01d8afaf7a7ee4f2397cfa0de89120b`, frontend `11eb90a57fdcfbfa08c8432eabdbb0ad7a8761b2` 반영 완료. 실제 실행 digest의 Trivy Critical·High·Medium 0건, 운영 화면의 스캔 비교 갱신 브라우저 검사 1개, health·공지·기존 앱 HTTPS 200을 확인했다. [정확한 이미지와 배포 근거](./platform-followup-2026-10-28.md#운영-배포)를 참조한다.
 
-신규 유료 인프라·일반 DB 호스팅·다중 노드·사용자 앱 자동 백업은 이번 범위에 포함하지 않는다. 이번 후속 작업에서 다른 사용자 소스 저장소는 수정하지 않았다.
+신규 유료 인프라·일반 DB 호스팅·다중 노드·사용자 앱 자동 백업은 이번 범위에 포함하지 않는다. 이번 후속 작업에서 다른 사용자 소스 저장소는 수정하지 않았다. 명시적으로 허용받은 본인 테스트 저장소 `sw-koo/nextjs-sample`만 별도 PR로 사용했다.
 
 ## 배포 등록의 사용자 소스 보호 (2026-09-24)
 
