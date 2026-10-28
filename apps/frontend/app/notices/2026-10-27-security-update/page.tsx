@@ -29,6 +29,12 @@ export default function SecurityUpdatePage() {
           </section>
         </div>
         <section className="mt-10 border-t border-zinc-800 pt-8">
+          <p className="font-mono text-xs text-zinc-500">2026.10.28 · 후속 개선</p>
+          <h2 className="mt-3 text-lg font-medium text-zinc-200">파일 처리와 장애 안내 개선</h2>
+          <p className="mt-3 leading-relaxed text-zinc-400">엑셀 데모에 압축 파일 검사와 처리 시간 제한을 추가했습니다. 배포 화면에서는 메모리 한도 초과와 서버 자원 대기를 구분해 다음 조치를 안내합니다. 환경변수 저장·앱 제거 실패 후 재시도와 데이터 유지 동작도 검증했습니다.</p>
+          <p className="mt-3 text-sm leading-relaxed text-zinc-500">이번 후속 작업에서도 이용자의 앱 저장소를 수정하지 않았습니다. 파일은 계속 브라우저 안에서만 처리합니다.</p>
+        </section>
+        <section className="mt-10 border-t border-zinc-800 pt-8">
           <h2 className="text-lg font-medium text-zinc-200">이용 시 참고해 주세요</h2>
           <ul className="mt-3 list-disc space-y-3 pl-5 leading-relaxed text-zinc-400">
             <li>로그인 보호 정책 변경으로 다시 로그인이 필요할 수 있습니다.</li>

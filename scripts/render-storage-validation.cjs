@@ -6,7 +6,7 @@ const backendRequire = createRequire(path.resolve(__dirname, '../apps/backend/pa
 const yaml = backendRequire('js-yaml');
 const { renderDeployRepoFiles } = require('../apps/backend/dist/deploy/templates');
 const result = {};
-for (const suffix of ['a', 'b']) {
+for (const suffix of ['a', 'b', 'capacity']) {
   const login = `swkoo-validation-${suffix}`;
   const files = renderDeployRepoFiles({
     login, appName: 'probe', imageRepo: 'ghcr.io/sungwookoo/sprintflow',

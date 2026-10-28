@@ -6,6 +6,7 @@ All test resources are removed in finally; production namespaces are read-only.
 """
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import sqlite3
@@ -45,7 +46,8 @@ fixtures = json.loads(Path(sys.argv[1]).read_text())
 namespaces = ["user-swkoo-validation-a", "user-swkoo-validation-b"]
 created = []
 backup_dir = tempfile.mkdtemp(prefix="swkoo-storage-validation-")
-image = "ghcr.io/sungwookoo/sprintflow:latest@sha256:77c71e44b89075dae79232951f65e9b56854fbe85976b3f9996437f24415e582"
+image = sys.argv[2]
+assert re.fullmatch(r'ghcr.io/sungwookoo/sprintflow:latest@sha256:[a-f0-9]{64}', image), 'Use the current owner-controlled image digest'
 try:
     existing = {n["metadata"]["name"] for n in obj("get", "namespaces")["items"]}
     assert not existing.intersection(namespaces), "Validation namespace already exists; refusing to modify it"
@@ -76,6 +78,13 @@ try:
     wait(a)
     assert node(a, count) == "preserved"
     print("PASS Prisma data survived pod replacement", flush=True)
+    apply({"apiVersion": "v1", "kind": "Secret", "metadata": {"name": "probe-env", "namespace": a},
+           "stringData": {"VALIDATION_MARKER": "storage-redeploy"}})
+    kube("rollout", "restart", "deployment/probe", "-n", a)
+    wait(a)
+    assert node(a, "if(process.env.VALIDATION_MARKER!=='storage-redeploy')process.exit(1);console.log('env-ok')") == "env-ok"
+    assert node(a, count) == "preserved"
+    print("PASS environment rollout preserved SQLite data", flush=True)
     source_path, source_pv = database_path(a)
     backup = Path(backup_dir) / "backup.db"
     with sqlite3.connect(f"file:{source_path}?mode=ro", uri=True) as source, sqlite3.connect(backup) as target:

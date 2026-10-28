@@ -163,7 +163,7 @@ export class UsersRepository implements OnModuleInit, OnModuleDestroy {
     // rows keep an anonymized shell — github_id flipped to -id (negative
     // values can't collide with GitHub's positive IDs), github_login becomes
     // "deleted_<id>" — so the NOT NULL UNIQUE constraints survive without
-    // making the row identifiable. A separate cron (TODO) hard-deletes rows
+    // making the row identifiable. CleanupService's daily cron hard-deletes rows
     // older than 30 days per the privacy policy.
     this.addColumnIfMissing('users', 'deleted_at', 'TEXT');
     // Phase 3.2: privacy/terms consent tracking. policy_version captures the
