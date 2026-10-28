@@ -33,3 +33,7 @@ jobs:
         if: matrix.service == 'backend'
         working-directory: ${{ github.workspace }}
         run: python3 scripts/test_operational_validation.py
+      - name: Test public validation backpressure stop
+        if: matrix.service == 'backend'
+        working-directory: ${{ github.workspace }}
+        run: node scripts/test-public-capacity-client.cjs

@@ -108,6 +108,7 @@ export class AccountController {
       auditLog,
       deployNotifications: this.users.listDeployNotifications(user.id),
       securityPatch: this.users.exportSecurityPatch(user.id),
+      admissionReservation: this.users.listAdmissionReservations().find(row => row.login === user.githubLogin.toLowerCase()) ?? null,
     };
   }
 

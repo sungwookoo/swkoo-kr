@@ -18,12 +18,21 @@ describe('account scan HTTP response', () => {
       { provide: EnvService, useValue: {} },
       { provide: KubeClient, useValue: { available: () => false } },
       { provide: AuthService, useValue: { verifySessionToken: (token: string) => token === 'alice' ? { uid: 1 } : token === 'bob' ? { uid: 2 } : null } },
-      { provide: UsersRepository, useValue: { findById: (id: number) => ({ id, githubLogin: id === 1 ? 'alice' : 'bob' }), latestScanResultForUser: latest } },
+      { provide: UsersRepository, useValue: { findById: (id: number) => ({ id, githubLogin: id === 1 ? 'alice' : 'bob' }), latestScanResultForUser: latest,
+        listAuditByActor:()=>[],listDeployNotifications:()=>[],exportSecurityPatch:()=>[],
+        listAdmissionReservations:()=>[{login:'alice',createdAt:123},{login:'bob',createdAt:456}] } },
     ] }).compile();
     app = module.createNestApplication(); app.use(cookieParser()); await app.init();
   });
   afterAll(async () => app.close());
   beforeEach(() => latest.mockReset());
+  it('exports the new reservation metadata only for the authenticated account', async()=>{
+    for(const login of ['alice','bob']) {
+      const result=await request(app.getHttpServer()).get('/account/export?userId=999').set('Cookie',`${SESSION_COOKIE}=${login}`).expect(200);
+      expect(result.body.admissionReservation).toEqual({login,createdAt:login==='alice'?123:456});
+      expect(result.body.user.githubLogin).toBe(login);
+    }
+  });
   it('returns JSON null before the first scan', async () => {
     latest.mockReturnValue(null);
     const response = await request(app.getHttpServer()).get('/account/scan').set('Cookie', `${SESSION_COOKIE}=alice`).expect(200);
