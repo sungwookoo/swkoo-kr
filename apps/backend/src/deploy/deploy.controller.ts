@@ -170,7 +170,10 @@ export class DeployController {
     @Body() body: { vars?: Record<string, unknown> }
   ): Promise<{ ok: true; count: number }> {
     this.assertOwnDeployment(req, login);
-    if (!body || typeof body.vars !== 'object' || body.vars === null) {
+    if (!req.user.isAllowed) {
+      throw new ForbiddenException({ reason: 'NOT_ALLOWED', message: '환경변수 변경 권한이 없습니다.' });
+    }
+    if (!body || typeof body.vars !== 'object' || body.vars === null || Array.isArray(body.vars)) {
       throw new BadRequestException({
         reason: 'INVALID_BODY',
         message: 'vars must be a key-value object',
