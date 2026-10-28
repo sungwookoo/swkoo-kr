@@ -1,8 +1,7 @@
 # Per-user registrations (Phase 3.1+)
 
 Current registration files live on the `deployment-data` branch, under
-`deploy/users/`. The files on `main` are legacy migration snapshots;
-they are not the live registration state.
+`deploy/users/`. This directory on `main` documents the schema only.
 The backend `MANIFEST_BRANCH` and ApplicationSet generator revision must
 both point at `deployment-data`; do not merge that data branch into `main`.
 Code changes on `main` continue to require tested pull requests.
