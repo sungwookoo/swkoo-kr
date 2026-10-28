@@ -28,8 +28,8 @@ export interface OnboardingConfig {
   // Discord webhook URL fired when the daily Trivy scan finds new
   // critical/high vulns in a user's image. Empty disables notifications.
   discordScanWebhookUrl: string | undefined;
-  // Control repo where /api/deploy/register writes a small per-user
-  // registration file (deploy/users/<login>.yaml) for ApplicationSet.
+  // Registration data lives on a separate branch so runtime writes never
+  // bypass the code branch's required pull requests and checks.
   manifestRepo: string; // "<owner>/<name>", e.g. "sungwookoo/swkoo-kr"
   manifestBranch: string;
   // GitHub org that owns one private deploy repo per user
@@ -69,7 +69,7 @@ export const onboardingConfig = registerAs(
     discordBuildFailureWebhookUrl: process.env.DISCORD_BUILD_FAILURE_WEBHOOK_URL || undefined,
     discordScanWebhookUrl: process.env.DISCORD_SCAN_WEBHOOK_URL || undefined,
     manifestRepo: process.env.MANIFEST_REPO ?? 'sungwookoo/swkoo-kr',
-    manifestBranch: process.env.MANIFEST_BRANCH ?? 'main',
+    manifestBranch: process.env.MANIFEST_BRANCH ?? 'deployment-data',
     deployOwner: process.env.GITHUB_DEPLOY_OWNER ?? 'swkoo-deploy',
     appsDomain: process.env.APPS_DOMAIN ?? 'apps.swkoo.kr',
     domainsBase: process.env.DOMAINS_BASE ?? 'domains.swkoo.kr',

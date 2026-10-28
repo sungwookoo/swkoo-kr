@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { ConflictException, Inject, Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigType } from '@nestjs/config';
 import axios from 'axios';
 import { sign as jwtSign } from 'jsonwebtoken';
@@ -355,11 +355,25 @@ export class GithubAppService {
       { headers }
     );
 
-    await axios.patch(
-      `https://api.github.com/repos/${owner}/${repo}/git/refs/heads/${branch}`,
-      { sha: newCommitResp.data.sha, force: false },
-      { headers }
-    );
+    try {
+      await axios.patch(
+        `https://api.github.com/repos/${owner}/${repo}/git/refs/heads/${branch}`,
+        { sha: newCommitResp.data.sha, force: false },
+        { headers }
+      );
+    } catch (err) {
+      const response = (err as { response?: { status?: number; data?: { message?: string } } }).response;
+      if (response?.status === 403 && /repository rule|protected branch/i.test(response.data?.message ?? '')) {
+        throw new ServiceUnavailableException({ reason: 'REGISTRATION_BRANCH_PROTECTED',
+          message: '저장소 보호 규칙으로 변경을 저장하지 못했습니다. 운영자에게 배포 등록 브랜치 설정 확인을 요청해 주세요.' });
+      }
+      if (response?.status === 409 || response?.status === 422) {
+        throw new ConflictException('저장소가 변경되었습니다. 최신 상태를 조회한 뒤 다시 시도해 주세요.');
+      }
+      // Never let Axios request headers (including the installation token)
+      // reach Nest's uncaught-error logger when updating a ref fails.
+      throw new ServiceUnavailableException('GitHub에 변경을 저장하지 못했습니다. 잠시 후 다시 시도해 주세요.');
+    }
 
     this.logger.log(
       `committed ${blobEntries.length} files (${deletions.length} deletions) to ${owner}/${repo}@${branch}: ${newCommitResp.data.sha.slice(0, 7)} — ${message}`

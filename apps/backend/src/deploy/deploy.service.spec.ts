@@ -148,7 +148,7 @@ describe('DeployService.deleteDeployment — orphan custom_domain cleanup', () =
     const config = {
       appsDomain: 'apps.swkoo.kr',
       manifestRepo: 'sungwookoo/swkoo-kr',
-      manifestBranch: 'main',
+      manifestBranch: 'deployment-data',
       deployOwner: 'swkoo-deploy',
     } as never;
 
@@ -164,7 +164,7 @@ describe('DeployService.deleteDeployment — orphan custom_domain cleanup', () =
   }
 
   it('removes custom_domain row when deleteDeployment commit succeeds', async () => {
-    const { service, audit, deleteByLoginMock } = makeDeleteService({
+    const { service, audit, deleteByLoginMock, commitFilesAtomic } = makeDeleteService({
       customDomainRows: [
         { id: 11, login: 'alice', appName: 'nextjs-sample', domain: 'app.alice-example.com' },
       ],
@@ -172,6 +172,10 @@ describe('DeployService.deleteDeployment — orphan custom_domain cleanup', () =
 
     await service.deleteDeployment('alice');
 
+    expect(commitFilesAtomic).toHaveBeenCalledWith(expect.objectContaining({
+      owner: 'sungwookoo', repo: 'swkoo-kr', branch: 'deployment-data',
+      deletePaths: ['deploy/users/alice.yaml'],
+    }));
     expect(deleteByLoginMock).toHaveBeenCalledWith('alice');
     // Audit captures the cascade with the deploy commit SHA so an
     // incident reviewer can correlate.
