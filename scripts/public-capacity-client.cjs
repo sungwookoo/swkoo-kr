@@ -12,7 +12,7 @@ async function run(suffix) {
       if (controller.signal.aborted) throw Error('Another client failed');
       const delay = began + i * 1000 / rps - performance.now();
       if (delay > 0) await new Promise(resolve => setTimeout(resolve, delay));
-      if (pending.size >= 2) { skipped++; continue; }
+      if (pending.size >= 2) { skipped++; controller.abort(); throw Error('Concurrency bound exceeded: ' + suffix); }
       const started = performance.now(), kind = i % 10 === 0 ? 'write' : i % 2 === 0 ? 'ssr' : 'read';
       const task = (async () => {
         try {
