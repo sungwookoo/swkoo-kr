@@ -487,7 +487,7 @@ export class DomainService {
   private async commitCustomDomainIngress(row: CustomDomainRow): Promise<string> {
     const deployOrg = this.config.deployOwner;
     const deployRepo = row.login;
-    const token = await this.githubApp.getInstallationTokenForRepo(deployOrg, deployRepo);
+    const token = await this.githubApp.getInstallationTokenForRepo(deployOrg, deployRepo, { contents: 'write' });
     const path = getCustomDomainIngressPath(row.appName);
 
     // Render the new Ingress (custom-domain only). Build a minimal
@@ -522,7 +522,7 @@ export class DomainService {
   private async commitCustomDomainIngressRemove(row: CustomDomainRow): Promise<string> {
     const deployOrg = this.config.deployOwner;
     const deployRepo = row.login;
-    const token = await this.githubApp.getInstallationTokenForRepo(deployOrg, deployRepo);
+    const token = await this.githubApp.getInstallationTokenForRepo(deployOrg, deployRepo, { contents: 'write' });
     const path = getCustomDomainIngressPath(row.appName);
     const updatedKustomization = await this.updateKustomizationRemoveEntry(
       deployOrg,

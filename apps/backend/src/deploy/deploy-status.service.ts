@@ -45,7 +45,7 @@ export class DeployStatusService {
 
     let expected: string | undefined;
     try {
-      const token = await this.githubApp.getInstallationTokenForRepo(login, repo);
+      const token = await this.githubApp.getInstallationTokenForRepo(login, repo, { metadata: 'read' });
       const versions = await this.githubApp.listUserPackageVersions({
         owner: login, packageName: repo.toLowerCase(), token,
       });
@@ -134,7 +134,7 @@ export class DeployStatusService {
   private async checkManifestStage(login: string): Promise<StageInfo> {
     const [owner, name] = this.config.manifestRepo.split('/');
     try {
-      const token = await this.githubApp.getInstallationTokenForRepo(owner, name);
+      const token = await this.githubApp.getInstallationTokenForRepo(owner, name, { contents: 'read' });
       await axios.get(
         `https://api.github.com/repos/${owner}/${name}/contents/${getUserRegistrationPath(login)}`,
         {

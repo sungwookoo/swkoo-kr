@@ -743,20 +743,22 @@ export class DeployService {
       //    manifests at its root.
       let deployRepoCommit: string;
       try {
-        const orgToken = await this.githubApp.getInstallationTokenForOrg(this.config.deployOwner);
+        const orgToken = await this.githubApp.getInstallationTokenForOrg(this.config.deployOwner, 'create-repository');
         await this.githubApp.ensureRepoInOrg({
           org: this.config.deployOwner,
           name: deployRepoName,
           description: `swkoo.kr deploy manifests for ${loginLc}/${repo}. Managed by https://swkoo.kr/deploy — do not edit by hand.`,
           token: orgToken,
         });
+        const deployToken = await this.githubApp.getInstallationTokenForRepo(
+          this.config.deployOwner, deployRepoName, { contents: 'write' });
         deployRepoCommit = await this.githubApp.commitFilesAtomic({
           owner: this.config.deployOwner,
           repo: deployRepoName,
           branch: 'main',
           files: deployRepoFiles,
           message: `feat: deploy ${appName}\n\nImage: ${params.imageRepo}:latest\nURL: https://${subdomain}.${this.config.appsDomain}`,
-          token: orgToken,
+          token: deployToken,
         });
       } catch (err) {
         const msg = (err as Error).message;
@@ -777,7 +779,8 @@ export class DeployService {
       try {
         const manifestToken = await this.githubApp.getInstallationTokenForRepo(
           manifestOwner,
-          manifestRepo
+          manifestRepo,
+          { contents: 'write' }
         );
         manifestRepoCommit = await this.githubApp.commitFilesAtomic({
           owner: manifestOwner,
@@ -916,7 +919,7 @@ export class DeployService {
     path: string
   ): Promise<string | null> {
     try {
-      const token = await this.githubApp.getInstallationTokenForRepo(owner, repo);
+      const token = await this.githubApp.getInstallationTokenForRepo(owner, repo, { contents: 'read' });
       const resp = await axios.get<{ content: string; encoding: string }>(
         `https://api.github.com/repos/${owner}/${repo}/contents/${path}`,
         {
@@ -950,7 +953,7 @@ export class DeployService {
     const [owner, repo] = this.config.manifestRepo.split('/');
     let commit: string;
     try {
-      const token = await this.githubApp.getInstallationTokenForRepo(owner, repo);
+      const token = await this.githubApp.getInstallationTokenForRepo(owner, repo, { contents: 'write' });
       commit = await this.githubApp.commitFilesAtomic({
         owner,
         repo,
@@ -1006,11 +1009,12 @@ export class DeployService {
     // the registration file is already gone so the user view is consistent.
     try {
       const deployRepoName = getUserDeployRepoName(loginLc);
-      const orgToken = await this.githubApp.getInstallationTokenForOrg(this.config.deployOwner);
+      const repoToken = await this.githubApp.getInstallationTokenForRepo(
+        this.config.deployOwner, deployRepoName, { administration: 'write' });
       await this.githubApp.archiveRepo({
         owner: this.config.deployOwner,
         repo: deployRepoName,
-        token: orgToken,
+        token: repoToken,
       });
     } catch (err) {
       this.logger.warn(`archiveRepo failed for ${loginLc}: ${(err as Error).message}`);

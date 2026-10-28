@@ -4,6 +4,8 @@
 
 ## 현재 운영 기준 (2026-10-28)
 
+- GitHub 토큰 후속 보강: 모든 저장소 호출의 권한을 명시하고 조직 생성·목록 예외도 플랫폼 조직으로 제한했다. [변경 및 실제 API 검증](./github-token-scope-2026-10-28.md)을 참조한다. 운영 반영 이력은 해당 기능·이미지 PR을 따른다.
+
 - 실제 일반 GitHub 계정으로 로그인·신규 ARM64 빌드·등록·HTTPS·환경변수 저장·삭제를 검증했다. [실제 흐름과 한계](./user-flow-verification-2026-10-28.md)를 참조한다. 두 신규 GitHub 계정의 전체 OAuth 흐름을 각각 검증한 것은 아니다.
 - 공통 등록 정보는 `deployment-data` 브랜치에서 관리한다. [보호된 main과 운영 데이터 분리](./deployment-registration-data.md) 및 올바른 ApplicationSet refresh 적용 완료.
 - 신규·기존 앱 기본 상한은 공유 CPU 500m·메모리 512Mi, 예약량은 100m·256Mi다. namespace quota는 교체 배포 여유를 포함하며 앱 한도와 다르다. 자동 증설·보장 사용자 수를 제공하지 않는다.

@@ -22,6 +22,8 @@ interface InstallationTokenResp {
   expires_at: string;
 }
 
+export type GithubTokenPermissions = Readonly<Record<string, 'read' | 'write'>>;
+
 interface GitRefResp {
   object: { sha: string };
 }
@@ -92,7 +94,8 @@ export class GithubAppService {
   /** Finds the App installation that has access to the given repo and mints
    * a fresh installation token (valid ~1h). Returns INSTALLATION_NOT_FOUND
    * when the App hasn't been installed on that repo. */
-  async getInstallationTokenForRepo(owner: string, repo: string, permissions?: Record<string, 'read' | 'write'>): Promise<string> {
+  async getInstallationTokenForRepo(owner: string, repo: string, permissions: GithubTokenPermissions): Promise<string> {
+    this.assertPermissions(permissions);
     let installationId: number;
     try {
       const resp = await axios.get<InstallationResp>(
@@ -107,13 +110,19 @@ export class GithubAppService {
       }
       throw err;
     }
-    return this.mintInstallationToken(installationId, permissions ? { repositories: [repo], permissions } : undefined);
+    return this.mintInstallationToken(installationId, { repositories: [repo], permissions });
   }
 
   /** Like getInstallationTokenForRepo but resolves the installation by org —
    * used when we need to create a repo (no repo exists yet to anchor the
    * lookup). The App must be installed on the org with Administration:write. */
-  async getInstallationTokenForOrg(org: string): Promise<string> {
+  async getInstallationTokenForOrg(org: string, purpose: 'create-repository' | 'list-repositories'): Promise<string> {
+    if (!this.config.deployOwner || org.toLowerCase() !== this.config.deployOwner.toLowerCase()) {
+      throw new Error('Organization tokens are restricted to the platform deployment organization');
+    }
+    if (!['create-repository', 'list-repositories'].includes(purpose)) {
+      throw new Error('Explicit organization token purpose required');
+    }
     let installationId: number;
     try {
       const resp = await axios.get<InstallationResp>(
@@ -128,13 +137,21 @@ export class GithubAppService {
       }
       throw err;
     }
-    return this.mintInstallationToken(installationId);
+    return this.mintInstallationToken(installationId, { permissions: purpose === 'create-repository'
+      ? { administration: 'write' } : { metadata: 'read' } });
   }
 
-  private async mintInstallationToken(installationId: number, scope?: { repositories: string[]; permissions: Record<string, 'read' | 'write'> }): Promise<string> {
+  private assertPermissions(permissions: GithubTokenPermissions): void {
+    if (!permissions || Array.isArray(permissions) || !Object.keys(permissions).length
+      || Object.values(permissions).some(value => value !== 'read' && value !== 'write')) {
+      throw new Error('Explicit GitHub token permissions required');
+    }
+  }
+
+  private async mintInstallationToken(installationId: number, scope: { repositories?: string[]; permissions: GithubTokenPermissions }): Promise<string> {
     const tokenResp = await axios.post<InstallationTokenResp>(
       `https://api.github.com/app/installations/${installationId}/access_tokens`,
-      scope ?? {},
+      scope,
       { headers: this.appAuthHeaders }
     );
     return tokenResp.data.token;
