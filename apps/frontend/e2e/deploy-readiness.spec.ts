@@ -5,7 +5,8 @@ for (const failure of [false, true]) {
   test(`old live response does not mark a new ${failure ? 'failed' : 'pending'} deployment complete`, async ({ page }) => {
     await installCatchAll(page);
     await mockAuthenticatedAs(page);
-    await page.route('**/api/deploy/env/**', (route) => json(route, 200, { vars: {} }));
+    await page.route('**/api/deploy/env/**', (route) => failure
+      ? json(route, 200, { vars: {} }) : json(route, 403, { message: 'RBAC_MISSING' }));
     await page.route('**/api/deploy/domain/**', (route) => json(route, 200, { domain: null }));
     await page.route('**/api/account/scan', (route) => json(route, 200, { scan: null }));
     await page.route('**/api/deploy/status/**', (route) => json(route, 200, {
@@ -20,6 +21,10 @@ for (const failure of [false, true]) {
       },
     }));
     await page.goto('/deploy/alice/app');
+    if (!failure) {
+      await expect(page.getByText('배포 환경을 준비하고 있습니다.', { exact: false })).toBeVisible();
+      await expect(page.getByText('한 번 재배포하면 RBAC이 생성되어', { exact: false })).toHaveCount(0);
+    }
     await expect(page.getByText('✓ 라이브 —', { exact: false })).toHaveCount(0);
     await expect(page.getByText(failure ? '⚠ 배포 확인 필요 —' : '⏳ 배포 진행 중 —', { exact: false })).toBeVisible();
     await page.getByRole('button', { name: '이 앱 제거하기' }).click();

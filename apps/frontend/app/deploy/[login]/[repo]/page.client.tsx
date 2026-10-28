@@ -74,6 +74,7 @@ export function StatusClient({ login, repo }: StatusClientProps): import("react"
             login={login}
             repo={repo}
             storageProfile={status.storageProfile}
+            deploymentPending={['pending', 'running'].includes(status.stages.deploy.status)}
           />
         )}
 
@@ -116,10 +117,12 @@ export function EnvVarsPanel({
   login,
   repo,
   storageProfile,
+  deploymentPending = false,
 }: {
   login: string;
   repo: string;
   storageProfile?: StorageProfile;
+  deploymentPending?: boolean;
 }): import("react").ReactNode {
   const { vars: serverVars, isLoading, error } = useEnvVars(login, repo);
   const { mutate } = useSWRConfig();
@@ -236,8 +239,9 @@ export function EnvVarsPanel({
 
       {rbacErr && (
         <p className="text-sm text-amber-400">
-          이 namespace에 아직 권한이 없습니다 — `/deploy`에서 한 번 재배포하면 RBAC이 생성되어
-          이 패널이 활성화됩니다.
+          {deploymentPending
+            ? '배포 환경을 준비하고 있습니다. 준비가 완료되면 환경변수 설정을 사용할 수 있습니다.'
+            : '이 namespace에 아직 권한이 없습니다 — /deploy에서 한 번 재배포하면 RBAC이 생성되어 이 패널이 활성화됩니다.'}
         </p>
       )}
       {error && !rbacErr && (

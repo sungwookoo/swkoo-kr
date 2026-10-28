@@ -1,5 +1,5 @@
 # Lets the swkoo-backend ServiceAccount in the swkoo namespace patch the
-# swkoo-users ApplicationSet — used to fire `argocd.argoproj.io/refresh=hard`
+# swkoo-users ApplicationSet — used to fire `argocd.argoproj.io/application-set-refresh=true`
 # right after a /deploy register or delete, so ArgoCD picks up the new
 # manifests within seconds instead of the default ~3 min git-poll interval.
 #

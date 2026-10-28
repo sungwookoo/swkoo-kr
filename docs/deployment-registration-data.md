@@ -14,3 +14,5 @@
 운영 전환 시 기존 모든 Application이 유지되는지 확인한 뒤 테스트 계정으로 삭제·재등록을 수행한다. 롤백 시에는 먼저 데이터 브랜치의 최신 등록 목록을 보존해야 한다. 이전 코드의 `main`을 가리키는 설정으로 단순 복귀하면 이미 삭제된 앱을 되살리거나 신규 앱을 누락할 수 있다.
 
 등록·삭제 회귀 테스트는 운영 데이터 브랜치를 전달하는지 확인한다. GitHub ref 갱신 오류는 안전한 HTTP 오류로 변환하며, Axios 요청의 설치 토큰이 예외 로그로 전파되지 않도록 한다.
+
+ApplicationSet의 즉시 재조회는 `argocd.argoproj.io/application-set-refresh=true`로 요청한다. 기존 `argocd.argoproj.io/refresh=hard`는 Application용이므로 이 리소스에서는 사용하지 않는다. [Argo CD 공식 annotation 문서](https://argo-cd.readthedocs.io/en/stable/user-guide/annotations-and-labels/)를 기준으로 수정하고 API 요청 회귀 테스트를 추가했다.
