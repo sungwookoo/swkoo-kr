@@ -7,10 +7,11 @@ import { DeployService } from './deploy.service';
 import { EnvService } from './env.service';
 import { AuthService, SESSION_COOKIE } from '../onboarding/auth.service';
 import { UsersRepository } from '../onboarding/users.repository';
+import { AccountMutationInterceptor } from './account-mutation.interceptor';
 
 describe('Deployment HTTP authorization boundary', () => {
   let app: any;
-  const service = { getDeploymentStatus: jest.fn() };
+  const service = { getDeploymentStatus: jest.fn(), getCurrentDeployment: jest.fn(), registerForUser: jest.fn(), deleteDeployment: jest.fn() };
   const env = { getEnv: jest.fn(), setEnv: jest.fn() };
   beforeAll(async () => {
     const module = await Test.createTestingModule({
@@ -24,10 +25,35 @@ describe('Deployment HTTP authorization boundary', () => {
     }).compile();
     app = module.createNestApplication();
     app.use(cookieParser());
+    app.useGlobalInterceptors(new AccountMutationInterceptor());
     await app.init();
   });
   afterAll(async () => app.close());
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => {
+    jest.clearAllMocks();
+    service.getCurrentDeployment.mockResolvedValue({ state: 'active', repo: 'app', appName: 'app' });
+  });
+  it('returns 409 for overlapping register/delete/env through the real HTTP boundary', async () => {
+    let finish!: (value: unknown) => void, started!: () => void;
+    const began = new Promise<void>(resolve => { started = resolve; });
+    service.registerForUser.mockImplementation(() => { started(); return new Promise(resolve => { finish = resolve; }); });
+    const first = request(app.getHttpServer()).post('/deploy/register').set('Cookie', `${SESSION_COOKIE}=alice-session`)
+      .send({ fullName: 'alice/app' }).then(response => response);
+    await began;
+    try {
+      const duplicate = await request(app.getHttpServer()).post('/deploy/register').set('Cookie', `${SESSION_COOKIE}=alice-session`).send({ fullName: 'alice/app' }).expect(409);
+      expect(duplicate.body.reason).toBe('OPERATION_IN_PROGRESS');
+      await request(app.getHttpServer()).delete('/deploy').set('Cookie', `${SESSION_COOKIE}=alice-session`).expect(409);
+      await request(app.getHttpServer()).put('/deploy/env/alice/app').set('Cookie', `${SESSION_COOKIE}=alice-session`).send({ vars: {} }).expect(409);
+      expect(service.registerForUser).toHaveBeenCalledTimes(1); expect(service.deleteDeployment).not.toHaveBeenCalled(); expect(env.setEnv).not.toHaveBeenCalled();
+    } finally { finish({ ok: true }); await first; }
+    await request(app.getHttpServer()).put('/deploy/env/alice/app').set('Cookie', `${SESSION_COOKIE}=alice-session`).send({ vars: {} }).expect(200);
+  });
+  it.each([null, { state: 'deleting', appName: 'app' }, { state: 'active', appName: 'other' }])('rejects environment writes for an absent, deleting or replaced app: %j', async current => {
+    service.getCurrentDeployment.mockResolvedValue(current);
+    await request(app.getHttpServer()).put('/deploy/env/alice/app').set('Cookie', `${SESSION_COOKIE}=alice-session`).send({ vars: {} }).expect(409);
+    expect(env.setEnv).not.toHaveBeenCalled();
+  });
   it('rejects missing and invalid sessions', async () => {
     await request(app.getHttpServer()).get('/deploy/status/alice/app').expect(401);
     await request(app.getHttpServer()).get('/deploy/status/alice/app').set('Cookie', `${SESSION_COOKIE}=invalid`).expect(401);

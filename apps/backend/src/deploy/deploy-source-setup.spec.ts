@@ -11,8 +11,9 @@ describe('source review before deployment side effects', () => {
       ensureRepoInOrg: jest.fn(async () => undefined), commitFilesAtomic: jest.fn(async () => 'manifest-sha') };
     const users = { findByLogin: jest.fn(() => ({ id: 1, githubLogin: 'alice', isAllowed: true })), audit: jest.fn() };
     const service = new DeployService({} as any, github as any, users as any, {} as any, {} as any,
-      { findForRender: () => null } as any, { appsDomain: 'apps.swkoo.kr', deployOwner: 'swkoo-deploy', manifestRepo: 'operator/control', manifestBranch: 'deployment-data' } as any, {} as any);
+      { findForRender: () => null } as any, { appsDomain: 'apps.swkoo.kr', deployOwner: 'swkoo-deploy', manifestRepo: 'operator/control', manifestBranch: 'deployment-data' } as any, {} as any, { reserve: jest.fn(async () => undefined) } as any);
     jest.spyOn(service, 'detectStack').mockResolvedValue({ stack: 'nextjs', packageName: 'app', port: 3000, nodeEngine: null, checks: [] });
+    jest.spyOn(service, 'getCurrentDeployment').mockResolvedValue(null);
     const claim = jest.spyOn(service as any, 'claimSubdomainOrDefault').mockReturnValue('alice-app');
     jest.spyOn(service as any, 'readExistingStorageProfile').mockResolvedValue(undefined);
     jest.spyOn(service as any, 'refreshUsersApplicationSet').mockResolvedValue(undefined);
@@ -22,6 +23,22 @@ describe('source review before deployment side effects', () => {
     return { service, github, users, claim, inspect, create, pr };
   }
   afterEach(() => jest.restoreAllMocks());
+  it('checks capacity before changing source or claiming a URL', async () => {
+    const s = setup(); (s.service as any).admission.reserve.mockRejectedValue(Error('capacity blocked'));
+    await expect(s.service.registerForUser('alice', req)).rejects.toThrow('capacity blocked');
+    expect(s.create).not.toHaveBeenCalled(); expect(s.claim).not.toHaveBeenCalled(); expect(s.github.commitFilesAtomic).not.toHaveBeenCalled();
+  });
+  it('allows existing app recovery without a new admission reservation', async () => {
+    const s = setup(); jest.spyOn(s.service, 'getCurrentDeployment').mockResolvedValue({ state: 'active', repo: 'app' } as any);
+    expect(await s.service.registerForUser('alice', req)).toMatchObject({ ok: true });
+    expect((s.service as any).admission.reserve).not.toHaveBeenCalled();
+  });
+  it.each(['deleting', 'other-app'])('blocks %s before any source or manifest writes', async state => {
+    const s = setup();
+    jest.spyOn(s.service, 'getCurrentDeployment').mockResolvedValue({ repo: state === 'deleting' ? 'app' : 'other', state: state === 'deleting' ? 'deleting' : 'active' } as any);
+    await expect(s.service.registerForUser('alice', req)).rejects.toThrow(state === 'deleting' ? '삭제 중' : '1개');
+    expect(s.claim).not.toHaveBeenCalled(); expect(s.create).not.toHaveBeenCalled(); expect(s.github.commitFilesAtomic).not.toHaveBeenCalled();
+  });
   it('rejects missing consent before claiming a URL, committing files or registering manifests', async () => {
     const s = setup();
     await expect(s.service.registerForUser('alice', { fullName: 'alice/app' })).rejects.toThrow('동의');

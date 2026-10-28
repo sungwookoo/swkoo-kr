@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import { APP_GUARD } from '@nestjs/core';
+import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 
@@ -15,6 +15,7 @@ import { webhooksConfig } from './config/webhooks.config';
 import { AlertsModule } from './alerts/alerts.module';
 import { BackupModule } from './backup/backup.module';
 import { DeployModule } from './deploy/deploy.module';
+import { AccountMutationInterceptor } from './deploy/account-mutation.interceptor';
 import { DomainModule } from './domain/domain.module';
 import { EmailModule } from './email/email.module';
 import { HealthController } from './health/health.controller';
@@ -52,6 +53,7 @@ import { WebhooksModule } from './webhooks/webhooks.module';
   providers: [
     OverviewService,
     { provide: APP_GUARD, useClass: ThrottlerGuard },
+    { provide: APP_INTERCEPTOR, useClass: AccountMutationInterceptor },
   ],
 })
 export class AppModule {}

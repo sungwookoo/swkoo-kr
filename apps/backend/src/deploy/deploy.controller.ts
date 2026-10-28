@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  ConflictException,
   Delete,
   ForbiddenException,
   Get,
@@ -209,8 +210,13 @@ export class DeployController {
 
     const appName = sanitizeName(repo);
     try {
+      const current = await this.service.getCurrentDeployment(login, true);
+      if (!current || current.state !== 'active' || current.appName !== appName) {
+        throw new ConflictException({ reason: 'DEPLOYMENT_NOT_CURRENT', message: '현재 배포된 앱이 아닙니다. 배포 목록에서 상태를 다시 확인해 주세요.' });
+      }
       await this.envService.setEnv(login, appName, stringVars);
     } catch (err) {
+      if (err instanceof ConflictException) throw err;
       const msg = (err as Error).message;
       if (msg.startsWith('INVALID_KEY:')) {
         throw new BadRequestException({

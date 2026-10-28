@@ -5,7 +5,7 @@ it('requests reconciliation with the ApplicationSet-specific refresh annotation'
   const patch = jest.fn(async () => undefined);
   const service = new DeployService({} as any, {} as any, {} as any, {} as any,
     { available: () => true, custom: { patchNamespacedCustomObject: patch } } as any,
-    {} as any, {} as any, {} as any);
+    {} as any, {} as any, {} as any, {} as any);
   await (service as any).refreshUsersApplicationSet();
   expect(patch).toHaveBeenCalledWith({ group: 'argoproj.io', version: 'v1alpha1', namespace: 'argocd',
     plural: 'applicationsets', name: 'swkoo-users', body: { metadata: {
