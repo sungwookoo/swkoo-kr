@@ -7,7 +7,7 @@ describe('source review before deployment side effects', () => {
     files: [{ path: 'Dockerfile', action: 'keep', before: 'same', after: 'same' }] };
   const req = { fullName: 'alice/app', setupDigest: 'digest', setupConsent: SOURCE_SETUP_CONSENT };
   function setup() {
-    const github = { getInstallationTokenForOrg: jest.fn(async () => 'token'), getInstallationTokenForRepo: jest.fn(async () => 'token'),
+    const github = { getInstallationTokenForOrg: jest.fn(async () => 'org-admin-token'), getInstallationTokenForRepo: jest.fn(async () => 'repo-contents-token'),
       ensureRepoInOrg: jest.fn(async () => undefined), commitFilesAtomic: jest.fn(async () => 'manifest-sha') };
     const users = { findByLogin: jest.fn(() => ({ id: 1, githubLogin: 'alice', isAllowed: true })), audit: jest.fn() };
     const service = new DeployService({} as any, github as any, users as any, {} as any, {} as any,
@@ -56,8 +56,13 @@ describe('source review before deployment side effects', () => {
     expect(await s.service.registerForUser('alice', req)).toMatchObject({ ok: true, userRepoCommit: 'source-sha' });
     expect(s.github.commitFilesAtomic).toHaveBeenCalledTimes(2);
     expect(s.github.commitFilesAtomic).toHaveBeenCalledWith(expect.objectContaining({
-      owner: 'operator', repo: 'control', branch: 'deployment-data',
+      owner: 'operator', repo: 'control', branch: 'deployment-data', token: 'repo-contents-token',
     }));
+    expect(s.github.getInstallationTokenForOrg).toHaveBeenCalledWith('swkoo-deploy', 'create-repository');
+    expect(s.github.ensureRepoInOrg).toHaveBeenCalledWith(expect.objectContaining({ token: 'org-admin-token' }));
+    expect(s.github.getInstallationTokenForRepo).toHaveBeenCalledWith('swkoo-deploy', 'alice', { contents: 'write' });
+    expect(s.github.getInstallationTokenForRepo).toHaveBeenCalledWith('operator', 'control', { contents: 'write' });
+    expect(s.github.commitFilesAtomic.mock.calls.every(([args]: any[]) => args.token !== 'org-admin-token')).toBe(true);
     expect(s.github.commitFilesAtomic.mock.calls.every(([args]: any[]) => args.owner !== 'alice')).toBe(true);
   });
 });

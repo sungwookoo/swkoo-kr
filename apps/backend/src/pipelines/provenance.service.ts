@@ -87,7 +87,7 @@ export class ProvenanceService {
       // workflow runs) to query its packages and workflow runs. For most
       // user apps imageRepo == sourceRepo; the rare case where they diverge
       // (stale yaml, image renamed) just means we look up the right place.
-      token = await this.githubApp.getInstallationTokenForRepo(imageOwner, imageName);
+      token = await this.githubApp.getInstallationTokenForRepo(imageOwner, imageName, { metadata: 'read' });
     } catch (err) {
       this.logger.warn(
         `no App installation for ${imageOwner}/${imageName}: ${(err as Error).message}`

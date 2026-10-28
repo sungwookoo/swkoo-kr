@@ -65,7 +65,7 @@ export class CleanupService {
     const cutoffMs = Date.now() - RETENTION_DAYS * DAY_MS;
     let token: string;
     try {
-      token = await this.githubApp.getInstallationTokenForOrg(this.config.deployOwner);
+      token = await this.githubApp.getInstallationTokenForOrg(this.config.deployOwner, 'list-repositories');
     } catch (err) {
       this.logger.warn(
         `cleanup: could not mint org token for ${this.config.deployOwner}: ${(err as Error).message}`
@@ -88,10 +88,12 @@ export class CleanupService {
     }
     for (const r of expired) {
       try {
+        const deleteToken = await this.githubApp.getInstallationTokenForRepo(
+          this.config.deployOwner, r.name, { administration: 'write' });
         await this.githubApp.deleteRepo({
           owner: this.config.deployOwner,
           repo: r.name,
-          token,
+          token: deleteToken,
         });
       } catch (err) {
         this.logger.error(`cleanup: deleteRepo ${r.name} failed: ${(err as Error).message}`);
