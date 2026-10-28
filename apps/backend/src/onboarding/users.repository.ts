@@ -135,6 +135,9 @@ export class UsersRepository implements OnModuleInit, OnModuleDestroy {
       );
       CREATE INDEX IF NOT EXISTS idx_scan_results_user_at
         ON scan_results (user_id, scanned_at DESC);
+      CREATE TABLE IF NOT EXISTS admission_reservations (
+        login TEXT PRIMARY KEY, created_at INTEGER NOT NULL
+      );
     `);
     // Idempotent column adds (SQLite has no "ADD COLUMN IF NOT EXISTS").
     // GitHub App user tokens expire (8h by default); we refresh on demand.
@@ -216,6 +219,18 @@ export class UsersRepository implements OnModuleInit, OnModuleDestroy {
 
   onModuleDestroy(): void {
     this.db?.close();
+  }
+
+  listAdmissionReservations(): Array<{ login: string; createdAt: number }> {
+    return this.db.prepare('SELECT login, created_at AS createdAt FROM admission_reservations').all() as Array<{ login: string; createdAt: number }>;
+  }
+
+  reserveAdmission(login: string, at: number): void {
+    this.db.prepare('INSERT INTO admission_reservations (login, created_at) VALUES (?, ?) ON CONFLICT(login) DO NOTHING').run(login, at);
+  }
+
+  releaseAdmissionReservation(login: string): void {
+    this.db.prepare('DELETE FROM admission_reservations WHERE login = ?').run(login.toLowerCase());
   }
 
   /** Atomic SQLite snapshot to a file path. Uses better-sqlite3's backup
@@ -303,6 +318,7 @@ export class UsersRepository implements OnModuleInit, OnModuleDestroy {
         .prepare(`SELECT github_login FROM users WHERE id = ?`)
         .get(userId) as { github_login: string } | undefined;
       if (!row) return;
+      this.db.prepare('UPDATE admission_reservations SET login = ? WHERE login = ?').run(placeholder, row.github_login.toLowerCase());
       this.db.prepare('DELETE FROM sessions WHERE user_id = ?').run(userId);
       this.db.prepare('DELETE FROM deploy_notifications WHERE user_id = ?').run(userId);
       if (this.db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='security_patch_plans'").get()) {

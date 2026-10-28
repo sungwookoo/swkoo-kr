@@ -12,6 +12,7 @@ import { DeployStatusService } from './deploy-status.service';
 import { ArgoCdClient } from '../pipelines/services/argo-cd.client';
 import { GithubAppService } from '../github-app/github-app.service';
 import { SourceSetup } from './source-setup';
+import { DeploymentAdmissionService } from './deployment-admission.service';
 import {
   subdomainErrorMessage,
   validateSubdomainFormat,
@@ -213,7 +214,8 @@ export class DeployService {
     private readonly customDomains: CustomDomainsRepository,
     @Inject(onboardingConfig.KEY)
     private readonly config: ConfigType<typeof onboardingConfig>,
-    private readonly statusService: DeployStatusService
+    private readonly statusService: DeployStatusService,
+    private readonly admission: DeploymentAdmissionService
   ) {}
 
   async listRepos(userId: number): Promise<RepoSummary[]> {
@@ -668,6 +670,13 @@ export class DeployService {
     this.sourceSetup.assertReviewed(sourcePlan, req.setupDigest, req.setupConsent);
     if (sourcePlan.files.some(file => file.action === 'review')) throw new ConflictException('기존 파일 변경은 PR 검토가 필요합니다. 배포 설정을 다시 확인해 주세요.');
 
+    const current = await this.getCurrentDeployment(userLogin, true);
+    if (current?.state === 'deleting') throw new ConflictException({ reason: 'DEPLOYMENT_DELETING', message: '앱과 저장공간을 삭제 중입니다. 삭제가 완료된 뒤 다시 배포해 주세요.' });
+    if (current && current.repo.toLowerCase() !== repo.toLowerCase()) {
+      throw new ConflictException({ reason: 'APP_ALREADY_EXISTS', message: '계정당 앱은 1개입니다. 기존 앱을 제거한 뒤 다른 앱을 배포해 주세요.' });
+    }
+    if (!current) await this.admission.reserve(loginLc);
+
     const appName = sanitizeName(repo);
     const subdomain = this.claimSubdomainOrDefault(user, loginLc, appName, req.subdomain);
     const deployRepoName = getUserDeployRepoName(loginLc);
@@ -844,7 +853,8 @@ export class DeployService {
    * After a delete the registration file is gone immediately, but the ArgoCD
    * app lingers ~1-3 min until ApplicationSet prunes it — that window is
    * exposed as state === 'deleting'. */
-  async getCurrentDeployment(login: string): Promise<CurrentDeployment | null> {
+  async getCurrentDeployment(login: string, requireArgo = false): Promise<CurrentDeployment | null> {
+    if (requireArgo && !this.argo.isConfigured()) throw new ServiceUnavailableException({ reason: 'DEPLOYMENT_STATE_UNAVAILABLE', message: '배포 상태 연결을 확인하지 못했습니다. 운영자에게 문의해 주세요.' });
     const loginLc = login.toLowerCase();
     const [manifestOwner, manifestRepoName] = this.config.manifestRepo.split('/');
 
@@ -855,7 +865,10 @@ export class DeployService {
     );
     const app = await this.argo
       .getApplication(`swkoo-user-${loginLc}`)
-      .catch(() => null);
+      .catch(() => {
+        if (requireArgo) throw new ServiceUnavailableException({ reason: 'DEPLOYMENT_STATE_UNAVAILABLE', message: '기존 배포 상태를 확인하지 못했습니다. 잠시 후 다시 시도해 주세요.' });
+        return null;
+      });
 
     if (!registrationContent && !app) {
       return null;
@@ -1030,6 +1043,7 @@ export class DeployService {
 
     void this.refreshUsersApplicationSet();
 
+    this.users.releaseAdmissionReservation(loginLc);
     return { commit };
   }
 

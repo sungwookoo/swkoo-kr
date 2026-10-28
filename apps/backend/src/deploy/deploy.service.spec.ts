@@ -48,7 +48,7 @@ describe('DeployService.registerForUser — ownership check', () => {
     const customDomains = { findForRender: jest.fn() } as never;
     const config = { appsDomain: 'apps.swkoo.kr' } as never;
     const service = new DeployService(
-      auth, githubApp, users, argo, kube, customDomains, config, {} as never
+      auth, githubApp, users, argo, kube, customDomains, config, {} as never, {} as never
     );
     return { service, audit, findByLogin };
   }
@@ -116,6 +116,7 @@ describe('DeployService.deleteDeployment — orphan custom_domain cleanup', () =
         isAllowed: opts.isAllowed ?? true,
       }),
       audit,
+      releaseAdmissionReservation: jest.fn(),
     } as unknown as UsersRepository;
 
     const commitFilesAtomic = jest.fn(async () => {
@@ -153,7 +154,7 @@ describe('DeployService.deleteDeployment — orphan custom_domain cleanup', () =
     } as never;
 
     const service = new DeployService(
-      auth, githubApp, users, argo, kube, customDomains, config, {} as never
+      auth, githubApp, users, argo, kube, customDomains, config, {} as never, {} as never
     );
     // refreshUsersApplicationSet is called at the end of deleteDeployment
     // (best-effort, fire-and-forget); stub it to avoid kube.custom usage.
@@ -240,7 +241,7 @@ describe('DeployService.detectStack — pre-deploy checks', () => {
     const customDomains = { findForRender: jest.fn() } as never;
     const config = { appsDomain: 'apps.swkoo.kr' } as never;
     const service = new DeployService(
-      auth, githubApp, users, argo, kube, customDomains, config, {} as never
+      auth, githubApp, users, argo, kube, customDomains, config, {} as never, {} as never
     );
     return service;
   }
@@ -726,7 +727,7 @@ describe('DeployService.detectStack — Prisma SQLite detection', () => {
     const customDomains = { findForRender: jest.fn() } as never;
     const config = { appsDomain: 'apps.swkoo.kr' } as never;
     return new DeployService(
-      auth, githubApp, users, argo, kube, customDomains, config, {} as never
+      auth, githubApp, users, argo, kube, customDomains, config, {} as never, {} as never
     );
   }
 
