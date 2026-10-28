@@ -1,6 +1,28 @@
 import { expect, test } from '@playwright/test';
 import { installCatchAll, json, mockAuthenticatedAs } from './fixtures';
 
+test('scan comparison refreshes after a rollout without reloading the page', async ({ page }) => {
+  await page.clock.install();
+  await installCatchAll(page); await mockAuthenticatedAs(page);
+  let changed = false;
+  await page.route('**/api/deploy/env/**', route => json(route, 200, { vars: {} }));
+  await page.route('**/api/deploy/domain/**', route => json(route, 200, { domain: null }));
+  await page.route('**/api/account/scan', route => json(route, 200, {
+    id: 1, userId: 1, image: 'ghcr.io/alice/app@sha256:old', critical: 0, high: 0, medium: 0,
+    scannedAt: new Date().toISOString(), findings: [], matchesCurrentImage: !changed,
+  }));
+  await page.route('**/api/deploy/status/**', route => json(route, 200, {
+    login: 'alice', repo: 'app', appName: 'app', liveUrl: 'https://alice-app.apps.swkoo.kr',
+    stages: Object.fromEntries(['manifests','build','imageDetected','deploy','live'].map(name => [name, { status: 'success' }])),
+  }));
+  await page.goto('/deploy/alice/app');
+  await expect(page.getByText('ghcr.io/alice/app@sha256:old', { exact: true })).toBeVisible();
+  await expect(page.getByText(/현재 운영 이미지와 다릅니다/)).toHaveCount(0);
+  changed = true;
+  await page.clock.runFor(31_000);
+  await expect(page.getByText(/현재 운영 이미지와 다릅니다/)).toBeVisible();
+});
+
 for (const failure of [false, true]) {
   test(`old live response does not mark a new ${failure ? 'failed' : 'pending'} deployment complete`, async ({ page }) => {
     await installCatchAll(page);

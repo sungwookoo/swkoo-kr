@@ -32,6 +32,7 @@ export default function SecurityUpdatePage() {
           <p className="font-mono text-xs text-zinc-500">2026.10.28 · 후속 개선</p>
           <h2 className="mt-3 text-lg font-medium text-zinc-200">파일 처리와 장애 안내 개선</h2>
           <p className="mt-3 leading-relaxed text-zinc-400">엑셀 데모에 압축 파일 검사와 처리 시간 제한을 추가했습니다. 배포 화면에서는 메모리 한도 초과와 서버 자원 대기를 구분해 다음 조치를 안내합니다. 환경변수 저장·앱 제거 실패 후 재시도와 데이터 유지 동작도 검증했습니다.</p>
+          <p className="mt-3 leading-relaxed text-zinc-400">GitHub 연결 권한을 작업별로 좁히고, 상태 저장 앱의 새 버전 배포 후 데이터 유지·삭제 과정을 실제 환경에서 확인했습니다. 배포 후 보안 점검 결과와 현재 앱 버전의 비교 안내도 자동으로 갱신하도록 개선했습니다.</p>
           <p className="mt-3 text-sm leading-relaxed text-zinc-500">이번 후속 작업에서도 이용자의 앱 저장소를 수정하지 않았습니다. 파일은 계속 브라우저 안에서만 처리합니다.</p>
         </section>
         <section className="mt-10 border-t border-zinc-800 pt-8">

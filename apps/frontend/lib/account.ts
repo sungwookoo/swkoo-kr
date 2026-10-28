@@ -42,7 +42,8 @@ export function useLatestScan(enabled: boolean): {
 } {
   const { data, error, isLoading } = useSWR<LatestScan | null>(
     enabled ? `${API_BASE_URL}/account/scan` : null,
-    fetcher
+    fetcher,
+    { refreshInterval: 30_000 }
   );
   return { scan: data, isLoading, error };
 }

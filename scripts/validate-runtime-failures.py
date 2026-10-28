@@ -6,12 +6,20 @@ and an output JSON path. Capacity fixture cannot preempt existing workloads.
 import json
 from pathlib import Path
 import re
+import signal
 import subprocess
 import sys
 import time
 
 NS = 'user-swkoo-failure-validation'
 PRIORITY = 'swkoo-failure-validation'
+
+
+def stop(signum, frame):
+    raise KeyboardInterrupt('Validation interrupted')
+
+
+signal.signal(signal.SIGTERM, stop)
 
 
 def kube(*args, data=None):
@@ -23,18 +31,18 @@ def apply(data):
 
 
 image, output = sys.argv[1:3]
-assert re.fullmatch(r'ghcr.io/sungwookoo/sprintflow:latest@sha256:[a-f0-9]{64}', image)
+assert re.fullmatch(r'ghcr\.io/sungwookoo/sprintflow:latest@sha256:[a-f0-9]{64}', image)
 assert not kube('get', 'namespace', NS, '--ignore-not-found'), 'Refusing existing namespace'
 assert not kube('get', 'priorityclass', PRIORITY, '--ignore-not-found'), 'Refusing existing priority class'
 results = {}
 created = False
 priority_created = False
 try:
-    apply({'apiVersion': 'scheduling.k8s.io/v1', 'kind': 'PriorityClass', 'metadata': {'name': PRIORITY},
-           'value': -1000, 'globalDefault': False, 'preemptionPolicy': 'Never'})
+    kube('create', '-f', '-', data=json.dumps({'apiVersion': 'scheduling.k8s.io/v1', 'kind': 'PriorityClass', 'metadata': {'name': PRIORITY},
+           'value': -1000, 'globalDefault': False, 'preemptionPolicy': 'Never'}))
     priority_created = True
-    apply({'apiVersion': 'v1', 'kind': 'Namespace', 'metadata': {'name': NS, 'labels': {
-        'pod-security.kubernetes.io/enforce': 'restricted'}}})
+    kube('create', '-f', '-', data=json.dumps({'apiVersion': 'v1', 'kind': 'Namespace', 'metadata': {'name': NS, 'labels': {
+        'pod-security.kubernetes.io/enforce': 'restricted'}}}))
     created = True
     for case in ['oom', 'capacity', 'database']:
         code = "Buffer.alloc(128*1024*1024,1);setInterval(()=>{},1000)"
