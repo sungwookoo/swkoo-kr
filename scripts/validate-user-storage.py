@@ -7,6 +7,7 @@ All test resources are removed in finally; production namespaces are read-only.
 import json
 import os
 import re
+import signal
 from pathlib import Path
 import shutil
 import sqlite3
@@ -14,6 +15,13 @@ import subprocess
 import sys
 import tempfile
 import time
+
+
+def stop(signum, frame):
+    raise KeyboardInterrupt('Validation interrupted')
+
+
+signal.signal(signal.SIGTERM, stop)
 
 
 def kube(*args, data=None):
@@ -44,10 +52,13 @@ def database_path(ns):
 
 fixtures = json.loads(Path(sys.argv[1]).read_text())
 namespaces = ["user-swkoo-validation-a", "user-swkoo-validation-b"]
+for suffix, namespace in zip(['a', 'b'], namespaces):
+    for name in ['resource-quota.yaml', 'limit-range.yaml', 'network-policy.yaml', 'probe/pvc.yaml', 'probe/deployment.yaml']:
+        assert fixtures[suffix][name]['metadata'].get('namespace') == namespace, 'Resource outside the validation namespace'
 created = []
 backup_dir = tempfile.mkdtemp(prefix="swkoo-storage-validation-")
 image = sys.argv[2]
-assert re.fullmatch(r'ghcr.io/sungwookoo/sprintflow:latest@sha256:[a-f0-9]{64}', image), 'Use the current owner-controlled image digest'
+assert re.fullmatch(r'ghcr\.io/sungwookoo/sprintflow:latest@sha256:[a-f0-9]{64}', image), 'Use the current owner-controlled image digest'
 try:
     existing = {n["metadata"]["name"] for n in obj("get", "namespaces")["items"]}
     assert not existing.intersection(namespaces), "Validation namespace already exists; refusing to modify it"
@@ -55,9 +66,11 @@ try:
         files = fixtures[suffix]
         assert files["namespace.yaml"]["metadata"]["name"] == ns
         for key in ["namespace.yaml", "resource-quota.yaml", "limit-range.yaml", "probe/pvc.yaml"]:
-            apply(files[key])
             if key == "namespace.yaml":
+                kube('create', '-f', '-', data=json.dumps(files[key]))
                 created.append(ns)
+            else:
+                apply(files[key])
         dep = files["probe/deployment.yaml"]
         for container in dep["spec"]["template"]["spec"]["initContainers"]:
             container["image"] = image

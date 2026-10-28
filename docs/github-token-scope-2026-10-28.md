@@ -20,3 +20,7 @@
 - 저장소 전용 administration 토큰으로 임시 저장소 보관·삭제 성공. 새로 만든 ID·이름·설명을 대조한 임시 저장소만 제거했다.
 
 실제 사용자 소스 저장소에는 기록·PR 생성·삭제를 하지 않았다. GitHub token이나 App private key는 출력·전달하지 않았다. 실제 API 시험은 토큰 범위 확인이며 모든 권한 우회 가능성을 인증하는 결과는 아니다.
+
+## 운영 반영
+
+[PR #83](https://github.com/sungwookoo/swkoo-kr/pull/83)과 [이미지 PR #84](https://github.com/sungwookoo/swkoo-kr/pull/84)로 backend 이미지 `4aeb2fdca01d8afaf7a7ee4f2397cfa0de89120b`를 반영했다. 새 Pod Ready·재시작 0, health 200과 기존 앱 정상 상태를 확인했다. 이후 실제 일반 계정의 SQLite 앱 등록·새 이미지 배포·환경변수 변경·삭제도 이 버전에서 수행해, 좁힌 권한으로 서비스 흐름이 유지됨을 확인했다.

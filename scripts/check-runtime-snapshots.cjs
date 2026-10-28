@@ -2,7 +2,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const { DeployStatusService } = require('../apps/backend/dist/deploy/deploy-status.service.js');
-const snapshots = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+const snapshots = JSON.parse(fs.readFileSync(process.argv[2] ?? 0, 'utf8'));
 (async () => {
   for (const [name, reason] of Object.entries({ oom: 'MEMORY_LIMIT_EXCEEDED', capacity: 'CLUSTER_CAPACITY_PENDING', database: 'POD_NOT_READY' })) {
     const fixture = snapshots[name];
