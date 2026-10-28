@@ -11,7 +11,7 @@ describe('source review before deployment side effects', () => {
       ensureRepoInOrg: jest.fn(async () => undefined), commitFilesAtomic: jest.fn(async () => 'manifest-sha') };
     const users = { findByLogin: jest.fn(() => ({ id: 1, githubLogin: 'alice', isAllowed: true })), audit: jest.fn() };
     const service = new DeployService({} as any, github as any, users as any, {} as any, {} as any,
-      { findForRender: () => null } as any, { appsDomain: 'apps.swkoo.kr', deployOwner: 'swkoo-deploy', manifestRepo: 'operator/control', manifestBranch: 'main' } as any, {} as any);
+      { findForRender: () => null } as any, { appsDomain: 'apps.swkoo.kr', deployOwner: 'swkoo-deploy', manifestRepo: 'operator/control', manifestBranch: 'deployment-data' } as any, {} as any);
     jest.spyOn(service, 'detectStack').mockResolvedValue({ stack: 'nextjs', packageName: 'app', port: 3000, nodeEngine: null, checks: [] });
     const claim = jest.spyOn(service as any, 'claimSubdomainOrDefault').mockReturnValue('alice-app');
     jest.spyOn(service as any, 'readExistingStorageProfile').mockResolvedValue(undefined);
@@ -55,6 +55,9 @@ describe('source review before deployment side effects', () => {
     const s = setup();
     expect(await s.service.registerForUser('alice', req)).toMatchObject({ ok: true, userRepoCommit: 'source-sha' });
     expect(s.github.commitFilesAtomic).toHaveBeenCalledTimes(2);
+    expect(s.github.commitFilesAtomic).toHaveBeenCalledWith(expect.objectContaining({
+      owner: 'operator', repo: 'control', branch: 'deployment-data',
+    }));
     expect(s.github.commitFilesAtomic.mock.calls.every(([args]: any[]) => args.owner !== 'alice')).toBe(true);
   });
 });

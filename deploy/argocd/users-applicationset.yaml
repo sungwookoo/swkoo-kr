@@ -4,7 +4,8 @@
 # manifest data is no longer mixed into this (public) repo.
 #
 # Onboarding flow: swkoo.kr/deploy → backend creates swkoo-deploy/<login>,
-# commits manifests there, then writes deploy/users/<login>.yaml here.
+# commits manifests there, then writes deploy/users/<login>.yaml to this
+# repo's deployment-data branch. main remains protected for code changes.
 # ApplicationSet picks it up and materializes swkoo-user-<login>.
 #
 # Image Updater annotations on the template wire each Application up for
@@ -27,7 +28,7 @@ spec:
   generators:
     - git:
         repoURL: https://github.com/sungwookoo/swkoo-kr.git
-        revision: main
+        revision: deployment-data
         files:
           - path: deploy/users/*.yaml
   template:
