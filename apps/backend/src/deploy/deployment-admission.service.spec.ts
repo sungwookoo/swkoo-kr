@@ -7,7 +7,7 @@ describe('deployment admission', () => {
       [sample(4, { node: 'node', resource: 'cpu' }), sample(24 * Gi, { node: 'node', resource: 'memory' })],
       ['Ready','MemoryPressure','DiskPressure'].map(condition => sample(condition === 'Ready' ? 1 : 0, { node: 'node', condition })),
       [sample(1, { namespace: 'swkoo', pod: 'backend', resource: 'cpu' }), sample(Gi, { namespace: 'swkoo', pod: 'backend', resource: 'memory' })],
-      [], [sample(.1)], [sample(.3)], [sample(12 * Gi)], [sample(10)], [sample(10)], [sample(10)], [sample(10)], [sample(10)],
+      [], [sample(.1)], [sample(.3)], [sample(12 * Gi)], [sample(10)], [sample(10)], [sample(10)], [sample(10)], [sample(10)], [sample(Gi)],
     ];
     const reservations = new Map<string, number>();
     const users = { listAdmissionReservations: () => [...reservations].map(([login, createdAt]) => ({ login, createdAt })),
@@ -37,6 +37,13 @@ describe('deployment admission', () => {
   it('reserves 4Gi memory headroom and a replacement slot', async () => {
     const s = setup(); s.data[0][1] = sample(5.49 * Gi, { node: 'node', resource: 'memory' });
     await expect(s.service.reserve('alice')).rejects.toThrow('여유가 부족');
+  });
+  it('does not reallocate unfilled existing PVC storage and rejects missing storage metrics', async () => {
+    const s = setup(); s.data[12] = [sample(7 * Gi)];
+    await expect(s.service.reserve('alice')).rejects.toThrow('여유가 부족');
+    s.data[12] = [];
+    await expect(s.service.reserve('alice')).rejects.toThrow('확인하지 못해');
+    expect(s.users.reserveAdmission).not.toHaveBeenCalled();
   });
   it('reconciles a reservation only when its namespace is included in the request snapshot', async () => {
     const s = setup(); s.reservations.set('bob', Date.now() - 1000);
