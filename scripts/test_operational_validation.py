@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 spec = importlib.util.spec_from_file_location('load_validation', Path(__file__).with_name('validate-app-capacity.py'))
 load = importlib.util.module_from_spec(spec)
@@ -96,6 +96,23 @@ class EntryPointSafety(unittest.TestCase):
                 with self.assertRaises(SystemExit):
                     runner.main()
                 kube.assert_not_called()
+
+    def test_failed_execution_keeps_a_failed_report_and_checks_remaining_namespaces(self):
+        nodes = {'items': [{'metadata': {'name': 'instance-20250321-1004'},
+                            'status': {'conditions': [{'type': 'Ready', 'status': 'True'}]}}]}
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / 'result'
+            args = ['validation', 'runtime', '--image', self.image, '--execute', '--output-dir', str(output)]
+            with patch('sys.argv', args), patch.object(runner.sys, 'platform', 'linux'), \
+                    patch.object(runner.shutil, 'which', return_value='/usr/bin/kubectl'), \
+                    patch.object(runner.shutil, 'disk_usage', return_value=Mock(free=10 * 1024**3)), \
+                    patch.object(runner, 'kube', side_effect=[json.dumps(nodes), '', '']), \
+                    patch.object(runner.subprocess, 'Popen', return_value=Mock(wait=Mock(return_value=1), poll=Mock(return_value=1))), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(runner.main(), 1)
+            report = json.loads((output / 'summary.json').read_text())
+            self.assertEqual(report['status'], 'failed')
+            self.assertEqual(report['remainingNamespaces'], [])
 
 
 if __name__ == '__main__':

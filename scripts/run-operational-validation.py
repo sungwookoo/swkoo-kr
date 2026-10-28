@@ -88,6 +88,10 @@ def main():
         report['status'] = 'passed'
     except (Exception, KeyboardInterrupt) as error:
         report['error'] = str(error)
+        try:
+            report['remainingNamespaces'] = kube('get', 'namespace', *namespaces, '--ignore-not-found', '-o', 'name').splitlines()
+        except Exception:
+            report['cleanupStatus'] = 'unverified'
     finally:
         report['finishedAt'] = datetime.now(timezone.utc).isoformat()
         (output / 'summary.json').write_text(json.dumps(report, indent=2))
