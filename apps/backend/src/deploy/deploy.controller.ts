@@ -7,6 +7,7 @@ import {
   ForbiddenException,
   Get,
   HttpCode,
+  HttpException,
   InternalServerErrorException,
   Param,
   Post,
@@ -216,7 +217,7 @@ export class DeployController {
       }
       await this.envService.setEnv(login, appName, stringVars);
     } catch (err) {
-      if (err instanceof ConflictException) throw err;
+      if (err instanceof HttpException) throw err;
       const msg = (err as Error).message;
       if (msg.startsWith('INVALID_KEY:')) {
         throw new BadRequestException({

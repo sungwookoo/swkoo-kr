@@ -864,7 +864,7 @@ export class DeployService {
       getUserRegistrationPath(loginLc)
     );
     const app = await this.argo
-      .getApplication(`swkoo-user-${loginLc}`)
+      .getApplication(`swkoo-user-${loginLc}`, 'default')
       .catch(() => {
         if (requireArgo) throw new ServiceUnavailableException({ reason: 'DEPLOYMENT_STATE_UNAVAILABLE', message: '기존 배포 상태를 확인하지 못했습니다. 잠시 후 다시 시도해 주세요.' });
         return null;
