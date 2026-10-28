@@ -9,9 +9,11 @@
 
 `deployment-data`는 기존 네 등록 파일과 동일한 blob으로 초기화한 독립 브랜치다. 코드·워크플로는 포함하지 않는다. 백엔드의 `MANIFEST_BRANCH=deployment-data`와 ApplicationSet Git generator의 `revision: deployment-data`를 함께 사용한다. 사용자별 deploy 저장소의 `targetRevision: main`은 그대로다.
 
-`main`의 기존 등록 파일은 전환 도중 기존 generator가 빈 목록을 읽어 앱을 제거하지 않도록 마이그레이션 스냅샷으로 남긴다. 앞으로 실제 상태 확인은 반드시 데이터 브랜치에서 한다. 데이터 브랜치를 코드 브랜치에 병합하거나 코드 브랜치를 데이터 브랜치로 덮어쓰지 않는다.
+`main`의 기존 등록 파일은 전환 도중 기존 generator가 빈 목록을 읽어 앱을 제거하지 않도록 잠시 유지했다. 두 소비자의 전환과 실제 삭제·신규 배포 검증을 완료한 뒤 낡은 복사본은 제거했다. 실제 상태 확인은 반드시 데이터 브랜치에서 한다. 데이터 브랜치를 코드 브랜치에 병합하거나 코드 브랜치를 데이터 브랜치로 덮어쓰지 않는다.
 
 운영 전환 시 기존 모든 Application이 유지되는지 확인한 뒤 테스트 계정으로 삭제·재등록을 수행한다. 롤백 시에는 먼저 데이터 브랜치의 최신 등록 목록을 보존해야 한다. 이전 코드의 `main`을 가리키는 설정으로 단순 복귀하면 이미 삭제된 앱을 되살리거나 신규 앱을 누락할 수 있다.
+
+ApplicationSet은 부트스트랩 리소스이므로 이 전환에서는 병합한 `deploy/argocd/users-applicationset.yaml`을 클러스터에 한 번 적용했다. 백엔드 설정뿐 아니라 실행 중인 ApplicationSet의 generator revision도 전환됐는지 반드시 확인한다.
 
 등록·삭제 회귀 테스트는 운영 데이터 브랜치를 전달하는지 확인한다. GitHub ref 갱신 오류는 안전한 HTTP 오류로 변환하며, Axios 요청의 설치 토큰이 예외 로그로 전파되지 않도록 한다.
 
