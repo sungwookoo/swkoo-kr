@@ -50,6 +50,9 @@ export async function installCatchAll(page: Page): Promise<void> {
     await json(route, 599, { message: `unmocked: ${url}` });
   });
   await page.route('**/api/deploy/security-patch?*', route => json(route, 200, null));
+  await page.route('**/api/deploy/diagnostics/**', route => json(route, 200, {
+    checkedAt: new Date().toISOString(), state: 'Pending', restarts: 0, usage: null, logs: null, logSource: null, logError: null,
+  }));
   await page.route('**/api/deploy/setup?*', route => json(route, 200, {
     repo: new URL(route.request().url()).searchParams.get('repo'), branch: 'main', sha: 'base-sha', digest: 'reviewed-digest',
     files: [{ path: 'Dockerfile', action: 'create', before: null, after: 'FROM node:24-alpine' },

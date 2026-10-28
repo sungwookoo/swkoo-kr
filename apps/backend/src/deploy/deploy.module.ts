@@ -22,6 +22,8 @@ import { SecurityPatchService } from './security-patch.service';
 import { SecurityPatchRepository } from './security-patch.repository';
 import { PlatformMetricsService } from './platform-metrics.service';
 import { DeploymentAdmissionService } from './deployment-admission.service';
+import { DeploymentDiagnosticsService } from './deployment-diagnostics.service';
+import { DeploymentDiagnosticsController } from './deployment-diagnostics.controller';
 
 @Module({
   imports: [
@@ -35,8 +37,8 @@ import { DeploymentAdmissionService } from './deployment-admission.service';
     ConfigModule.forFeature(onboardingConfig),
     ConfigModule.forFeature(emailConfig),
   ],
-  controllers: [DeployController, AccountController, SecurityPatchController],
-  providers: [DeployStatusService, DeployService, EnvService, CleanupService, ScanService, DeployNotificationsService, SecurityPatchService, SecurityPatchRepository, PlatformMetricsService, DeploymentAdmissionService],
+  controllers: [DeployController, AccountController, SecurityPatchController, DeploymentDiagnosticsController],
+  providers: [DeployStatusService, DeployService, EnvService, CleanupService, ScanService, DeployNotificationsService, SecurityPatchService, SecurityPatchRepository, PlatformMetricsService, DeploymentAdmissionService, DeploymentDiagnosticsService],
   exports: [DeployService, EnvService],
 })
 export class DeployModule {}

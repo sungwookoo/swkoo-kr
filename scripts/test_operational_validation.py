@@ -115,5 +115,55 @@ class EntryPointSafety(unittest.TestCase):
             self.assertEqual(report['remainingNamespaces'], [])
 
 
+
+public_spec = importlib.util.spec_from_file_location('public_validation', Path(__file__).with_name('validate-public-capacity.py'))
+public = importlib.util.module_from_spec(public_spec)
+public_spec.loader.exec_module(public)
+access_spec = importlib.util.spec_from_file_location('diagnostics_access', Path(__file__).with_name('backfill-diagnostics-access.py'))
+access = importlib.util.module_from_spec(access_spec)
+access_spec.loader.exec_module(access)
+
+
+class PublicSafety(unittest.TestCase):
+    def fixtures(self):
+        result = {}
+        for suffix, ns in zip(['a','b','c'], public.NAMESPACES):
+            files = {'namespace.yaml': {'kind':'Namespace','metadata':{'name':ns}}}
+            for name, kind in {'resource-quota.yaml':'ResourceQuota','limit-range.yaml':'LimitRange','network-policy.yaml':'NetworkPolicy',
+                               'probe/pvc.yaml':'PersistentVolumeClaim','probe/service.yaml':'Service','probe/deployment.yaml':'Deployment','probe/ingress.yaml':'Ingress'}.items():
+                files[name] = {'kind':kind,'metadata':{'name':'probe','namespace':ns}}
+            host = f'swkoo-load-{suffix}.apps.swkoo.kr'
+            files['probe/ingress.yaml']['spec'] = {'rules':[{'host':host}],'tls':[{'hosts':[host]}]}
+            result[suffix] = files
+        return result
+
+    def test_public_targets_and_kinds_are_fixed(self):
+        image = 'ghcr.io/sw-koo/nextjs-sample@sha256:' + 'a'*64
+        public.validate(self.fixtures(), image)
+        for change in ['image','namespace','host','kind']:
+            data = self.fixtures()
+            if change == 'image':
+                with self.assertRaises(ValueError): public.validate(data, image.replace('sw-koo','customer'))
+                continue
+            if change == 'namespace': data['a']['probe/pvc.yaml']['metadata']['namespace'] = 'user-customer'
+            if change == 'host': data['a']['probe/ingress.yaml']['spec']['rules'][0]['host'] = 'swkoo.kr'
+            if change == 'kind': data['a']['probe/service.yaml']['kind'] = 'ClusterRole'
+            with self.assertRaises(ValueError): public.validate(data, image)
+
+    def test_public_plan_does_not_access_cluster_or_create_result_directory(self):
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = Path(directory)/'fixtures.json'; fixture.write_text(json.dumps(self.fixtures()))
+            result = Path(directory)/'result'
+            args = ['validation',str(fixture),'ghcr.io/sw-koo/nextjs-sample@sha256:'+'a'*64,'--output-dir',str(result)]
+            with patch('sys.argv',args),patch.object(public,'kube') as kube,contextlib.redirect_stdout(io.StringIO()):
+                public.main(); kube.assert_not_called()
+            self.assertFalse(result.exists())
+
+    def test_diagnostics_grant_cannot_read_secrets_or_use_system_namespace(self):
+        with self.assertRaises(ValueError): access.resources('kube-system')
+        role,binding = access.resources('user-alice')
+        self.assertEqual(role['rules'],[{'apiGroups':[''],'resources':['pods/log'],'verbs':['get']}])
+        self.assertEqual(binding['subjects'],[{'kind':'ServiceAccount','name':'swkoo-backend','namespace':'swkoo'}])
+
 if __name__ == '__main__':
     unittest.main()

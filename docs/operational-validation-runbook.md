@@ -57,4 +57,20 @@ Ctrl+C 또는 SIGTERM으로 중단한다. 관리 실행기는 자식에게 종�
 
 실행 실패·중단 시에도 남은 검증 namespace를 조회해 `remainingNamespaces`로 기록한다. API 조회까지 실패하면 `cleanupStatus: unverified`로 남긴다. 잔여 자원을 다른 실행의 자원일 수 있으므로 무조건 삭제하지 않는다.
 
-PR 검사에서는 부작용 없는 안전성 테스트 9개를 실행한다. 실제 클러스터 실행은 자동 CI에서 수행하지 않는다. GitHub OAuth 전체 흐름은 실제 로그인된 브라우저에서 별도로 검사하며 쿠키·비밀번호·토큰을 실행기에 전달하지 않는다.
+PR 검사에서는 부작용 없는 안전성 테스트 12개를 실행한다. 실제 클러스터 실행은 자동 CI에서 수행하지 않는다. GitHub OAuth 전체 흐름은 실제 로그인된 브라우저에서 별도로 검사하며 쿠키·비밀번호·토큰을 실행기에 전달하지 않는다.
+
+## 외부 HTTPS 지속 검증
+
+`render-load-validation.cjs`로 만든 JSON과 허용된 fixture digest를 사용한다. Windows 관리 PC에서 기존 `swkoo-oci` SSH 연결로 실행하며, HTTP 요청은 관리 PC에서 공개 HTTPS 주소로 보낸다. `public-capacity-client.cjs`도 같은 scripts 폴더에 있어야 한다.
+
+```powershell
+python scripts/validate-public-capacity.py load-fixtures.json ghcr.io/sw-koo/nextjs-sample@sha256:<digest> --seconds 3600 --output-dir <새 결과 폴더>
+```
+
+계획의 대상·시간을 확인한 뒤 `--execute`를 붙인다. 고정된 `swkoo-load-a/b/c.apps.swkoo.kr`와 전용 namespace 3개만 사용한다. 빈 DB의 Next.js·SQLite 앱을 배포하고 일반 인증서 발급과 실제 TLS 검증 후 시작한다. Certificate Ready와 Ingress 적용 사이의 전파를 최대 90초 기다리며 인증서 검증을 해제하지 않는다. 신규 인증서 발급을 포함하므로 무분별한 반복 실행으로 발급 제한을 소모하지 않는다.
+
+노드·디스크·기존 namespace를 확인하고 외부 클라이언트는 앱당 동시 요청 최대 2개로 제한한다. 15초씩 1·3·5 요청/초, 이후 2 요청/초를 최대 1시간 유지한다. SSR 40%·API 읽기 50%·쓰기 10% 혼합이다. 오류·요청 누락·재시작·노드 CPU 80%/메모리 75%·앱 working set 460MiB 도달 시 중단한다. 마지막 실제 DB 기록 수를 검사한다.
+
+출력 폴더의 `summary.json`, `samples.json`, `clients.json`, `client.log`를 보관한다. 생성한 namespace UID가 같은지 대조한 뒤 정리하며 실패한 정리는 결과에 남긴다. 기존 namespace·고객 앱·소스 저장소는 재사용하지 않는다. 임시 공개 앱에는 합성 데이터만 넣는다. 사용자 앱 자동 백업이나 장기간 운영 수용량 보장이 아니다.
+
+PR 안전성 검사는 기존 9개에 외부 대상·이미지·자원 종류, 계획의 무부작용, 로그 권한 범위 검사 3개를 추가해 12개다.

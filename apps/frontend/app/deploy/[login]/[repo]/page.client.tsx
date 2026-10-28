@@ -21,6 +21,7 @@ import { LatestScan, ScanFinding, useLatestScan } from '@/lib/account';
 import { loginUrl } from '@/lib/auth';
 import { DomainPanel } from '@/components/DomainPanel';
 import { SecurityPatchPanel } from '@/components/SecurityPatchPanel';
+import { DeploymentDiagnostics } from '@/components/DeploymentDiagnostics';
 
 interface StatusClientProps {
   login: string;
@@ -68,6 +69,7 @@ export function StatusClient({ login, repo }: StatusClientProps): import("react"
           </p>
         )}
         {status && <Checklist status={status} />}
+        {status && <DeploymentDiagnostics key={`diagnostics:${login}/${repo}`} login={login} repo={repo} />}
 
         {status && (
           <EnvVarsPanel
