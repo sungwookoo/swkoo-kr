@@ -1028,7 +1028,7 @@ export class DeployService {
   }
 
   /** Annotates the swkoo-users ApplicationSet with
-   * `argocd.argoproj.io/refresh=hard` so ArgoCD reconciles immediately
+   * `argocd.argoproj.io/application-set-refresh=true` so ArgoCD reconciles immediately
    * after a register/delete commit. RBAC for this lives in
    * deploy/argocd/swkoo-backend-applicationset-rbac.yaml — operator must
    * have applied that once. Best-effort: 3 min poll fallback covers us
@@ -1045,7 +1045,7 @@ export class DeployService {
           name: 'swkoo-users',
           body: {
             metadata: {
-              annotations: { 'argocd.argoproj.io/refresh': 'hard' },
+              annotations: { 'argocd.argoproj.io/application-set-refresh': 'true' },
             },
           },
         },
