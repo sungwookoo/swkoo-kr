@@ -5,13 +5,13 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import tempfile
 import time
 
 PROVIDER, CONSUMER, CLASS = 'swkoo-storage-validation', 'user-swkoo-quota-validation', 'swkoo-quota-validation'
-IMAGE = 'python:3.13-alpine@sha256:8bcfa47b04b853a17aaf909362b847b2112fd6ec4105ea553ef9a43bafbb5916'
 
 
 def kube(*args, document=None):
@@ -28,12 +28,22 @@ def wait(predicate, timeout=240):
     raise RuntimeError('Validation did not reach the required state')
 
 
+def copy_pull_secret(namespace):
+    # Keep credentials entirely inside the cluster process, never in output
+    # or rendered fixtures. The namespace is freshly created by this test.
+    source=json.loads(kube('get','secret','ocir-credentials','-n','swkoo','-o','json'))
+    secret={'apiVersion':'v1','kind':'Secret','metadata':{'name':'ocir-credentials','namespace':namespace},'type':source['type'],'data':source['data']}
+    kube('create','-f','-',document=secret)
+
+
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--manifests', type=Path, required=True)
     parser.add_argument('--execute', action='store_true')
     args=parser.parse_args()
     resources=json.loads(args.manifests.read_text())
+    helper=next(item['data']['helperPod.yaml'] for item in resources if item['kind']=='ConfigMap')
+    image=re.search(r'^\s*image:\s*(\S+)',helper,re.MULTILINE).group(1)
     if any(item.get('metadata',{}).get('namespace') not in [None,'swkoo-storage'] for item in resources): raise RuntimeError('Unexpected source namespace')
     print(json.dumps({'execute':args.execute,'namespaces':[PROVIDER,CONSUMER],'isolatedImageGiB':3}),flush=True)
     if not args.execute: return
@@ -68,16 +78,19 @@ def main():
                 item['data']['helperPod.yaml']=text
             result=json.loads(kube('create','-f','-','-o','json',document=item))
             created.append((kind,meta['name'],result['metadata']['uid']))
+            if kind=='Namespace': copy_pull_secret(PROVIDER)
         kube('rollout','status','deployment/swkoo-user-storage','-n',PROVIDER,'--timeout=120s')
         namespace=json.loads(kube('create','-f','-','-o','json',document={'apiVersion':'v1','kind':'Namespace','metadata':{'name':CONSUMER,'labels':{'pod-security.kubernetes.io/enforce':'restricted'}}}))
         created.append(('Namespace',CONSUMER,namespace['metadata']['uid']))
+        copy_pull_secret(CONSUMER)
         for name in ['a','b']:
             kube('create','-f','-',document={'apiVersion':'v1','kind':'PersistentVolumeClaim','metadata':{'name':name,'namespace':CONSUMER},'spec':{'storageClassName':CLASS,'accessModes':['ReadWriteOnce'],'resources':{'requests':{'storage':'1Gi'}}}})
         def pod(name,claim,program):
             return {'apiVersion':'v1','kind':'Pod','metadata':{'name':name,'namespace':CONSUMER},'spec':{
                 'restartPolicy':'Never','automountServiceAccountToken':False,
+                'imagePullSecrets':[{'name':'ocir-credentials'}],
                 'securityContext':{'fsGroup':1000,'seccompProfile':{'type':'Localhost','localhostProfile':'swkoo-user-storage-v1.json'}},
-                'containers':[{'name':'app','image':IMAGE,'command':['python3','-c',program],
+                'containers':[{'name':'app','image':image,'command':['python3','-c',program],
                     'env':[{'name':'PYTHONDONTWRITEBYTECODE','value':'1'}],
                     'resources':{'requests':{'cpu':'100m','memory':'64Mi'},'limits':{'cpu':'500m','memory':'256Mi'}},
                     'securityContext':{'runAsNonRoot':True,'runAsUser':1000,'allowPrivilegeEscalation':False,'readOnlyRootFilesystem':True,'capabilities':{'drop':['ALL']}},
