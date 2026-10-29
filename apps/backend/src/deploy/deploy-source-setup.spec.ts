@@ -23,6 +23,16 @@ describe('source review before deployment side effects', () => {
     return { service, github, users, claim, inspect, create, pr };
   }
   afterEach(() => jest.restoreAllMocks());
+  it('recovery treats an empty or malformed registration as present and propagates Argo lookup failures', async () => {
+    const s = setup(), argo = (s.service as any).argo;
+    argo.isConfigured = () => true; argo.getApplication = jest.fn(async () => null);
+    jest.spyOn(s.service as any, 'readManifestFile').mockResolvedValue('');
+    await expect(s.service.getRecoveryRegistrationState('alice')).resolves.toEqual({ registration: true, application: false });
+    expect(argo.getApplication).toHaveBeenCalledWith('swkoo-user-alice', 'default');
+    argo.getApplication.mockRejectedValue(Error('access denied'));
+    await expect(s.service.getRecoveryRegistrationState('alice')).rejects.toThrow('access denied');
+    expect(s.github.commitFilesAtomic).not.toHaveBeenCalled();
+  });
   it('checks capacity before changing source or claiming a URL', async () => {
     const s = setup(); (s.service as any).admission.reserve.mockRejectedValue(Error('capacity blocked'));
     await expect(s.service.registerForUser('alice', req)).rejects.toThrow('capacity blocked');

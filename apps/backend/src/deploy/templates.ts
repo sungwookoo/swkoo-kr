@@ -346,6 +346,8 @@ spec:
     limits.cpu: "1"
     limits.memory: "1Gi"
     requests.storage: "1Gi"
+    requests.ephemeral-storage: "256Mi"
+    limits.ephemeral-storage: "2Gi"
     pods: "3"
     persistentvolumeclaims: "1"
     services: "5"
@@ -364,12 +366,15 @@ spec:
       default:
         cpu: 500m
         memory: 512Mi
+        ephemeral-storage: 1Gi
       defaultRequest:
         cpu: 100m
         memory: 256Mi
+        ephemeral-storage: 128Mi
       max:
         cpu: 500m
         memory: 512Mi
+        ephemeral-storage: 1Gi
       min:
         cpu: 10m
         memory: 16Mi
@@ -614,9 +619,11 @@ function renderDeployment(params: RenderParams): string {
             requests:
               cpu: 100m
               memory: 256Mi
+              ephemeral-storage: 128Mi
             limits:
               cpu: 500m
               memory: 512Mi
+              ephemeral-storage: 1Gi
           command: ["/bin/sh", "-lc"]
           args:
             - |
@@ -701,9 +708,11 @@ ${podSecurityContext}${initContainersBlock}      containers:
             requests:
               cpu: 100m
               memory: 256Mi
+              ephemeral-storage: 128Mi
             limits:
               cpu: 500m
               memory: 512Mi
+              ephemeral-storage: 1Gi
           ports:
             - containerPort: ${params.port}
               name: http

@@ -37,6 +37,12 @@ export default function SecurityUpdatePage() {
           <p className="mt-3 text-sm leading-relaxed text-zinc-500">이번 후속 작업에서도 이용자의 앱 저장소를 수정하지 않았습니다. 파일은 계속 브라우저 안에서만 처리합니다.</p>
         </section>
         <section className="mt-10 border-t border-zinc-800 pt-8">
+          <p className="font-mono text-xs text-zinc-500">2026.10.29 · 운영 보호 보완</p>
+          <h2 className="mt-3 text-lg font-medium text-zinc-200">저장공간 확인과 배포 후 검증</h2>
+          <p className="mt-3 leading-relaxed text-zinc-400">새 앱을 받을 때 데이터 저장공간과 임시 저장공간의 여유를 나누어 확인하고, 파일 개수 부족도 확인하도록 보완했습니다. 신규 배포 앱에는 임시 파일·로그 사용 한도를 추가했습니다. 영구 저장공간의 앱별 초과 쓰기 차단은 아직 제공하지 않으며 이용 안내에도 이 한계를 명시했습니다.</p>
+          <p className="mt-3 leading-relaxed text-zinc-400">배포 도중 남은 예약을 안전 조건을 확인한 후 복구하는 관리 기능과, 배포된 버전·HTTPS·주요 페이지를 확인하는 자동 점검을 추가했습니다. 이번 작업에서 이용자의 앱 저장소는 수정하지 않았습니다.</p>
+        </section>
+        <section className="mt-10 border-t border-zinc-800 pt-8">
           <h2 className="text-lg font-medium text-zinc-200">이용 시 참고해 주세요</h2>
           <ul className="mt-3 list-disc space-y-3 pl-5 leading-relaxed text-zinc-400">
             <li>로그인 보호 정책 변경으로 다시 로그인이 필요할 수 있습니다.</li>

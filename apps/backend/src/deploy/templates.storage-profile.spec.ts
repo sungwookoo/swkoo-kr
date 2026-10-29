@@ -32,6 +32,18 @@ const PRISMA_PROFILE: NonNullable<RenderParams['storageProfile']> = {
 };
 
 describe('Persistent Storage Profile v0 — render outputs', () => {
+  it('bounds ephemeral files and logs independently of PVC storage, with rollout headroom', () => {
+    const yaml = require('js-yaml');
+    for (const params of [BASE_PARAMS, { ...BASE_PARAMS, storageProfile: PRISMA_PROFILE }]) {
+      const files = renderDeployRepoFiles(params);
+      const pod = yaml.load(files['sample/deployment.yaml']).spec.template.spec;
+      for (const container of [...pod.containers, ...(pod.initContainers ?? [])]) {
+        expect(container.resources.requests['ephemeral-storage']).toBe('128Mi');
+        expect(container.resources.limits['ephemeral-storage']).toBe('1Gi');
+      }
+      expect(yaml.load(files['resource-quota.yaml']).spec.hard['limits.ephemeral-storage']).toBe('2Gi');
+    }
+  });
   describe('stateless (no storageProfile)', () => {
     const files = renderDeployRepoFiles(BASE_PARAMS);
 
@@ -202,7 +214,7 @@ describe('User app resource policy', () => {
     const deployment = yaml.load(files['sample/deployment.yaml']);
     const quota = yaml.load(files['resource-quota.yaml']).spec.hard;
     const defaults = yaml.load(files['limit-range.yaml']).spec.limits[0];
-    const resources = { requests: { cpu: '100m', memory: '256Mi' }, limits: { cpu: '500m', memory: '512Mi' } };
+    const resources = { requests: { cpu: '100m', memory: '256Mi', 'ephemeral-storage': '128Mi' }, limits: { cpu: '500m', memory: '512Mi', 'ephemeral-storage': '1Gi' } };
     for (const container of [...deployment.spec.template.spec.containers, ...(deployment.spec.template.spec.initContainers ?? [])]) {
       expect(container.resources).toEqual(resources);
     }

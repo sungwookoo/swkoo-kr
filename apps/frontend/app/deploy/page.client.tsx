@@ -465,7 +465,11 @@ function Shell({
       <p className="mx-auto mb-4 max-w-2xl text-center text-sm text-slate-400">
         앱당 공유 CPU 최대 0.5코어 · 메모리 최대 512MiB
         <br />
-        예약: CPU 0.1코어 · 메모리 256MiB. 지원되는 Prisma SQLite 앱은 영구 저장공간 1GiB 제공.
+        예약: CPU 0.1코어 · 메모리 256MiB. 지원되는 Prisma SQLite 앱은 저장공간을 1GiB 기준으로 배정합니다.
+        <br />
+        현재 영구 저장공간은 초과 쓰기를 자동 차단하지 않습니다. 사용량을 1GiB 이내로 관리해 주세요.
+        <br />
+        신규 배포 앱의 임시 파일·로그는 1GiB 제한을 적용하며, 초과하면 앱이 중단·재생성될 수 있습니다.
       </p>
       {narrow ? children : <div className="mx-auto flex w-full justify-center">{children}</div>}
     </main>

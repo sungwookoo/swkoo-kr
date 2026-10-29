@@ -847,6 +847,17 @@ export class DeployService {
     }
   }
 
+  /** Recovery must test file presence, even when a registration is malformed. */
+  async getRecoveryRegistrationState(login: string): Promise<{ registration: boolean; application: boolean }> {
+    if (!this.argo.isConfigured()) throw new ServiceUnavailableException('배포 상태 연결을 확인하지 못했습니다.');
+    const [owner, repo] = this.config.manifestRepo.split('/');
+    const [content, app] = await Promise.all([
+      this.readManifestFile(owner, repo, getUserRegistrationPath(login)),
+      this.argo.getApplication(`swkoo-user-${login}`, 'default'),
+    ]);
+    return { registration: content !== null, application: app !== null };
+  }
+
   /** Returns the user's currently-registered deployment, if any.
    * Source-of-truth is deploy/users/<login>.yaml in the control repo (git is
    * authoritative); ArgoCD app data is layered in for sync/health/state.

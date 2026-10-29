@@ -8,6 +8,7 @@ describe('deployment admission', () => {
       ['Ready','MemoryPressure','DiskPressure'].map(condition => sample(condition === 'Ready' ? 1 : 0, { node: 'node', condition })),
       [sample(1, { namespace: 'swkoo', pod: 'backend', resource: 'cpu' }), sample(Gi, { namespace: 'swkoo', pod: 'backend', resource: 'memory' })],
       [], [sample(.1)], [sample(.3)], [sample(12 * Gi)], [sample(10)], [sample(10)], [sample(10)], [sample(10)], [sample(10)], [sample(Gi)],
+      [sample(130 * Gi)], [sample(10)], [sample(.8)], [sample(.9)], [sample(10)], [sample(Gi)],
     ];
     const reservations = new Map<string, number>();
     const users = { listAdmissionReservations: () => [...reservations].map(([login, createdAt]) => ({ login, createdAt })),
@@ -39,7 +40,7 @@ describe('deployment admission', () => {
     await expect(s.service.reserve('alice')).rejects.toThrow('여유가 부족');
   });
   it('does not reallocate unfilled existing PVC storage and rejects missing storage metrics', async () => {
-    const s = setup(); s.data[12] = [sample(7 * Gi)];
+    const s = setup(); s.data[12] = [sample(125 * Gi)];
     await expect(s.service.reserve('alice')).rejects.toThrow('여유가 부족');
     s.data[12] = [];
     await expect(s.service.reserve('alice')).rejects.toThrow('확인하지 못해');
@@ -63,5 +64,16 @@ describe('deployment admission', () => {
   it('does not admit on a monitoring failure', async () => {
     const s = setup(); s.metrics.query.mockRejectedValue(Error('unavailable'));
     await expect(s.service.reserve('alice')).rejects.toThrow(); expect(s.users.reserveAdmission).not.toHaveBeenCalled();
+  });
+  it.each([[13, 5 * Gi], [14, 91], [15, .09], [16, .09], [17, 91], [18, 7 * Gi]])('rejects storage headroom, inode exhaustion or stale evidence #%i', async (index, value) => {
+    const s = setup(); s.data[index] = [sample(value)];
+    await expect(s.service.reserve('alice')).rejects.toThrow();
+    expect(s.users.reserveAdmission).not.toHaveBeenCalled();
+  });
+  it('uses the separate data disk for PVC budgets and fails closed on its missing metrics', async () => {
+    const s = setup(); s.data[12] = [sample(20 * Gi)];
+    await expect(s.service.reserve('alice')).resolves.toBeUndefined();
+    s.data[13] = [];
+    await expect(s.service.reserve('bob')).rejects.toThrow('확인하지 못해');
   });
 });

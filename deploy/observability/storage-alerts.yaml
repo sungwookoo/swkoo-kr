@@ -1,0 +1,27 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: swkoo-storage-headroom
+  namespace: monitoring
+  labels:
+    release: kube-prometheus-stack
+spec:
+  groups:
+    - name: swkoo.storage
+      rules:
+        - alert: SwkooDiskHeadroomLow
+          expr: node_filesystem_avail_bytes{mountpoint=~"/|/data",fstype="ext4"} < 5368709120
+          for: 2m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Storage headroom below 5GiB on {{ $labels.mountpoint }}"
+            description: "New admissions are withheld. Inspect filesystem usage; never remove application data automatically."
+        - alert: SwkooDiskInodesLow
+          expr: (node_filesystem_files_free{mountpoint=~"/|/data",fstype="ext4"} / node_filesystem_files{mountpoint=~"/|/data",fstype="ext4"}) < 0.10
+          for: 2m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Free inodes below 10% on {{ $labels.mountpoint }}"
+            description: "Small files can exhaust a disk with free bytes. Inspect the responsible workload without deleting customer files."

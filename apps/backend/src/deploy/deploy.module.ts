@@ -24,6 +24,8 @@ import { PlatformMetricsService } from './platform-metrics.service';
 import { DeploymentAdmissionService } from './deployment-admission.service';
 import { DeploymentDiagnosticsService } from './deployment-diagnostics.service';
 import { DeploymentDiagnosticsController } from './deployment-diagnostics.controller';
+import { DeploymentRecoveryController } from './deployment-recovery.controller';
+import { DeploymentRecoveryService } from './deployment-recovery.service';
 
 @Module({
   imports: [
@@ -37,8 +39,8 @@ import { DeploymentDiagnosticsController } from './deployment-diagnostics.contro
     ConfigModule.forFeature(onboardingConfig),
     ConfigModule.forFeature(emailConfig),
   ],
-  controllers: [DeployController, AccountController, SecurityPatchController, DeploymentDiagnosticsController],
-  providers: [DeployStatusService, DeployService, EnvService, CleanupService, ScanService, DeployNotificationsService, SecurityPatchService, SecurityPatchRepository, PlatformMetricsService, DeploymentAdmissionService, DeploymentDiagnosticsService],
+  controllers: [DeployController, AccountController, SecurityPatchController, DeploymentDiagnosticsController, DeploymentRecoveryController],
+  providers: [DeployStatusService, DeployService, EnvService, CleanupService, ScanService, DeployNotificationsService, SecurityPatchService, SecurityPatchRepository, PlatformMetricsService, DeploymentAdmissionService, DeploymentDiagnosticsService, DeploymentRecoveryService],
   exports: [DeployService, EnvService],
 })
 export class DeployModule {}
