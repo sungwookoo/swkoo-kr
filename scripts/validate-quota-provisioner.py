@@ -73,7 +73,7 @@ def main():
                 item['data']['config.json']=json.dumps({'nodePathMap':[{'node':'DEFAULT_PATH_FOR_NON_LISTED_NODES','paths':[str(storage)]}]})
                 # Override only the helper's data mount target; its host source
                 # is the isolated filesystem chosen by this test provisioner.
-                text=item['data']['helperPod.yaml']
+                text=item['data']['helperPod.yaml'].replace('\r\n','\n')
                 text=text.replace('      volumeMounts:\n','      volumeMounts:\n        - name: data\n          mountPath: /var/lib/rancher/k3s/storage\n')
                 item['data']['helperPod.yaml']=text
             result=json.loads(kube('create','-f','-','-o','json',document=item))
