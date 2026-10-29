@@ -36,6 +36,36 @@
 
 로컬 backend·frontend 테스트 및 빌드, 브라우저 32개, Python 운영 안전성 12개·배포 후 검증 실패 경로/저장 시험 안전성 7개와 클라이언트 과부하 중단 검사를 통과했다. 운영 노드의 격리된 namespace에서 32MiB 임시 저장 한도에 64MiB를 쓴 Pod가 해당 용량 초과 사유로 Evicted, 1MiB만 쓴 비교 Pod는 Running임을 확인했다. 테스트는 1GiB를 직접 채우는 대신 같은 kubelet 제한 기능을 낮은 상한으로 확인한 것이며, 실제 신규 템플릿의 1GiB 상한은 YAML 구조 검사로 확인한다. 시험 namespace는 UID를 확인한 후 제거했다.
 
-최종 운영 반영 결과는 아래에 추가한다. 영구 저장공간의 강제 상한은 위의 미완료 항목으로 유지한다.
+최종 운영 반영 결과는 아래와 같다. 영구 저장공간의 강제 상한은 위의 미완료 항목으로 유지한다.
+
+| 작업 | 상태 |
+| --- | --- |
+| 데이터/루트 디스크·inode 수용 검사, 신규 임시 저장 한도·경고 | 운영 반영 완료 |
+| 앱별 영구 저장공간의 강제 상한 | 미완료: 점검 중단·quota/프로비저너 연동 필요 |
+| 관리자 예약 복구 도구 | 운영 반영 완료 |
+| 배포 후 실제 버전·HTTPS·경로 자동 확인 | 운영 반영 및 실제 workflow 성공 |
+| 개발 도구 deepmerge Low | 수정 버전 공개 대기 |
+
+### 운영 이미지와 자동 확인
+
+- 기능 [PR #97](https://github.com/sungwookoo/swkoo-kr/pull/97), 이미지 [PR #98](https://github.com/sungwookoo/swkoo-kr/pull/98) 병합. 양쪽 실행 이미지 소스 revision은 `fac38e408766a622cb1b366f5f4472656539465c`, 이미지 manifest commit은 `a530d1c`다.
+- backend 실행 digest: `sha256:1d70638e7aab93d003a2607b4d7f571bfed8d2b6419870c221a979b8012b6cfd`.
+- frontend 실행 digest: `sha256:acf217309e45c98ac7b8a134cb173e08195b2b52909300d1dfc277d517a39c9d`.
+- [Publish 실행 40809245165](https://github.com/sungwookoo/swkoo-kr/actions/runs/40809245165)의 배포 후 검증과 결과 artifact가 성공했다. 12:04:45 KST에 두 공개 revision 일치, TLS 검증, 메인/배포/공지 200, 비로그인 배포/복구 API 401을 기록했다. 별도 관리 PC 실행도 같은 결과였다.
+- 단일 backend의 Recreate 배포 중에는 일시적 503이 있었으며 이후 정상화됐다. 자동 검증은 이 동안 대기한 후 새 버전에 도달해야 성공한다. 무중단 배포를 주장하지 않는다.
+- 실제 실행 digest의 Trivy Critical·High·Medium은 양쪽 모두 0건. npm 운영 의존성도 양쪽 0건이다. 개발 도구 경로의 [deepmerge Low 공지](https://github.com/advisories/GHSA-gcqx-w48m-w2h4)는 10월 29일 재확인 시 수정 버전 None으로, 강제 다운그레이드하지 않았다.
+- 필수 CI는 backend 427개·frontend 103개, 두 production build와 Playwright 32개를 통과했다. 배포된 사이트에서도 관리자 복구 브라우저 검사 2개를 별도 실행했다. 이 2개는 API 응답을 모의한 UI 검사이며 실제 관리자 로그인 검증으로 계산하지 않는다.
+
+### 실제 등록·복구 안전 조건·정리
+
+허용된 일반 계정 `sw-koo`의 기존 Chrome 로그인으로 `nextjs-sample`을 신규 등록했다. Dockerfile·workflow 모두 기존 파일 유지임을 화면에서 확인했으며, 전후 소스 main은 `dcab0b500721f31d74ad22b8132ffa2f0a5065cc`로 같았다. 이번에는 이미 있는 시험 이미지를 사용했으며 사용자 소스의 새 빌드를 만든 것은 아니다.
+
+실제 컨테이너의 임시 저장공간 요청 128MiB·상한 1GiB, namespace 상한 2GiB, 독립 PVC 1GiB를 확인했다. 빈 SQLite 초기화, 이미지 digest 반영과 관리 화면의 모든 배포 단계 완료, 공개 HTTPS 200, 앱 화면의 기록 0개·실행 상태·재시작 0회를 확인했다. 관리 화면의 스캔 숫자는 이전의 다른 시험 이미지 결과로 명확히 안내됐으며 위의 새 플랫폼 이미지 검사 결과와 구분한다.
+
+운영 컨테이너 안의 새 서비스 모듈로 실제 등록 Git·Argo·Kubernetes를 연결하고 별도 임시 SQLite DB로 복구를 검사했다. 자원 없는 상태에서 오래된 digest의 해제 거부·정확한 예약 해제, 앱 활성 상태에서 등록/Argo/namespace/PV 존재로 해제 거부·예약 유지를 확인했다. 신규 수용 검사도 실제 Prometheus와 별도 시험 DB로 통과했다. 운영 사용자 DB의 예약을 임의로 만들거나 삭제하지 않았다. 실제 일반 계정의 복구 API 접근은 `NOT_ADMIN`으로 거부됐다. 관리자 새 기능의 실제 로그인 브라우저 세션은 확보되지 않았으며 HTTP 가드 통합 검사·운영 연결 검사·배포된 UI 모의 검사로 검증 범위를 구분한다.
+
+일반 앱 제거 절차로 시험 앱을 제거한 뒤 등록에 사용한 deploy repo의 archive, Argo Application·namespace·PVC·PV 및 실제 저장 폴더 삭제, 시험 계정의 수용 예약 0건을 확인했다. 임시 SQLite·quota loop 디스크·쓰기 초과 시험 namespace·플랫폼 이미지 스캔 Job도 정리했다. 마지막에는 원래 사용자 namespace 3개만 남았고 모든 Argo Application이 Synced/Healthy였다. SprintFlow·PocketPlan·포트폴리오와 기존 개인 도메인은 TLS 검증을 켠 상태에서 모두 HTTP 200이었다.
+
+다른 이용자의 소스·배포 저장소는 변경하지 않았다. 시험 계정의 플랫폼 관리 배포 저장소만 정상 등록·제거 흐름으로 변경했다. 사용자 앱 자동 백업·새 유료 자원은 도입하지 않았다. 공개 공지에는 안전하게 공개할 수 있는 보호 범위와 미제공 한계만 반영했다.
 
 참고: [local-path provisioner의 용량 제한 미지원](https://github.com/rancher/local-path-provisioner#cons), [ext4 quota 기능 설정](https://man7.org/linux/man-pages/man8/tune2fs.8.html).
