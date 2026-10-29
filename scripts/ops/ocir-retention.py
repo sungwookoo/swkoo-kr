@@ -234,6 +234,11 @@ def process_repo(host, namespace, username, token, repo, deployed_tags,
 
     # ─ Keep policy ─
     keep_tags: set[str] = {"latest", *deployed_tags}
+    # Storage helpers are referenced from ConfigMaps and short-lived Pods,
+    # outside the existing backend/frontend Deployment inventory. Preserve
+    # their digests until a separately reviewed infrastructure retention policy
+    # can prove both active and rollback references are covered.
+    keep_tags.update(t for t in tags if re.fullmatch(r"storage-(?:helper|provisioner)-[a-f0-9]{40}", t))
 
     sha_tags = [t for t in tags if SHA40.match(t)]
     print(f"  SHA-pattern tags: {len(sha_tags)}")

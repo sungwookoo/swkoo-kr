@@ -36,6 +36,7 @@
 - quota 설정 오류 시 보호 없는 볼륨을 대신 만들지 않는다. PVC는 실패 상태로 남고 운영자가 조사한다.
 - 커널 업데이트 시 modules-extra의 quota_v2 제공 여부, K3s/containerd 업데이트 시 seccomp 기준을 재검증한다. 이 프로필은 자동으로 새 RuntimeDefault를 따라가지 않는다. `scripts/build-user-storage-seccomp.py`로 검토한 기준에서 재생성하고 운영 시험을 반복한다.
 - 한도는 실제 할당량 기준이며 `df`가 보이는 디스크 전체 크기와 다르다. DB journal/WAL·디렉터리도 한도에 포함되므로 저장 실패를 앱에서 처리하고 여유 공간을 유지해야 한다.
+- 기존 이미지 정리는 ConfigMap과 일시적인 helper Pod까지 수집하지 못하므로 `storage-helper-<SHA>`·`storage-provisioner-<SHA>` 이미지는 삭제 대상에서 제외한다. 현재 실행·재시작·복구 참조를 모두 확인하는 별도 정책을 검증하기 전 자동 정리를 확대하지 않는다.
 
 ## 현재 기록
 

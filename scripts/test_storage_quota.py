@@ -78,5 +78,17 @@ class StorageQuotaSafety(unittest.TestCase):
                 common=mask&other_mask; self.assertNotEqual(value&common,other_value&common)
         self.assertEqual(sum(1<<(32-mask.bit_count()) for mask,_ in ranges),(1<<32)-3)
 
+    def test_retention_never_deletes_configmap_or_short_lived_storage_images(self):
+        spec=importlib.util.spec_from_file_location('retention',ROOT/'scripts/ops/ocir-retention.py')
+        retention=importlib.util.module_from_spec(spec);spec.loader.exec_module(retention)
+        deployed='a'*40;old='b'*40
+        helper='storage-helper-'+'c'*40;provisioner='storage-provisioner-'+'d'*40
+        tags=[deployed,old,helper,provisioner]
+        digests={tag:'sha256:'+str(index)*64 for index,tag in enumerate(tags,1)}
+        with patch.object(retention,'get_bearer',return_value='unused'), patch.object(retention,'list_tags',return_value=tags), patch.object(retention,'github_commit_time',return_value=''), patch.object(retention,'head_manifest',side_effect=lambda h,r,t,b:(digests[t],{})), patch.object(retention,'get_manifest',return_value=(200,{},{})), contextlib.redirect_stdout(io.StringIO()):
+            result=retention.process_repo('registry','namespace','unused','unused','swkoo/backend',[deployed],0,True,None,'owner/repo')
+        self.assertEqual(result['going_away'],[old])
+        self.assertTrue({helper,provisioner,deployed}.issubset(result['kept']))
+
 
 if __name__ == '__main__': unittest.main()
