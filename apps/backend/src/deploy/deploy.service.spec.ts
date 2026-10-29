@@ -808,6 +808,7 @@ model User { id Int @id }
     if (r.stack === 'nextjs') {
       expect(r.storageProfile).toEqual({
         type: 'prisma-sqlite',
+        storageClassName: 'swkoo-user-quota',
         size: '1Gi',
         mountPath: '/data',
         databaseUrl: 'file:/data/app.db',

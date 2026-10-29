@@ -1,0 +1,4 @@
+*.sh text eol=lf
+deploy/host/* text eol=lf
+deploy/local-storage/* text eol=lf
+deploy/storage/* text eol=lf

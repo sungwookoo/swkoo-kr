@@ -43,6 +43,16 @@ describe('source review before deployment side effects', () => {
     expect(await s.service.registerForUser('alice', req)).toMatchObject({ ok: true });
     expect((s.service as any).admission.reserve).not.toHaveBeenCalled();
   });
+  it('preserves the immutable storage class of an existing legacy PVC', async () => {
+    const s = setup();
+    const legacy = { type:'prisma-sqlite',size:'1Gi',mountPath:'/data',databaseUrl:'file:/data/app.db',initMode:'db-push' };
+    jest.spyOn(s.service as any,'readExistingStorageProfile').mockResolvedValue(legacy);
+    jest.spyOn(s.service,'detectStack').mockResolvedValue({ stack:'nextjs',packageName:'app',port:3000,nodeEngine:null,checks:[],storageProfile:{...legacy,storageClassName:'swkoo-user-quota'} } as any);
+    await s.service.registerForUser('alice',req);
+    const commit = (s.github.commitFilesAtomic.mock.calls as any)[0][0];
+    expect(commit.files['app/pvc.yaml']).toMatch(/storageClassName: local-path/);
+    expect(commit.files['app/deployment.yaml']).toMatch(/localhostProfile: swkoo-user-storage-v1.json/);
+  });
   it.each(['deleting', 'other-app'])('blocks %s before any source or manifest writes', async state => {
     const s = setup();
     jest.spyOn(s.service, 'getCurrentDeployment').mockResolvedValue({ repo: state === 'deleting' ? 'app' : 'other', state: state === 'deleting' ? 'deleting' : 'active' } as any);

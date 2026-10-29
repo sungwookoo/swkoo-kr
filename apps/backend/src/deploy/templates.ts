@@ -51,6 +51,7 @@ export interface RenderParams {
     mountPath: '/data';
     databaseUrl: 'file:/data/app.db';
     initMode: 'migrate-deploy' | 'db-push';
+    storageClassName?: 'local-path' | 'swkoo-user-quota';
   };
 }
 
@@ -149,6 +150,7 @@ export function renderUserRegistration(params: RenderParams): string {
   mountPath: ${params.storageProfile.mountPath}
   databaseUrl: ${params.storageProfile.databaseUrl}
   initMode: ${params.storageProfile.initMode}
+${params.storageProfile.storageClassName ? `  storageClassName: ${params.storageProfile.storageClassName}\n` : ''}
 `
     : '';
   return `${GENERATED_HEADER}login: ${params.login}
@@ -194,6 +196,8 @@ export function parseStorageProfileBlock(
   const initModeRaw = get('initMode') ?? 'db-push';
   const initMode: 'migrate-deploy' | 'db-push' =
     initModeRaw === 'migrate-deploy' ? 'migrate-deploy' : 'db-push';
+  const storageClassName = get('storageClassName');
+  if (storageClassName && !['local-path', 'swkoo-user-quota'].includes(storageClassName)) throw new Error('Unsupported stored storage class');
 
   // The literal types on RenderParams.storageProfile are narrow; we
   // cast through `as` once after validating the only field that
@@ -204,6 +208,7 @@ export function parseStorageProfileBlock(
     mountPath: mountPath as '/data',
     databaseUrl: databaseUrl as 'file:/data/app.db',
     initMode,
+    ...(storageClassName ? { storageClassName: storageClassName as 'local-path' | 'swkoo-user-quota' } : {}),
   };
 }
 
@@ -495,7 +500,7 @@ metadata:
     swkoo.kr/user: ${params.login}
 spec:
   accessModes: ["ReadWriteOnce"]
-  storageClassName: local-path
+  storageClassName: ${params.storageProfile!.storageClassName ?? 'local-path'}
   resources:
     requests:
       storage: ${params.storageProfile.size}
@@ -597,7 +602,8 @@ function renderDeployment(params: RenderParams): string {
   const podSecurityContext = sp
     ? `      securityContext:
         seccompProfile:
-          type: RuntimeDefault
+          type: Localhost
+          localhostProfile: swkoo-user-storage-v1.json
         fsGroup: ${params.uid}
         fsGroupChangePolicy: OnRootMismatch
 `

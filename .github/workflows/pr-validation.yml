@@ -37,6 +37,10 @@ jobs:
         if: matrix.service == 'backend'
         working-directory: ${{ github.workspace }}
         run: python3 scripts/test_production_verification.py
+      - name: Test persistent storage quota safety
+        if: matrix.service == 'backend'
+        working-directory: ${{ github.workspace }}
+        run: python3 scripts/test_storage_quota.py
       - name: Test public validation backpressure stop
         if: matrix.service == 'backend'
         working-directory: ${{ github.workspace }}
