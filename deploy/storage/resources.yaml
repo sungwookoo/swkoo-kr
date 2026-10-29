@@ -90,7 +90,7 @@ spec:
         - name: ocir-credentials
       containers:
         - name: provisioner
-          image: rancher/local-path-provisioner:v0.0.37@sha256:e757967a5ec338f6a9b371c5a9688bedaa8c3578ea3dd4db329ea0084be0a86f
+          image: nrt.ocir.io/nrznn4yiltsz/swkoo/backend:storage-provisioner-6617a2e69ca5ce0c9b4fbadff427572135c0b98c
           command: ["local-path-provisioner", "start", "--config", "/etc/config/config.json", "--configmap-name", "swkoo-user-storage", "--helper-pod-file", "/etc/config/helperPod.yaml", "--service-account-name", "swkoo-user-storage", "--provisioner-name", "swkoo.kr/user-quota", "--allow-unsafe-helper-pod-template"]
           env:
             - name: POD_NAMESPACE
