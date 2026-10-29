@@ -13,6 +13,13 @@ export default function NoticesPage() {
       <h1 className="mt-4 text-3xl font-semibold text-zinc-100">공지사항</h1>
       <p className="mt-4 text-sm leading-relaxed text-zinc-400">서비스를 조금씩 더 안전하고 편하게 만드는 소식을 전합니다.</p>
       <ul className="mt-12 border-y border-zinc-800">
+        <li className="border-b border-zinc-800">
+          <Link href="/notices/2026-10-29-storage-update" className="group block py-7 focus-visible:outline focus-visible:outline-offset-4 focus-visible:outline-zinc-400">
+            <time dateTime="2026-10-29" className="font-mono text-xs text-zinc-500">2026.10.29</time>
+            <h2 className="mt-3 text-lg font-medium text-zinc-200 group-hover:text-white">영구 저장공간 보호 개선 <span aria-hidden>→</span></h2>
+            <p className="mt-2 text-sm leading-relaxed text-zinc-400">앱별 저장 한도를 적용하고, 안내와 실제 제공 내용을 맞췄습니다.</p>
+          </Link>
+        </li>
         <li>
           <Link href="/notices/2026-10-27-security-update" className="group block py-7 focus-visible:outline focus-visible:outline-offset-4 focus-visible:outline-zinc-400">
             <time dateTime="2026-10-27" className="font-mono text-xs text-zinc-500">2026.10.27</time>

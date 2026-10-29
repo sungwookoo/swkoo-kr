@@ -1,0 +1,144 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: swkoo-storage
+  labels:
+    pod-security.kubernetes.io/enforce: privileged
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: swkoo-user-storage
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: swkoo-user-storage
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "pods/log", "configmaps"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["create", "patch", "update", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: swkoo-user-storage
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: swkoo-user-storage
+subjects:
+  - kind: ServiceAccount
+    name: swkoo-user-storage
+    namespace: swkoo-storage
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: swkoo-user-storage
+rules:
+  - apiGroups: [""]
+    resources: ["nodes", "persistentvolumeclaims"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["persistentvolumes"]
+    verbs: ["get", "list", "watch", "create", "patch", "update", "delete"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+  - apiGroups: ["storage.k8s.io"]
+    resources: ["storageclasses"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: swkoo-user-storage
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: swkoo-user-storage
+subjects:
+  - kind: ServiceAccount
+    name: swkoo-user-storage
+    namespace: swkoo-storage
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: swkoo-user-storage
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: swkoo-user-storage
+  template:
+    metadata:
+      labels:
+        app: swkoo-user-storage
+    spec:
+      serviceAccountName: swkoo-user-storage
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      imagePullSecrets:
+        - name: ocir-credentials
+      containers:
+        - name: provisioner
+          image: rancher/local-path-provisioner:v0.0.37@sha256:e757967a5ec338f6a9b371c5a9688bedaa8c3578ea3dd4db329ea0084be0a86f
+          command: ["local-path-provisioner", "start", "--config", "/etc/config/config.json", "--configmap-name", "swkoo-user-storage", "--helper-pod-file", "/etc/config/helperPod.yaml", "--service-account-name", "swkoo-user-storage", "--provisioner-name", "swkoo.kr/user-quota", "--allow-unsafe-helper-pod-template"]
+          env:
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: CONFIG_MOUNT_PATH
+              value: /etc/config
+          startupProbe:
+            httpGet: {path: /health, port: 8080}
+            periodSeconds: 5
+            failureThreshold: 12
+          readinessProbe:
+            httpGet: {path: /ready, port: 8080}
+            periodSeconds: 10
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits: {cpu: 200m, memory: 128Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: config
+              mountPath: /etc/config
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: swkoo-user-storage
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: swkoo-user-quota
+  annotations:
+    defaultVolumeType: local
+provisioner: swkoo.kr/user-quota
+volumeBindingMode: WaitForFirstConsumer
+reclaimPolicy: Delete
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: quota-helper-isolation
+spec:
+  podSelector:
+    matchLabels:
+      app: swkoo-storage-helper
+  policyTypes: ["Ingress", "Egress"]

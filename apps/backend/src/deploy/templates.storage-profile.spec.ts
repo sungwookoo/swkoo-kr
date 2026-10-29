@@ -167,6 +167,14 @@ describe('Persistent Storage Profile v0 — render outputs', () => {
 });
 
 describe('parseStorageProfileBlock — preservation guard', () => {
+  it('round-trips enforced classes and preserves legacy PVC storage classes', () => {
+    const profile = { ...PRISMA_PROFILE, storageClassName: 'swkoo-user-quota' as const };
+    const files = renderDeployRepoFiles({ ...BASE_PARAMS, storageProfile: profile });
+    expect(files['sample/pvc.yaml']).toMatch(/storageClassName: swkoo-user-quota/);
+    expect(files['sample/deployment.yaml']).toMatch(/localhostProfile: swkoo-user-storage-v1.json/);
+    expect(parseStorageProfileBlock(renderUserRegistration({ ...BASE_PARAMS, storageProfile: profile }))).toEqual(profile);
+    expect(renderDeployRepoFiles({ ...BASE_PARAMS, storageProfile: PRISMA_PROFILE })['sample/pvc.yaml']).toMatch(/storageClassName: local-path/);
+  });
   it('parses the block emitted by renderUserRegistration round-trip', () => {
     const meta = renderUserRegistration({
       ...BASE_PARAMS,

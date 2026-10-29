@@ -1,0 +1,41 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: swkoo-quota-helper
+  labels:
+    app: swkoo-storage-helper
+spec:
+  automountServiceAccountToken: false
+  imagePullSecrets:
+    - name: ocir-credentials
+  activeDeadlineSeconds: 120
+  securityContext:
+    seccompProfile:
+      type: RuntimeDefault
+  containers:
+    - name: helper-pod
+      image: python:3.13-alpine@sha256:8bcfa47b04b853a17aaf909362b847b2112fd6ec4105ea553ef9a43bafbb5916
+      env:
+        - name: PYTHONDONTWRITEBYTECODE
+          value: "1"
+      resources:
+        requests: {cpu: 50m, memory: 32Mi}
+        limits: {cpu: 500m, memory: 128Mi, ephemeral-storage: 64Mi}
+      securityContext:
+        runAsUser: 0
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: ["ALL"]
+          add: ["SYS_ADMIN", "FOWNER", "DAC_OVERRIDE"]
+      volumeMounts:
+        - name: quota-code
+          mountPath: /quota
+          readOnly: true
+  volumes:
+    - name: quota-code
+      configMap:
+        name: swkoo-user-storage
+        items:
+          - key: quota.py
+            path: quota.py

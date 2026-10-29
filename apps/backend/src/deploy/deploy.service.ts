@@ -79,6 +79,7 @@ export interface StorageProfile {
   // dir present? → migrate deploy; else → db push) so it's robust to
   // the user editing the field between deploys.
   initMode: 'migrate-deploy' | 'db-push';
+  storageClassName?: 'local-path' | 'swkoo-user-quota';
 }
 
 export type StackPreview =
@@ -544,6 +545,7 @@ export class DeployService {
 
         storageProfile = {
           type: 'prisma-sqlite',
+          storageClassName: 'swkoo-user-quota',
           size: '1Gi',
           mountPath: '/data',
           databaseUrl: 'file:/data/app.db',
@@ -702,8 +704,13 @@ export class DeployService {
     // init container's behaviour changes.
     const existingStorageProfile = await this.readExistingStorageProfile(loginLc);
     const detectedStorageProfile = preview.storageProfile;
-    const effectiveStorageProfile =
-      detectedStorageProfile ?? existingStorageProfile ?? undefined;
+    const selectedStorageProfile = detectedStorageProfile ?? existingStorageProfile;
+    // PVC storageClassName is immutable. Legacy registered volumes retain
+    // local-path; their existing directories receive a quota in place.
+    const effectiveStorageProfile = selectedStorageProfile ? {
+      ...selectedStorageProfile,
+      storageClassName: existingStorageProfile ? (existingStorageProfile.storageClassName ?? 'local-path') : (selectedStorageProfile.storageClassName ?? 'swkoo-user-quota'),
+    } : undefined;
 
     const params = {
       login: loginLc,

@@ -130,9 +130,34 @@ jobs:
           push: true
           tags: |
             ${{ env.REGISTRY_HOST }}/${{ env.NAMESPACE }}/${{ env.BACKEND_REPO }}:${{ github.sha }}
-            ${{ env.REGISTRY_HOST }}/${{ env.NAMESPACE }}/${{ env.BACKEND_REPO }}:latest
           cache-from: type=gha,scope=backend
           cache-to: type=gha,mode=max,scope=backend,ignore-error=true
+
+      - name: Publish backend latest only from main
+        if: github.ref == 'refs/heads/main'
+        run: docker buildx imagetools create --tag "${REGISTRY_HOST}/${NAMESPACE}/${BACKEND_REPO}:latest" "${REGISTRY_HOST}/${NAMESPACE}/${BACKEND_REPO}:${GITHUB_SHA}"
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: apps/backend
+          file: apps/backend/Dockerfile
+          target: storage-helper
+          platforms: linux/arm64
+          push: true
+          tags: ${{ env.REGISTRY_HOST }}/${{ env.NAMESPACE }}/${{ env.BACKEND_REPO }}:storage-helper-${{ github.sha }}
+          cache-from: type=gha,scope=storage-helper
+          cache-to: type=gha,mode=max,scope=storage-helper,ignore-error=true
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: apps/backend
+          file: apps/backend/Dockerfile
+          target: storage-provisioner
+          platforms: linux/arm64
+          push: true
+          tags: ${{ env.REGISTRY_HOST }}/${{ env.NAMESPACE }}/${{ env.BACKEND_REPO }}:storage-provisioner-${{ github.sha }}
+          cache-from: type=gha,scope=storage-provisioner
+          cache-to: type=gha,mode=max,scope=storage-provisioner,ignore-error=true
 
   frontend:
     needs: [changes, frontend-test]
@@ -171,15 +196,19 @@ jobs:
           push: true
           tags: |
             ${{ env.REGISTRY_HOST }}/${{ env.NAMESPACE }}/${{ env.FRONTEND_REPO }}:${{ github.sha }}
-            ${{ env.REGISTRY_HOST }}/${{ env.NAMESPACE }}/${{ env.FRONTEND_REPO }}:latest
           cache-from: type=gha,scope=frontend
           cache-to: type=gha,mode=max,scope=frontend,ignore-error=true
+
+      - name: Publish frontend latest only from main
+        if: github.ref == 'refs/heads/main'
+        run: docker buildx imagetools create --tag "${REGISTRY_HOST}/${NAMESPACE}/${FRONTEND_REPO}:latest" "${REGISTRY_HOST}/${NAMESPACE}/${FRONTEND_REPO}:${GITHUB_SHA}"
 
   update-manifests:
     needs: [changes, backend, frontend]
     # Run if at least one build succeeded. Skipped/failed builds do not commit a stale tag.
     if: |
       always() &&
+      github.ref == 'refs/heads/main' &&
       (needs.backend.result == 'success' || needs.frontend.result == 'success')
     runs-on: ubuntu-latest
     permissions:
@@ -196,6 +225,10 @@ jobs:
         run: |
           SHA_TAG="${GITHUB_SHA}"
           sed -i "s|image: ${REGISTRY_HOST}/${NAMESPACE}/${BACKEND_REPO}:.*|image: ${REGISTRY_HOST}/${NAMESPACE}/${BACKEND_REPO}:${SHA_TAG}|g" deploy/base/backend/deployment.yaml
+          sed -i "s|image: .*|image: ${REGISTRY_HOST}/${NAMESPACE}/${BACKEND_REPO}:storage-helper-${SHA_TAG}|" deploy/storage/helperPod.yaml
+          sed -i "s|image: .*|image: ${REGISTRY_HOST}/${NAMESPACE}/${BACKEND_REPO}:storage-provisioner-${SHA_TAG}|" deploy/storage/resources.yaml
+          sed -i "s|image: .*|image: ${REGISTRY_HOST}/${NAMESPACE}/${BACKEND_REPO}:storage-helper-${SHA_TAG}|" deploy/local-storage/helperPod.yaml
+          sed -i "s|image: .*|image: ${REGISTRY_HOST}/${NAMESPACE}/${BACKEND_REPO}:storage-provisioner-${SHA_TAG}|" deploy/local-storage/deployment.yaml
 
       - name: Update frontend image tag
         if: needs.frontend.result == 'success'
@@ -207,12 +240,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if git diff --quiet deploy/base/backend/deployment.yaml deploy/base/frontend/deployment.yaml; then exit 0; fi
+          if git diff --quiet deploy/base/backend/deployment.yaml deploy/base/frontend/deployment.yaml deploy/storage/helperPod.yaml deploy/storage/resources.yaml deploy/local-storage/helperPod.yaml deploy/local-storage/deployment.yaml; then exit 0; fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           BRANCH="deploy/images-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           git switch -c "$BRANCH"
-          git add deploy/base/backend/deployment.yaml deploy/base/frontend/deployment.yaml
+          git add deploy/base/backend/deployment.yaml deploy/base/frontend/deployment.yaml deploy/storage/helperPod.yaml deploy/storage/resources.yaml deploy/local-storage/helperPod.yaml deploy/local-storage/deployment.yaml
           git commit -m "chore: update image tags to ${GITHUB_SHA}"
           git fetch origin main
           git rebase origin/main
