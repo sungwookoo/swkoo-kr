@@ -1,0 +1,2 @@
+*.sh text eol=lf
+deploy/host/k3s-storage-guard.conf text eol=lf

@@ -43,7 +43,7 @@ def main():
     args=parser.parse_args()
     resources=json.loads(args.manifests.read_text())
     helper=next(item['data']['helperPod.yaml'] for item in resources if item['kind']=='ConfigMap')
-    image=re.search(r'^\s*image:\s*(\S+)',helper,re.MULTILINE).group(1)
+    consumer_image=re.search(r'^\s*image:\s*(\S+)',helper,re.MULTILINE).group(1)
     if any(item.get('metadata',{}).get('namespace') not in [None,'swkoo-storage'] for item in resources): raise RuntimeError('Unexpected source namespace')
     print(json.dumps({'execute':args.execute,'namespaces':[PROVIDER,CONSUMER],'isolatedImageGiB':3}),flush=True)
     if not args.execute: return
@@ -90,7 +90,7 @@ def main():
                 'restartPolicy':'Never','automountServiceAccountToken':False,
                 'imagePullSecrets':[{'name':'ocir-credentials'}],
                 'securityContext':{'fsGroup':1000,'seccompProfile':{'type':'Localhost','localhostProfile':'swkoo-user-storage-v1.json'}},
-                'containers':[{'name':'app','image':image,'command':['python3','-c',program],
+                'containers':[{'name':'app','image':consumer_image,'command':['python3','-c',program],
                     'env':[{'name':'PYTHONDONTWRITEBYTECODE','value':'1'}],
                     'resources':{'requests':{'cpu':'100m','memory':'64Mi'},'limits':{'cpu':'500m','memory':'256Mi'}},
                     'securityContext':{'runAsNonRoot':True,'runAsUser':1000,'allowPrivilegeEscalation':False,'readOnlyRootFilesystem':True,'capabilities':{'drop':['ALL']}},
