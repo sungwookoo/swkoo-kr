@@ -6,6 +6,7 @@ import { useSWRConfig } from 'swr';
 import clsx from 'clsx';
 
 import { useMe } from '@/lib/auth';
+import { DeploymentRecovery } from '@/components/DeploymentRecovery';
 import {
   ADMIN_USERS_SWR_KEY,
   AdminUser,
@@ -52,6 +53,7 @@ export function AdminPageClient(): import("react").ReactNode {
         </header>
 
         <UsersTable />
+        <DeploymentRecovery />
       </div>
     </Shell>
   );

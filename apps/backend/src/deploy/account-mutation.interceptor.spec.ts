@@ -23,6 +23,7 @@ describe('account mutation exclusion', () => {
     expect(await firstValueFrom(guard.intercept(ctx(1, '/api/deploy/current', 'GET'), { handle: () => of('read') }))).toBe('read');
     expect(await firstValueFrom(guard.intercept(ctx(2, '/api/deploy/env/bob/app', 'PUT'), { handle: () => of('other') }))).toBe('other');
     expect(() => guard.intercept(ctx(2), { handle: () => of('wrong') })).toThrow('처리 중');
+    expect(() => guard.intercept(ctx(99, '/api/admin/deployment-recovery/alice/release'), { handle: () => of('wrong') })).toThrow('처리 중');
     pending.next('ok'); await first;
   });
   it('retains exclusion if the response subscriber disconnects', async () => {
@@ -31,6 +32,13 @@ describe('account mutation exclusion', () => {
     expect(() => guard.intercept(ctx(1), { handle: () => of('wrong') })).toThrow('처리 중');
     pending.next('ok'); await Promise.resolve(); await Promise.resolve();
     expect(await firstValueFrom(guard.intercept(ctx(1), { handle: () => of('done') }))).toBe('done');
+  });
+  it('blocks registration and account deletion while recovery rechecks resources', async () => {
+    const guard = new AccountMutationInterceptor(), pending = new Subject<string>();
+    const first = firstValueFrom(guard.intercept(ctx(99, '/api/admin/deployment-recovery/alice/release'), { handle: () => pending }));
+    expect(() => guard.intercept(ctx(1), { handle: () => of('wrong') })).toThrow('처리 중');
+    expect(() => guard.intercept(ctx(1, '/api/account', 'DELETE'), { handle: () => of('wrong') })).toThrow('처리 중');
+    pending.next('ok'); await first;
   });
   it('releases after synchronous or asynchronous failures', async () => {
     const guard = new AccountMutationInterceptor();

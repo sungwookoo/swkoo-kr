@@ -233,6 +233,16 @@ export class UsersRepository implements OnModuleInit, OnModuleDestroy {
     this.db.prepare('DELETE FROM admission_reservations WHERE login = ?').run(login.toLowerCase());
   }
 
+  recoverAdmissionReservation(login: string, createdAt: number, actor: string): boolean {
+    return this.db.transaction(() => {
+      const result = this.db.prepare('DELETE FROM admission_reservations WHERE login = ? AND created_at = ?').run(login, createdAt);
+      if (!result.changes) return false;
+      this.audit({ actor, action: 'ADMISSION_RESERVATION_RECOVERED', target: login, reason: 'NO_REGISTERED_OR_LIVE_RESOURCES',
+        metaJson: JSON.stringify({ createdAt }) });
+      return true;
+    })();
+  }
+
   /** Atomic SQLite snapshot to a file path. Uses better-sqlite3's backup
    * API which is WAL-aware (consistent even while writes are in-flight)
    * and copies pages incrementally. Used by the daily backup cron — also

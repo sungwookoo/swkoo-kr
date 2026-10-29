@@ -17,6 +17,12 @@ export const ADMISSION_QUERIES = [
   'min(count_over_time(node_cpu_seconds_total{mode="idle"}[5m]))',
   'min(count_over_time(node_memory_MemAvailable_bytes[5m]))',
   'sum(kube_persistentvolumeclaim_resource_requests_storage_bytes{namespace=~"user-.*"}) or vector(0)',
+  'node_filesystem_avail_bytes{mountpoint="/data",fstype="ext4"}',
+  'time()-min(timestamp(node_filesystem_avail_bytes{mountpoint="/data",fstype="ext4"}))',
+  'node_filesystem_files_free{mountpoint="/",fstype="ext4"}/node_filesystem_files{mountpoint="/",fstype="ext4"}',
+  'node_filesystem_files_free{mountpoint="/data",fstype="ext4"}/node_filesystem_files{mountpoint="/data",fstype="ext4"}',
+  'time()-min(timestamp(node_filesystem_files_free{mountpoint=~"/|/data",fstype="ext4"}))',
+  'sum(kube_pod_container_resource_limits{resource="ephemeral_storage",namespace=~"user-.*"}) or vector(0)',
 ];
 
 /** Pending admissions survive restarts until observed in the same request
@@ -32,7 +38,11 @@ export class DeploymentAdmissionService {
     const one = (rows: MetricSample[]) => rows.length === 1 ? Number(rows[0].value[1]) : invalid();
     const [allocation, conditions, requests, init, cpu, memory, disk, ...checks] = data.slice(0, 12);
     const existingStorage = one(data[12]);
-    if (existingStorage < 0) invalid();
+    const dataFree = one(data[13]), dataAge = one(data[14]);
+    const rootInodes = one(data[15]), dataInodes = one(data[16]), inodeAge = one(data[17]);
+    const existingEphemeral = one(data[18]);
+    if (existingStorage < 0 || dataFree < 0 || existingEphemeral < 0 || dataAge < 0 || dataAge > 90 ||
+        inodeAge < 0 || inodeAge > 90 || rootInodes < 0 || rootInodes > 1 || dataInodes < 0 || dataInodes > 1) invalid();
     const node = allocation[0]?.metric.node;
     if (allocation.length !== 2 || !node || allocation.some(row => row.metric.node !== node) ||
         conditions.length !== 3 || conditions.some(row => row.metric.node !== node) ||
@@ -68,7 +78,9 @@ export class DeploymentAdmissionService {
     if (blocked || cpuUsed >= 0.70 || memoryUsed >= 0.70 ||
         allocated('cpu') - requestedCpu - (unobserved.length + 1) * 0.2 < 1 ||
         allocated('memory') - requestedMemory - (unobserved.length + 1) * 512 * 1024 ** 2 < 4 * Gi ||
-        diskFree - existingStorage - (unobserved.length + 1) * Gi < 5 * Gi) {
+        diskFree - existingEphemeral - (unobserved.length + 1) * 2 * Gi < 5 * Gi ||
+        dataFree - existingStorage - (unobserved.length + 1) * Gi < 5 * Gi ||
+        rootInodes < .10 || dataInodes < .10) {
       throw new ServiceUnavailableException({ reason: 'CAPACITY_UNAVAILABLE', message: '서버의 배포 여유가 부족해 신규 배포를 보류했습니다. 기존 앱은 유지됩니다. 잠시 후 다시 시도하거나 운영자에게 문의해 주세요.' });
     }
     for (const row of pending) if (observed.has(`user-${row.login}`)) this.users.releaseAdmissionReservation(row.login);

@@ -1,0 +1,26 @@
+# Read-only existence checks for administrator reservation recovery.
+# Apply once; no resource modification, pod exec, secrets or customer source access.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: swkoo-backend-recovery
+rules:
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["persistentvolumes"]
+    verbs: ["list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: swkoo-backend-recovery
+subjects:
+  - kind: ServiceAccount
+    name: swkoo-backend
+    namespace: swkoo
+roleRef:
+  kind: ClusterRole
+  name: swkoo-backend-recovery
+  apiGroup: rbac.authorization.k8s.io
