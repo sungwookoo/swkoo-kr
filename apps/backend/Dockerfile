@@ -13,7 +13,7 @@ WORKDIR /src
 ENV CGO_ENABLED=0 GOMAXPROCS=2 GOTOOLCHAIN=local GOFLAGS=-mod=mod
 ADD --checksum=sha256:2b95efae90cd01de97dd9809739d24b0ad2ccaded6e86e308f71733b690b3de8 https://codeload.github.com/rancher/local-path-provisioner/tar.gz/49b2be8e26d6d34c9afaa21fa33108d2e82f8955 /tmp/source.tar.gz
 RUN tar -xzf /tmp/source.tar.gz --strip-components=1 -C /src \
-  && go get github.com/klauspost/compress@v1.18.7 golang.org/x/net@v0.60.0 golang.org/x/text@v0.41.0 \
+  && go get github.com/klauspost/compress@v1.18.7 golang.org/x/net@v0.60.0 golang.org/x/text@v0.42.0 \
   && go mod tidy \
   && go test ./... \
   && go build -trimpath -buildvcs=false -ldflags="-s -w -X main.VERSION=v0.0.37-swkoo.1" -o /out/local-path-provisioner .
