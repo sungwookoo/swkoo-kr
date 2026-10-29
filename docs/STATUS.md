@@ -1,14 +1,15 @@
 # 현재 구현 및 검증 기준선
 
-기준일: 2026-10-29. 아래 날짜가 붙은 내용은 당시 이력이다. 현재 기준은 이 요약과 [저장공간·복구·배포 후 확인](./storage-recovery-release-2026-10-29.md), [운영 제어·진단 보고서](./operating-controls-2026-10-28.md)를 우선한다. Observatory의 정체성은 [VISION](../VISION.md), Deploy의 정체성은 [deploy-vision](./deploy-vision.md)을 따른다.
+기준일: 2026-10-29. 아래 날짜가 붙은 내용은 당시 이력이다. 현재 기준은 이 요약과 [영구 저장공간 제한 적용 결과](./persistent-storage-quota-release-2026-10-29.md), [저장공간·복구·배포 후 확인](./storage-recovery-release-2026-10-29.md), [운영 제어·진단 보고서](./operating-controls-2026-10-28.md)를 우선한다. Observatory의 정체성은 [VISION](../VISION.md), Deploy의 정체성은 [deploy-vision](./deploy-vision.md)을 따른다.
 
 ## 후속 운영 보완 (2026-10-29)
 
-- 데이터 디스크·루트 디스크·inode 수용 검사를 분리하고 신규 앱의 임시 파일·로그 상한을 추가했다. **영구 저장공간의 앱별 1GiB 초과 쓰기 강제 차단은 미완료**이며 데이터 디스크 점검 중단과 quota·프로비저너 연동이 필요하다. 시작 안내·배포 화면·약관에 한계를 명시했다.
+- **앱별 영구 저장공간 1GiB·inode 65,536개 강제 제한을 운영에 적용했다.** 신규 Prisma SQLite 앱은 전용 quota provisioner를 사용하며 기존 SprintFlow 데이터는 같은 경로에서 보호한다. 일회성 최종 복구 사본·복원 시험·기존 파일 91개 해시 일치·DB 무결성을 확인했다. 일반 계정의 실제 한도 초과·공간 정리 후 저장·재시작·삭제 회수도 통과했다. [적용 보고서](./persistent-storage-quota-release-2026-10-29.md)를 따른다.
+- 데이터 디스크·루트 디스크·inode 수용 검사와 신규 앱의 임시 파일·로그 제한도 유지한다. 영구 한도는 초과 쓰기 거부, 임시 한도는 kubelet 감시·축출 기준이다. 화면·시작 안내·약관·공개 공지를 실제 제공 내용에 맞췄다. 사용자 앱 정기 백업은 도입하지 않았다.
 - 관리자용 예약 복구는 등록 Git·Argo·namespace·PV를 다시 확인한 뒤 자원이 없는 예약 한 건만 해제한다. 저장 자원·이용자 저장소를 삭제하지 않는다.
 - 이미지 manifest 병합 후 공개 HTTPS에서 실행 버전과 health·주요 경로·비로그인 접근 거부를 자동 확인하고 결과를 보존한다. 기존 단위 테스트와 별개이며 실제 로그인·신규 배포 전체 검증을 매번 대체하지 않는다.
-- 이번 운영 적용·테스트 결과와 남은 점검 중단 작업은 [보고서](./storage-recovery-release-2026-10-29.md)에 기록한다.
-- PR #97·#98을 통해 양쪽 runtime source revision `fac38e408766a622cb1b366f5f4472656539465c` 반영 완료. 자동 배포 후 확인, 실제 시험 계정 신규 등록·HTTPS·임시 저장 한도·자원 존재 시 복구 거부·제거와 물리 저장 폴더 정리를 확인했다. 새 실행 digest의 Trivy Critical/High/Medium 및 양쪽 npm 운영 의존성은 0건이다. 자세한 실행 ID·digest·관리자 실제 브라우저 검증 한계는 보고서를 따른다.
+- 앞선 온라인 보완 결과는 [기존 보고서](./storage-recovery-release-2026-10-29.md), 이후 디스크 전환과 실제 중단 시간은 [후속 적용 결과](./persistent-storage-quota-release-2026-10-29.md)에 기록한다.
+- 앞선 PR #97·#98의 source revision은 `fac38e408766a622cb1b366f5f4472656539465c`였다. 당시 자동 배포 후 확인, 실제 시험 계정 신규 등록·HTTPS·임시 저장 한도·자원 존재 시 복구 거부·제거와 물리 저장 폴더 정리를 확인했다. 이후 PR #100·#101로 양쪽 runtime source revision `6617a2e69ca5ce0c9b4fbadff427572135c0b98c`를 반영하고 영구 저장 한도까지 검증했다. 실행 ID·digest와 검증 한계는 각 보고서를 따른다.
 
 ## 현재 운영 기준 (2026-10-28)
 
