@@ -5,7 +5,7 @@ metadata:
 spec:
   containers:
     - name: helper-pod
-      image: nrt.ocir.io/nrznn4yiltsz/swkoo/backend:storage-helper-bootstrap
+      image: nrt.ocir.io/nrznn4yiltsz/swkoo/backend:storage-helper-6617a2e69ca5ce0c9b4fbadff427572135c0b98c
       imagePullPolicy: IfNotPresent
       securityContext:
         runAsUser: 0

@@ -35,7 +35,7 @@ spec:
                   fieldPath: metadata.namespace
             - name: CONFIG_MOUNT_PATH
               value: /etc/config/
-          image: nrt.ocir.io/nrznn4yiltsz/swkoo/backend:storage-provisioner-bootstrap
+          image: nrt.ocir.io/nrznn4yiltsz/swkoo/backend:storage-provisioner-6617a2e69ca5ce0c9b4fbadff427572135c0b98c
           imagePullPolicy: IfNotPresent
           name: local-path-provisioner
           resources:
