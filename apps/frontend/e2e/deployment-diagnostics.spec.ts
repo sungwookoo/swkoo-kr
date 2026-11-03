@@ -30,7 +30,7 @@ test('diagnostics fetches logs only on request, renders text safely and hides st
   await expect(panel.getByText(/영구 저장공간 사용량: 측정 대기/)).toBeVisible();
   await expect(panel.getByText(/900.0MiB/)).toHaveCount(0);
   storage={status:'not_configured'}; await page.clock.runFor(31_000);
-  await expect(panel.getByText('이 앱은 영구 저장공간을 사용하지 않습니다.')).toBeVisible();
+  await expect(panel.getByText('플랫폼 영구 저장공간이 연결되어 있지 않습니다.')).toBeVisible();
   await panel.getByRole('button',{name:'최근 실행 로그 보기'}).click();
   await expect(panel.locator('pre')).toContainText('<script>window.logExecuted=true</script>');
   expect(await page.evaluate(()=> (window as any).logExecuted)).toBeUndefined(); expect(logRequests).toBe(1);
