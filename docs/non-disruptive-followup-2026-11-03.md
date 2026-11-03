@@ -23,27 +23,22 @@ OCI layer bytes도 아직 삭제 전 데이터가 포함된 값으로 보고된�
 
 ## 의존성 및 버전 예외 재검토
 
-2026-11-03 npm 조회 기준:
+[의존성 검토 기록](./dependency-review-2026-11-03.md)을 따른다. 해당 문서와 운영 의존성
+audit gate, 저장 한도 관련 문구 정정은 PR #108로 먼저 병합했다. 앱 파일 변경이 없어
+main 파이프라인에서 앱 빌드·이미지 변경·배포는 모두 생략됐고 기존 앱 버전은 유지됐다.
 
-- 양쪽 `npm audit --omit=dev`: 0건. PR 검증과 이미지 게시 전 검사에 같은 명령을 추가했다.
-- backend 전체: Low 4·Moderate 27 영향 패키지, frontend 전체: Moderate 15 영향 패키지.
-  영향 패키지 수는 서로 다른 취약점 수가 아니다. 직접 공지는 아래 두 가지다.
-- [deepmerge GHSA-gcqx-w48m-w2h4](https://github.com/advisories/GHSA-gcqx-w48m-w2h4):
-  Jest 설정 경로의 Low. 현재 조회한 공식 공지는 patched version None이며 npm 최신 4.3.1이다.
-- [minimatch GHSA-g3hv-75wg-m249](https://github.com/advisories/GHSA-g3hv-75wg-m249):
-  10월 30일 갱신된 Moderate 공지. 수정판은 11.0.1이고 기존 테스트·lint 도구의
-  하위 의존성 3/9/10 계열에 영향을 표시한다. 운영 의존성에는 포함되지 않는다.
-  npm의 Jest 25·ESLint 4·Next 설정 12 강제 다운그레이드는 적용하지 않는다.
-  minimatch 3의 함수형 CommonJS API와 11의 객체 export는 호환되지 않으므로
-  전역 override도 적용하지 않는다. 개발 도구에 외부 이용자의 glob·Jest/lint 설정을
-  입력하지 않는 현재 경계를 유지한다. 호환되는 상위 수정판 검토는 남은 작업이다.
-- Node 24.18.1 고정은 [upstream #65446](https://github.com/nodejs/node/issues/65446)의
-  native ObjectWrap cleanup 문제에 대한 기존 예외다. 재조회 시 이슈는 open이다.
-  새 버전 번호만으로 해결됐다고 간주하거나 운영 native addon을 교체하지 않는다.
-  해당 고정 해제는 별도 native 재현 시험·ARM64 DB 복원·종료 검사를 거쳐야 한다.
+## 구현 및 실제 측정 검증
 
-이 검토는 개발 의존성 취약점 해결 완료나 런타임 전체의 취약점 부재를 뜻하지 않는다.
-npm 검사는 OS·Node 자체·미공개 취약점을 검사하지 않는다.
+- backend 434개·frontend 103개·Playwright 32개와 양쪽 빌드 통과.
+- 호스트 collector 경계 검사 2개와 Linux quota 회귀 8개 통과.
+- 호스트 collector 및 timer는 앱 중단 없이 설치했다. 실제 SprintFlow는
+  278,528 bytes·inode 3개이며 kernel quota와 게시된 집계값이 일치했다.
+- 실행 중인 backend의 별도 Node 프로세스에서 새 진단 클래스로 실제 Kubernetes API를
+  조회해 같은 used/remaining/limit 값을 확인했다. 배포 등록 조회만 본인 앱으로 고정한
+  통합 검사이며, 새 HTTP API 또는 실제 GitHub 로그인 검증으로 확대하지 않는다.
+- backend ServiceAccount의 집계 ConfigMap get은 허용되고 다른 이름 get·목록 조회는 거부됐다.
+- 기존 서버 프로세스·사용자 앱·PVC는 재시작하거나 변경하지 않았다. 운영 HTTP API와
+  새 화면 기능의 활성화는 아래 배포 제약에 따라 대기한다.
 
 ## 배포 제약
 
