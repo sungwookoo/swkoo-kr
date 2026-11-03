@@ -27,6 +27,8 @@ jobs:
           cache: npm
           cache-dependency-path: apps/${{ matrix.service }}/package-lock.json
       - run: npm ci
+      - name: Reject known vulnerabilities in runtime dependencies
+        run: npm audit --omit=dev --audit-level=low
       - run: npm test
       - run: npm run build
       - name: Test operational validation safety
