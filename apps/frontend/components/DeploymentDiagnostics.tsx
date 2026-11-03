@@ -17,7 +17,7 @@ interface Diagnostics {
 }
 
 async function read(url: string): Promise<Diagnostics> {
-  const response = await fetch(url, { credentials: 'include', cache: 'no-store' });
+  const response = await fetch(url, { credentials: 'include', cache: 'no-store', signal: AbortSignal.timeout(10_000) });
   if (!response.ok) throw new Error('앱 실행 정보를 불러오지 못했습니다. 현재 로그인과 배포 상태를 확인해 주세요.');
   return response.json();
 }
@@ -53,7 +53,7 @@ export function DeploymentDiagnostics({ login, repo }: { login: string; repo: st
         {storage?.status === 'ready' ? <>
           <p>영구 저장공간 {mib(storage.usedBytes)} / {mib(storage.limitBytes)} · 남은 공간 {mib(storage.remainingBytes)}</p>
           <p>파일·폴더 수 {storage.usedInodes?.toLocaleString('ko-KR')} / {storage.limitInodes?.toLocaleString('ko-KR')} · 남은 수 {storage.remainingInodes?.toLocaleString('ko-KR')}</p>
-          <p className="text-xs text-slate-500">실제 할당된 디스크 기준이며 DB 임시 파일도 포함됩니다. 최대 약 90초 지연될 수 있습니다. {storage.checkedAt && new Date(storage.checkedAt).toLocaleTimeString('ko-KR')} 측정</p>
+          <p className="text-xs text-slate-500">실제 할당된 디스크 기준이며 DB 임시 파일도 포함됩니다. 측정값은 주기적으로 갱신되며 표시가 지연될 수 있습니다. {storage.checkedAt && new Date(storage.checkedAt).toLocaleTimeString('ko-KR')} 측정</p>
           {storage.warning && <p role="status" className="text-amber-300">{storage.warning === 'full' ? '저장용량 또는 파일 수 한도에 도달했습니다. 추가 저장이 거부될 수 있으니 필요한 자료를 보관한 뒤 앱에서 불필요한 데이터를 정리해 주세요.' : '저장용량 또는 파일 수가 한도의 80% 이상입니다. 한도에 도달하면 추가 저장이 거부될 수 있습니다.'}</p>}
         </> : <p className="text-slate-400">{storage?.status === 'not_configured' ? '이 앱은 영구 저장공간을 사용하지 않습니다.' : '영구 저장공간 사용량: 측정 대기 — 아직 측정되지 않았거나 최신 값을 확인하지 못했습니다.'}</p>}
       </div>
