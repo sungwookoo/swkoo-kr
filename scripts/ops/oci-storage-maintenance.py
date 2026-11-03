@@ -162,6 +162,8 @@ def main():
             raise
         if args.apply:
             write_status({'success': True, **result})
+            if not result['budgetOk']:
+                raise RuntimeError('Cleanup verified; reported storage still above 8 GB safety budget (OCI reclamation may take 48 hours)')
 
 
 def write_status(result):
@@ -265,10 +267,9 @@ def run(apply):
     result = {'remainingBackupObjects': len(remaining),
                       'remainingBackupBytes': sum(o.size for o in remaining),
                       'reportedCombinedBytes': total, 'budgetBytes': BUDGET_BYTES,
+                      'budgetOk': total < BUDGET_BYTES,
                       'note': 'OCIR reclamation may take up to 48 hours'}
     print(json.dumps(result), flush=True)
-    if total >= BUDGET_BYTES:
-        raise RuntimeError('Storage above 8 GB safety budget; inspect retained images / delayed reclamation')
     return result
 
 

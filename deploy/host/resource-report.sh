@@ -156,6 +156,8 @@ try:
     fresh=datetime.fromisoformat(d['checkedAt']) > datetime.now(timezone.utc)-timedelta(hours=36)
     if not d['success'] or not fresh:
         print('WARN: failed or stale; inspect swkoo-storage-maintenance.service')
+    elif not d.get('budgetOk',False):
+        print('WARN: %.2fGB reported / 8GB budget; cleanup verified, inspect reclamation' % (d['reportedCombinedBytes']/1e9))
     else:
         print('OK: %.2fGB / 8GB budget; DB backups %d' % (d['reportedCombinedBytes']/1e9,d['remainingBackupObjects']))
 except (OSError, ValueError, KeyError, TypeError):

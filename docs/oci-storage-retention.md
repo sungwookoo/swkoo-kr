@@ -52,7 +52,7 @@ systemctl list-timers swkoo-storage-maintenance.timer
 예약 삭제 주체에서 제외하고 수동 조회 전용으로 유지한다.
 
 정리 후 OCI가 보고한 이미지 layer bytes와 백업 bytes 합계가 **8 GB** 이상이면
-실패로 기록한다. 무료 10 GB에 대해 약 2 GB 여유를 둔다.
+정리 자체의 성공 여부와 별도로 예산 경고를 기록하고 종료 상태 1로 알린다. 무료 10 GB에 대해 약 2 GB 여유를 둔다.
 `/var/lib/swkoo-storage-maintenance/status.json`에는 비밀 없는 합계·검사 시각·성공 여부만
 저장하고 기존 일일 resource report가 실패 또는 36시간 초과 지연을 WARN으로 표시한다.
 OCI 이미지 삭제의 물리 용량 반영은 최대 48시간 걸릴 수 있다.
