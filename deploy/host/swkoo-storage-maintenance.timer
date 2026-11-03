@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily platform image and backup retention (05:10 KST)
+
+[Timer]
+OnCalendar=*-*-* 20:10:00 UTC
+Persistent=true
+RandomizedDelaySec=5min
+
+[Install]
+WantedBy=timers.target

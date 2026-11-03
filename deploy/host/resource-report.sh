@@ -146,6 +146,24 @@ PVC_BOUND=$(printf '%s\n' "$PVC_TBL" | awk '$3 == "Bound"' | wc -l)
 PVC_ALLOC=$(printf '%s\n' "$PVC_TBL" \
   | awk '{cap=$5; if (cap ~ /Gi$/) { sub("Gi","",cap); sum+=cap }} END {printf "%dGi", sum+0}')
 
+# Public aggregate status only; the collector gains no OCI credentials.
+STORAGE_REPORT=$(python3 - <<'PY'
+import json
+from datetime import datetime, timezone, timedelta
+try:
+    with open('/var/lib/swkoo-storage-maintenance/status.json') as source:
+        d=json.load(source)
+    fresh=datetime.fromisoformat(d['checkedAt']) > datetime.now(timezone.utc)-timedelta(hours=36)
+    if not d['success'] or not fresh:
+        print('WARN: failed or stale; inspect swkoo-storage-maintenance.service')
+    else:
+        print('OK: %.2fGB / 8GB budget; DB backups %d' % (d['reportedCombinedBytes']/1e9,d['remainingBackupObjects']))
+except (OSError, ValueError, KeyError, TypeError):
+    print('WARN: retention status unavailable')
+PY
+)
+[[ "$STORAGE_REPORT" == OK:* ]] || bump WARN
+
 # ---- Render ----
 case "$worst" in
   CRIT) ICON="🚨" ;;
@@ -179,8 +197,8 @@ fmt_lv() { printf '%-4s' "$1"; }
     printf 'PVC top (actual on /data):\n%s\n' "$PVC_TOP"
   fi
   printf '\n'
-  printf 'Free Tier target: %d OCPU / 12GB RAM / 200GB BV / 20GB Object\n' "$TARGET_OCPU"
+  printf 'Free Tier target: %d OCPU / 12GB RAM / 200GB BV / 10GB Standard Object+OCIR\n' "$TARGET_OCPU"
   printf 'Note: current host may still report legacy 4 OCPU / 24GB allocatable.\n'
-  printf 'OCIR: 수동 점검 (v0 범위 제외)\n'
+  printf 'Cloud storage: %s\n' "$STORAGE_REPORT"
   printf '```\n'
 }
