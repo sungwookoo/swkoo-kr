@@ -1,27 +1,17 @@
 name: OCIR Retention
 
 # Cleans old SHA tags from nrt.ocir.io/<ns>/swkoo/{backend,frontend}.
-# v0 keep policy = {latest, currently-deployed-sha, N most recent SHA
-# tags per repo}. Default dry_run=true so a schedule run is a no-op
-# until the operator verifies output and flips to false.
+# Legacy tag inspection only. The host's swkoo-storage-maintenance.timer
+# now owns deletion, including rollback references and untagged manifests.
 #
 # push / pull_request triggers are intentionally NOT included.
 on:
   workflow_dispatch:
     inputs:
-      dry_run:
-        description: "If true, print the plan but issue NO DELETEs."
-        type: boolean
-        default: true
       keep_recent:
         description: "Per repo, keep N most-recent SHA tags by committer date."
         type: string
         default: "10"
-  schedule:
-    # Sunday 19:00 UTC = Monday 04:00 KST. Off-hours, weekly. Matches
-    # the existing host crictl-prune.timer cadence (Sun 04:00 KST) so
-    # weekly maintenance is grouped in one window.
-    - cron: '0 19 * * 0'
 
 # A second concurrent run could half-delete state; force serial.
 concurrency:
@@ -74,7 +64,7 @@ jobs:
           OCIR_AUTH_TOKEN: ${{ secrets.OCI_AUTH_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPO: ${{ github.repository }}
-          DRY_RUN: ${{ github.event.inputs.dry_run != 'false' }}
+          DRY_RUN: 'true'
           KEEP_RECENT: ${{ github.event.inputs.keep_recent || '10' }}
         run: |
           set -euo pipefail
@@ -95,7 +85,7 @@ jobs:
         if: always()
         env:
           WEBHOOK: ${{ secrets.DISCORD_RESOURCE_REPORT_WEBHOOK_URL }}
-          DRY_RUN: ${{ github.event.inputs.dry_run != 'false' }}
+          DRY_RUN: 'true'
           JOB_STATUS: ${{ job.status }}
         run: |
           set -euo pipefail

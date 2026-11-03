@@ -1,6 +1,15 @@
 # 현재 구현 및 검증 기준선
 
-기준일: 2026-10-29. 아래 날짜가 붙은 내용은 당시 이력이다. 현재 기준은 이 요약과 [영구 저장공간 제한 적용 결과](./persistent-storage-quota-release-2026-10-29.md), [저장공간·복구·배포 후 확인](./storage-recovery-release-2026-10-29.md), [운영 제어·진단 보고서](./operating-controls-2026-10-28.md)를 우선한다. Observatory의 정체성은 [VISION](../VISION.md), Deploy의 정체성은 [deploy-vision](./deploy-vision.md)을 따른다.
+기준일: 2026-11-03. 아래 날짜가 붙은 내용은 당시 이력이다. 현재 기준은 이 요약과 [OCI 저장공간 보관 정책](./oci-storage-retention.md), [영구 저장공간 제한 적용 결과](./persistent-storage-quota-release-2026-10-29.md), [저장공간·복구·배포 후 확인](./storage-recovery-release-2026-10-29.md), [운영 제어·진단 보고서](./operating-controls-2026-10-28.md)를 우선한다. Observatory의 정체성은 [VISION](../VISION.md), Deploy의 정체성은 [deploy-vision](./deploy-vision.md)을 따른다.
+
+## 플랫폼 저장 요금 및 보관 정책 (2026-11-03)
+
+- 10월 이미지·플랫폼 DB 백업 저장료 합계 SGD 0.036756857842를 확인했다. 기존 정리는 dry-run이었고 백업 만료가 적용되지 않았다.
+- 운영·모든 ReplicaSet 롤백·저장공간 관리용 이미지 및 하위 참조를 보존하고 오래된 이미지 manifest 524개를 정리했다. 플랫폼 DB 백업은 167개·5.42GB에서 최근 14개·0.827GB로 줄였다.
+- 매일 05:10 KST부터 자동 정리하며 최근 14일·최소 최신 2개 백업을 보존한다. 최신 백업이 48시간보다 오래되거나 목록·버전·배포가 불명확하면 정리를 중지한다. 기존 resource report가 실패·지연·8GB 예산 초과를 알린다.
+- 정리 후 보존 manifest 89개와 데이터 파일 178개를 재확인했다. 최신 백업 별도 복원의 integrity·foreign-key 검사를 통과했고 기존 Pod 33개·PV 6개는 모두 유지됐다. Argo Application 10개 Synced/Healthy를 확인했다.
+- 보존 데이터의 중복 없는 파일 용량에 manifest당 1MiB 여유를 더한 합계는 약 2.26GB다. OCI가 보고하는 수치는 삭제 반영 지연으로 9.81GB이며, 실제 과금 용량 반영은 최대 48시간 대기할 수 있다. 이를 정리 성공과 별도 예산 경고로 기록했다. 무조건 0원이나 즉각 용량 회수를 보장하지 않는다.
+- 다른 사용자 저장소·이미지·앱 데이터는 변경하지 않았고, 사용자 앱 정기 백업을 도입하지 않았다. [정책·검증·운영 결과](./oci-storage-retention.md)를 따른다.
 
 ## 후속 운영 보완 (2026-10-29)
 

@@ -1,6 +1,12 @@
 # OCI Always Free capacity response
 
-Updated: 2026-09-15
+Updated: 2026-11-03
+
+2026-11-03 billing investigation: October storage cost was SGD 0.036756857842,
+from OCIR plus the platform DB backup bucket. Compute remained free. The paid
+account's Standard storage allowance is shared with image storage; do not use
+the Always Free-only 20 GB figure for this account. See the
+[current retention policy and production evidence](./oci-storage-retention.md).
 
 Verified in OCI Console: Pay As You Go, current-month displayed cost SGD 0.00.
 Instance metadata confirms 4 OCPU / 24 GB. Oracle's [paid-account price list](https://www.oracle.com/cloud/price-list/)

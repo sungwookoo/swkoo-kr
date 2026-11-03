@@ -194,7 +194,9 @@ kubectl -n monitoring exec alertmanager-kube-prometheus-stack-alertmanager-0 -c 
    Allow dynamic-group <dynamic-group-name> to manage objects in compartment <compartment-name> where target.bucket.name='<bucket-name>'
    Allow dynamic-group <dynamic-group-name> to read buckets in compartment <compartment-name>
    ```
-4. 권장: bucket Lifecycle Policy — 90일 지난 객체 자동 삭제
+4. 운영 보관기간: 최근 14일 및 최소 최신 2개. 매일 05:10 KST 호스트 정리 작업이 적용한다.
+   이미지·백업 합계 8GB 안전 예산과 복구 버전 보존 규칙은
+   [OCI 저장공간 관리](../docs/oci-storage-retention.md)를 따른다.
 
 backend Secret 에 `OCI_REGION` / `OCI_OBJECT_STORAGE_NAMESPACE` / `OCI_BACKUP_BUCKET` 추가 + rollout.
 

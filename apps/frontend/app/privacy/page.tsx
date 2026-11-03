@@ -14,7 +14,7 @@ export default function PrivacyPage(): import("react").ReactNode {
           <h1 className="display-tight text-balance text-3xl font-semibold text-zinc-50 sm:text-4xl">
             개인정보 처리방침
           </h1>
-          <p className="text-xs text-zinc-500">시행일자: 2026-05-20 (rev 2)</p>
+          <p className="text-xs text-zinc-500">시행일자: 2026-11-03 (백업 보관 정책 갱신)</p>
         </header>
 
         <section className="space-y-3 text-sm leading-relaxed text-zinc-400">
@@ -84,9 +84,11 @@ export default function PrivacyPage(): import("react").ReactNode {
             <li>
               <strong className="text-zinc-300">일일 백업 스냅샷</strong>:
               운영 데이터(SQLite)는 매일 1회 OCI Object Storage(일본 도쿄)에
-              스냅샷으로 저장되어 최대 90일 보존 후 자동 삭제됩니다. 계정 삭제 후
+              스냅샷으로 저장됩니다. 최근 14일분과 최소 최신 2개를 보존하고,
+              매일 오래된 백업을 정리합니다. 백업 생성·정리 실패 시 기존 복구본을
+              보존하고 운영자가 경고를 확인하므로 보관기간이 늘어날 수 있습니다. 계정 삭제 후
               새로 생성되는 백업은 익명화된 형태만 포함하지만, 삭제 *이전* 에 만들어진
-              백업에는 retention 만료(최대 90일)까지 식별 정보가 잔존할 수 있습니다.
+              백업에는 해당 백업이 정리될 때까지 식별 정보가 잔존할 수 있습니다.
               백업은 운영자만 접근하며 사고 복구 목적 외에 사용되지 않습니다
             </li>
             <li>

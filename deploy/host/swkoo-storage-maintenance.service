@@ -1,0 +1,13 @@
+[Unit]
+Description=Preserve platform recovery images and expire old platform backups
+After=network-online.target k3s.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+ExecStart=/home/ubuntu/lib/oracle-cli/bin/python3 /usr/local/lib/swkoo-storage-maintenance/oci-storage-maintenance.py --apply
+TimeoutStartSec=20min
+UMask=0077
+StandardOutput=journal
+StandardError=journal
