@@ -60,6 +60,9 @@ jobs:
       - name: Run backend tests
         working-directory: apps/backend
         run: npm test
+      - name: Audit backend runtime dependencies
+        working-directory: apps/backend
+        run: npm audit --omit=dev --audit-level=low
 
   frontend-test:
     # Mirrors backend-test. Vitest + jsdom runs in ~3s headless — no
@@ -86,6 +89,9 @@ jobs:
       - name: Run frontend tests
         working-directory: apps/frontend
         run: npm test
+      - name: Audit frontend runtime dependencies
+        working-directory: apps/frontend
+        run: npm audit --omit=dev --audit-level=low
       - name: Build frontend (next build)
         working-directory: apps/frontend
         run: npm run build
