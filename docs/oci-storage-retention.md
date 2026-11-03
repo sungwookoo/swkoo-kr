@@ -42,6 +42,7 @@ Standard 저장량 10 GB·월을 초과했다. 카드 청구서 원본 대조는
 # 검증된 정책 적용 및 로그
 sudo systemctl start swkoo-storage-maintenance.service
 sudo journalctl -u swkoo-storage-maintenance.service --no-pager
+sudo systemctl start swkoo-storage-maintenance.timer
 systemctl list-timers swkoo-storage-maintenance.timer
 ```
 

@@ -9,5 +9,5 @@ install -m 0644 "$source_dir/scripts/ops/oci-storage-maintenance.py" "$source_di
 install -m 0644 "$source_dir/deploy/host/swkoo-storage-maintenance.service" "$source_dir/deploy/host/swkoo-storage-maintenance.timer" /etc/systemd/system/
 install -m 0755 "$source_dir/deploy/host/resource-report.sh" /usr/local/bin/resource-report.sh
 systemctl daemon-reload
-# Start only the timer: first actual cleanup follows a reviewed dry run.
-systemctl enable --now swkoo-storage-maintenance.timer
+# Enable only: start the timer after the reviewed first cleanup succeeds.
+systemctl enable swkoo-storage-maintenance.timer

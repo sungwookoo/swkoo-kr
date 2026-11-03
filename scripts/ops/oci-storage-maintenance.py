@@ -16,6 +16,7 @@ import subprocess
 REPOS = ('swkoo/backend', 'swkoo/frontend')
 BUCKET = 'swkoo-kr-backups'
 HOST = 'nrt.ocir.io'
+NAMESPACE = 'nrznn4yiltsz'
 BACKUP = re.compile(r'^daily/\d{4}-\d{2}-\d{2}/observatory\.sqlite$')
 SHA = re.compile(r'^[a-f0-9]{40}$')
 BUDGET_BYTES = 8_000_000_000  # Leave 2 GB below the paid-account 10 GB allowance.
@@ -166,6 +167,8 @@ def run(apply):
     artifacts = oci.artifacts.ArtifactsClient(config)
     storage = oci.object_storage.ObjectStorageClient(config)
     namespace = storage.get_namespace().data
+    if namespace != NAMESPACE:
+        raise RuntimeError('Unexpected OCI tenancy namespace')
     inventory = kubectl('get', 'deployments,replicasets,pods', '--all-namespaces')
     refs = references(inventory, namespace)
     credentials = kubectl('get', 'secret', 'ocir-credentials', '-n', 'swkoo')
