@@ -4,6 +4,7 @@ import { UsersRepository, UserRow } from '../onboarding/users.repository';
 import { DeployService } from './deploy.service';
 import { EnvService } from './env.service';
 import { PlatformMetricsService } from './platform-metrics.service';
+import { storageUsage, StorageUsage } from './storage-usage';
 
 export function redactAppLogs(raw: string, values: string[]): string {
   let result = raw;
@@ -32,11 +33,21 @@ export class DeploymentDiagnosticsService {
     const pod = response.items.filter(p => p.metadata?.namespace === namespace && p.metadata.labels?.app === appName && !p.metadata.deletionTimestamp)
       .sort((a,b) => Date.parse(String(b.metadata?.creationTimestamp)) - Date.parse(String(a.metadata?.creationTimestamp)))[0];
     const result = { checkedAt: new Date().toISOString(), state: pod?.status?.phase ?? 'Pending', restarts: 0,
+      storage: { status: 'unknown' } as StorageUsage,
       usage: null as null | { cpuMillicores: number | null; memoryMiB: number | null; cpuLimit: string | null; memoryLimit: string | null },
       logs: null as string | null, logSource: null as 'app' | 'initialization' | null, logError: null as string | null };
     if (!pod?.metadata?.name) { if (includeLogs) result.logError = '앱 실행 기록을 준비 중입니다.'; return result; }
     const container = pod.spec?.containers.find(c => c.name === appName);
     if (!container) throw new ServiceUnavailableException('앱 실행 대상을 확인하지 못했습니다.');
+    const mount = container.volumeMounts?.find(m => m.mountPath === '/data');
+    const claim = pod.spec?.volumes?.find(v => v.name === mount?.name)?.persistentVolumeClaim?.claimName;
+    if (!claim) result.storage = { status: 'not_configured' };
+    else if (pod.metadata.uid) {
+      try {
+        const counters = await this.kube.core!.readNamespacedConfigMap({ namespace: 'swkoo', name: 'swkoo-storage-usage' });
+        result.storage = storageUsage(counters.data?.['usage.json'] ?? '', namespace, claim, pod.metadata.uid);
+      } catch { /* A failed measurement must not look like empty storage. */ }
+    }
     const status = pod.status?.containerStatuses?.find(c => c.name === appName);
     const initialization = pod.status?.initContainerStatuses?.find(c => (c.state?.terminated?.exitCode ?? 0) !== 0 || c.state?.waiting?.reason === 'CrashLoopBackOff');
     const failed = !!initialization || (status?.state?.terminated?.exitCode ?? 0) !== 0 ||

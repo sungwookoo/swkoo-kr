@@ -1,0 +1,9 @@
+[Unit]
+Description=Read app project quota usage counters
+After=k3s.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /usr/local/lib/swkoo-storage/storage-usage.py
+TimeoutStartSec=55
+UMask=0077

@@ -1,0 +1,22 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: swkoo-storage-usage-reader
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames: ["swkoo-storage-usage"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: swkoo-storage-usage-reader
+subjects:
+  - kind: ServiceAccount
+    name: swkoo-backend
+    namespace: swkoo
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: swkoo-storage-usage-reader

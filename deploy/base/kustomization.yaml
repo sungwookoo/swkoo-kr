@@ -5,6 +5,7 @@ resources:
   - common/namespace.yaml
   - common/resource-quota.yaml
   - backend/serviceaccount.yaml
+  - backend/storage-usage-access.yaml
   - backend/deployment.yaml
   - backend/service.yaml
   - backend/ingress.yaml
