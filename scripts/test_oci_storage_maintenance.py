@@ -90,6 +90,15 @@ class RetentionSafety(unittest.TestCase):
         self.assertEqual(len(m.list_objects(client, 'namespace')), 2)
         self.assertEqual(client.list_objects.call_args.kwargs['start'], 'next')
 
+    def test_protected_layers_and_configuration_must_be_downloadable(self):
+        manifests = {'root': {'layers': [{'digest': 'layer', 'size': 12}],
+                              'config': {'digest': 'config', 'size': 2}}}
+        head = Mock(side_effect=[(200, {'Content-Length': '12'}, b''), (200, {'Content-Length': '2'}, b'')])
+        self.assertEqual(m.verify_blobs(manifests, head), 2)
+        for result in [(404, {}, b''), (200, {'content-length': '11'}, b'')]:
+            with self.assertRaises(RuntimeError):
+                m.verify_blobs(manifests, lambda _: result)
+
     def test_backup_cutoff_and_only_exact_platform_database_keys(self):
         rows = [backup(i) for i in range(17)]
         foreign = [backup(90, 'user/alice/database.sqlite'), backup(90, 'daily/old/other.db')]

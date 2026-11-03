@@ -133,6 +133,19 @@ def delete_image(client, image, images):
     client.delete_container_image(image.id, if_match=current.headers['etag'])
 
 
+def verify_blobs(manifests, head):
+    blobs = {}
+    for manifest in manifests.values():
+        for blob in manifest.get('layers', []) + ([manifest['config']] if 'config' in manifest else []):
+            blobs[blob['digest']] = blob['size']
+    for digest, size in blobs.items():
+        status, headers, _ = head(digest)
+        length = {k.lower(): v for k, v in headers.items()}.get('content-length')
+        if status != 200 or length is not None and int(length) != size:
+            raise RuntimeError(f'Protected image blob unavailable: {digest}')
+    return len(blobs)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--apply', action='store_true')
@@ -205,9 +218,13 @@ def run(apply):
         tags = set(registry.list_tags(HOST, f'{namespace}/{repo}', bearer))
         if tags != {i.version for i in images if i.version and i.lifecycle_state == 'AVAILABLE'}:
             raise RuntimeError('OCI/registry tag inventory differs; retry when stable')
+        blob_count = verify_blobs(manifests, lambda digest: registry._request(
+            'HEAD', f'https://{HOST}/v2/{namespace}/{repo}/blobs/{digest}',
+            headers={'Authorization': f'Bearer {bearer}'}))
         plans[repo] = (summary, images, keep, delete, manifests, bearer)
         print(json.dumps({'repo': repo, 'images': len(images), 'protected': len(keep),
-                          'delete': len(delete), 'required': sorted(refs[repo])}), flush=True)
+                          'delete': len(delete), 'protectedBlobsVerified': blob_count,
+                          'required': sorted(refs[repo])}), flush=True)
     objects = list_objects(storage, namespace)
     owned, remove = backup_plan(objects, now)
     print(json.dumps({'backupObjects': len(owned), 'backupBytes': sum(o.size for o in objects),
