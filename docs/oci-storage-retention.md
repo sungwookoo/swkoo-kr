@@ -67,5 +67,29 @@ OCI 이미지 삭제의 물리 용량 반영은 최대 48시간 걸릴 수 있�
 ETag 경합·목록 페이지 처리에 대한 자동 검사를 CI에서 실행한다.
 실제 운영 적용 결과와 복원 시험은 작업 완료 시 이 절에 기록한다.
 
+2026-11-03 운영 결과:
+
+| 항목 | 결과 |
+|---|---|
+| backend manifest | 267개 삭제, 53개 보존 |
+| frontend manifest | 257개 삭제, 36개 보존 |
+| 플랫폼 DB 백업 | 167 → 14개, 5,416,882,176 → 826,920,960 bytes |
+| 삭제 후 재실행 | 이미지·백업 추가 삭제 후보 0, 보존 데이터 유지 |
+| 보존 이미지 확인 | manifest 89개 및 layer·config 파일 178개 접근 정상 |
+| 최신 백업 별도 복원 | `daily/2026-11-02/observatory.sqlite`, 66,867,200 bytes, integrity ok, foreign-key 위반 0 |
+| 기존 서비스 | Pod 33개 UID 유지, PV 6개 UID 유지, Argo 10개 Synced/Healthy |
+| 보존 데이터 안전 추정 | backend 564,208,525 + frontend 871,419,312 + backup 826,920,960 = 2,262,548,797 bytes |
+| OCI 보고 용량 | 9,809,554,687 bytes, 아직 이미지 삭제 반영 대기, 예산 WARN 유지 |
+| 다음 정기 실행 | 2026-11-04 05:11:55 KST, 이후 매일 05:10~05:15 KST |
+
+안전 추정은 저장소별 중복 없는 보존 layer·config bytes에 보존 manifest당 1MiB를
+추가한 값이다. OCI의 실제 청구 수치를 대체하지 않는다. 이후 화면 안내 배포로 생성되는
+새 이미지도 48시간 유예·운영 참조 규칙에 따라 보존한다.
+
+보관 경계 자동 검사 13개, Linux quota 회귀 8개, 운영 검증 안전성 12개,
+공개 배포 검사 실패 사례 7개를 통과했다. 공개 HTTPS·버전 응답·비로그인 접근 거부도
+정상이다. 프런트엔드 정책 안내는 같은 PR의 필수 검사와 이미지 배포 절차를 따른다.
+적용 코드와 CI 결과는 [PR #105](https://github.com/sungwookoo/swkoo-kr/pull/105)에서 확인한다.
+
 참고: [요금표](https://www.oracle.com/cloud/price-list/),
 [이미지 삭제의 반영 시간](https://docs.oracle.com/en-us/iaas/Content/Registry/Tasks/registrydeletingimages.htm).
