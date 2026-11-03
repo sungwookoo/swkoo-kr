@@ -31,7 +31,7 @@
 <main id="top">
 <section class="wrap"><div class="hero">
 <div class="identity"><h1>구성우</h1><p class="occupation">풀스택·웹 서비스 개발자</p></div>
-<p class="career-line">진학어플라이 · 2023.08–현재 &nbsp; / &nbsp; 경력 3년 1개월 <span>(2026.10 기준)</span></p>
+<p class="career-line">진학어플라이 · 2023.08–현재 &nbsp; / &nbsp; 경력 3년 2개월 <span>(2026.10 기준)</span></p>
 <p class="lead">입학전형·성적산출 웹 서비스를 개발합니다. 성적산출 시스템의 요구사항 정의부터 검증 화면·계산 및 저장 로직 구현까지 맡았습니다. 개발한 시스템은 <strong>3개 대학에서 주 성적산출 시스템으로 운영 중이며, 추가 대학에서도 기존 시스템과 병행 활용하고 있습니다.</strong></p>
 <ul class="summary" aria-label="대표 작업 요약">
 <li><a href="#score-system"><strong>3개 대학 주 시스템 운영</strong><span>성적산출 시스템 신규 개발</span><i class="summary-arrow" aria-hidden="true">→</i></a></li>
@@ -95,7 +95,7 @@
 <div class="case-head"><div class="case-meta"><b>05 · 데이터 연계</b><span>입학전형 관리 ↔ 성적산출<br> 송신·수신 경로 구현</span></div><div><h3>자료 연계가 중단돼도 기존 데이터 보존</h3><p class="result">일반 조회의 10만 행 제한을 해결할 전용 경로를 만들고, <strong>수신 완료를 확인한 자료만 사용 데이터로 교체하도록 했습니다.</strong></p></div></div>
 <div class="case-body"><p>성적산출 시스템에 학생부 자료를 넘겨야 했지만, 일반 조회에는 행 수 제한이 있었고 대형 JSON 응답에도 제약이 있었습니다. PostgreSQL COPY로 추출한 CSV를 gzip으로 압축해 전송하도록 바꿨습니다.</p>
 <div class="flow" aria-label="학생부 송수신 순서"><div><strong>1. COPY</strong><small>PostgreSQL 추출</small></div><div><strong>2. CSV · gzip</strong><small>HTTP 전송</small></div><div><strong>3. 임시 적재</strong><small>SQLite 수신</small></div><div><strong>4. 검증 후 교체</strong><small>완료 상태·행 수 비교</small></div></div>
-<h4>덜 받은 자료가 반영되지 않도록</h4><p>학생정보·교과·출결을 각각 임시 테이블에 받았습니다. 송신 측 완료 상태와 기록된 행 수가 로컬 적재 건수와 일치할 때만 교체했습니다. 중단, 행 수 불일치, 압축 데이터 절단 시에는 기존 자료를 유지했습니다.</p><p class="note">학생부 전용 송수신 경로: 구현 및 로컬 검증 완료.</p><h4>산출 성적을 돌려보내는 경로도 개선</h4><p>성적 반출은 <strong>같은 조회 시점의 완료 결과를 고정</strong>하고 반복 집계를 재사용합니다. 수신 측 저장은 배치로 처리하면서 기존 점수·미산출 null·다른 서비스 자료를 보존하고, 중간 실패 시 전체를 되돌리도록 했습니다.</p><p class="note">개발·로컬 환경에서 실제 PostgreSQL의 필드 대조, 연동 자료 저장·재조회와 강제 실패 롤백을 검증했습니다. 대학 운영 성능 수치를 의미하지 않습니다.</p><p class="tech">PostgreSQL COPY · HTTP streaming · gzip · SQLite</p></div></article>
+<h4>덜 받은 자료가 반영되지 않도록</h4><p>학생정보·교과·출결을 각각 임시 테이블에 받았습니다. 송신 측 완료 상태와 기록된 행 수가 로컬 적재 건수와 일치할 때만 교체했습니다. 중단, 행 수 불일치, 압축 데이터 절단 시에는 기존 자료를 유지했습니다.</p><p class="note">학생부 전용 송수신 경로: 구현 및 로컬 검증 완료.</p><h4>산출 성적을 돌려보내는 경로도 개선</h4><p>성적 반출은 <strong>같은 조회 시점의 완료 결과를 고정</strong>하고 반복 집계를 재사용합니다. 수신 측 저장은 배치로 처리하면서 기존 점수·미산출 null·다른 서비스 자료를 보존하고, 중간 실패 시 전체를 되돌리도록 했습니다.</p><h4>운영에서 수신 원본과 최종 저장값까지 대조</h4><p>2027학년도 수시 운영에서 <strong>20,184건의 성적 자료를 입학전형시스템에 수신·저장</strong>했습니다. 저장 수치 572,884개를 수신 원본과 대조해 불일치 0건을 확인했고, 미산출 83건은 null로 유지했습니다. 기존 실기·면접 점수와 원장 등 다른 평가 자료도 보존됐는지 확인했습니다.</p><p class="note">2026.10.30 운영 연계 검증 기준입니다. 수신·저장 간 값 보존을 확인한 결과이며, 계산식의 독립 검산이나 최종 선발 완료를 의미하지 않습니다. 강제 실패 시 전체 롤백은 개발·로컬 환경에서 검증했습니다.</p><p class="tech">PostgreSQL COPY · HTTP streaming · gzip · SQLite</p></div></article>
 </section>
 <section class="career-section" id="experience" aria-labelledby="career-title"><h2 id="career-title">회사 경력</h2>
 <div class="career"><div class="career-date">진학어플라이<br>2023.08 입사 · 재직 중</div><div><h3>2026.03–현재 · 컴패스팀</h3><p>2025년 12월 착수한 성적산출 시스템의 개발과 유지보수·개선을 이어가고 있습니다. 입학전형시스템의 보고·업로드·연계와 수능최저 관리·후보 인원 설정을 개발했습니다. 기존 시스템의 대학별 산식·출력물 개선에도 참여했습니다.</p><p class="tech">TypeScript · NestJS · PostgreSQL · SQLite · MSSQL / Oracle · C# / Crystal Reports</p></div></div>
@@ -108,7 +108,7 @@
 <div class="career"><div class="career-date">2022.07–2023.06</div><div><h3>삼성 청년 SW 아카데미 8기</h3><p>Java 전공 트랙</p><p style="margin-top:12px">교육 프로젝트인 <strong>AI 사진 생성·편집 앱</strong>에서 인프라를 맡았습니다(2023.04–05). EC2 두 대로 Kubernetes 클러스터를 구성하고, Jenkins 배포 파이프라인과 EFK 로그 수집 환경을 구축했습니다.</p></div></div>
 </section>
 </div></main>
-<footer class="wrap"><span>구성우 · 2026년 10월</span><a href="mailto:sungwookoo.dev@gmail.com">sungwookoo.dev@gmail.com</a></footer>
+<footer class="wrap"><span>구성우 · 2026년 11월</span><a href="mailto:sungwookoo.dev@gmail.com">sungwookoo.dev@gmail.com</a></footer>
 <script>
 document.getElementById("print-portfolio").addEventListener("click", () => window.print());
 const navLinks=[...document.querySelectorAll('.section-nav a')];
