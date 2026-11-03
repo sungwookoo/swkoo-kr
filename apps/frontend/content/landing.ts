@@ -47,7 +47,7 @@ export const builders = {
     'cert-manager DNS-01 wildcard + per-app TLS',
     'per-tenant ResourceQuota · LimitRange · NetworkPolicy',
     'Prometheus + Alertmanager → 운영자 Discord (arm64 변환 sidecar 자체 구현)',
-    '플랫폼 운영 DB 일일 백업 → OCI Object Storage (90일 보관). 사용자 앱 DB 자동 백업은 미제공',
+    '플랫폼 운영 DB 일일 백업 → OCI Object Storage (최근 14일·최소 최신 2개 보관, 실패 시 운영자 확인). 사용자 앱 DB 자동 백업은 미제공',
     '사용자 deploy 완료 자동 이메일 (Resend, GitHub OAuth email)',
   ],
 } as const;
