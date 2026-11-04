@@ -30,7 +30,7 @@ spec:
             allowPrivilegeEscalation: false
             capabilities:
               drop: [ALL]
-          image: nrt.ocir.io/nrznn4yiltsz/swkoo/frontend:a1cb4ff405dc4454ec30f03a4b640bc352990f41
+          image: nrt.ocir.io/nrznn4yiltsz/swkoo/frontend:6839b68be6d6401a65463775d00c6a623b705500
           imagePullPolicy: Always
           ports:
             - containerPort: 3000
