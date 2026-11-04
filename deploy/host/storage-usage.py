@@ -2,7 +2,6 @@
 """Publish quota counters only. No app file contents, execution, or quota writes."""
 from datetime import datetime, timezone
 import json
-from pathlib import Path
 import subprocess
 import sys
 

@@ -1,6 +1,14 @@
 # 현재 구현 및 검증 기준선
 
-기준일: 2026-11-03. 아래 날짜가 붙은 내용은 당시 이력이다. 현재 기준은 이 요약과 [OCI 저장공간 보관 정책](./oci-storage-retention.md), [영구 저장공간 제한 적용 결과](./persistent-storage-quota-release-2026-10-29.md), [저장공간·복구·배포 후 확인](./storage-recovery-release-2026-10-29.md), [운영 제어·진단 보고서](./operating-controls-2026-10-28.md)를 우선한다. Observatory의 정체성은 [VISION](../VISION.md), Deploy의 정체성은 [deploy-vision](./deploy-vision.md)을 따른다.
+기준일: 2026-11-04. 아래 날짜가 붙은 내용은 당시 이력이다. 현재 기준은 이 요약과 [저장공간 표시·OCI 후속 결과](./storage-usage-release-2026-11-04.md), [OCI 저장공간 보관 정책](./oci-storage-retention.md), [영구 저장공간 제한 적용 결과](./persistent-storage-quota-release-2026-10-29.md), [저장공간·복구·배포 후 확인](./storage-recovery-release-2026-10-29.md), [운영 제어·진단 보고서](./operating-controls-2026-10-28.md)를 우선한다. Observatory의 정체성은 [VISION](../VISION.md), Deploy의 정체성은 [deploy-vision](./deploy-vision.md)을 따른다.
+
+## 저장공간 표시 운영 활성화 (2026-11-04)
+
+- PR #107·#109와 workflow 41761396480으로 backend·frontend `6839b68be6d6401a65463775d00c6a623b705500`을 운영 배포했다. 실제 할당 bytes·inode 및 남은 양·80%/한도 도달 경고를 본인 관리 화면에 추가했다. 오래되거나 불명확한 값은 0으로 표시하지 않는다.
+- 실제 인증 HTTP에서 본인 진단 200·다른 계정 경로 403·비로그인 401·no-store와 실측값을 확인했다. 서버의 임시 검증 세션으로 시험했으며 GitHub OAuth 로그인 재검증은 아니다. 사용자 저장소는 변경하지 않았다.
+- 사용자 승인 후 교체했다. API 503 관측 구간은 약 52초로 기존 약 5초 예상보다 길었다. 메인은 timeout 1회 후 정상, SprintFlow 424회 오류 0, 사용자 Pod 3개·PV 6개 UID 유지, Argo 10개 Healthy를 확인했다.
+- 첫 자연 예약 정리는 11월 4일 05:10:56~05:11:15 KST에 이미지 항목 6개·백업 1개를 추가 정리했다. 백업 14개 유지와 보존 이미지 확인은 성공했다. 새 배포 후 OCI 보고량 약 9.97GB로 물리 회수 반영은 아직 대기이며 8GB 경고를 유지한다. 조회 시점 11월 누적 비용은 SGD 0이다.
+- [검증·중단 관측·용량 대기 한계](./storage-usage-release-2026-11-04.md)를 따른다. 인스턴스 재부팅 시험과 추가 일반 계정 검증은 보류다.
 
 ## 플랫폼 저장 요금 및 보관 정책 (2026-11-03)
 

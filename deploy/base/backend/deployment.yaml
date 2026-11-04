@@ -7,9 +7,9 @@ metadata:
     app: swkoo-backend
 spec:
   replicas: 1
-  # Recreate (not RollingUpdate) because the SQLite PVC is ReadWriteOnce and
-  # a single-node cluster can't attach the volume to a new Pod while the old
-  # one still holds it. Trade-off: ~5s downtime on each backend rollout.
+  # Preserve one backend process: mutation guards are process-local.
+  # Recreate interrupts the API during shutdown and readiness checks.
+  # Observed 2026-11-04: ~52s; see docs/storage-usage-release-2026-11-04.md.
   strategy:
     type: Recreate
   selector:
