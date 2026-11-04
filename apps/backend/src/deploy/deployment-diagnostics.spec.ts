@@ -54,6 +54,23 @@ describe('app diagnostics isolation and bounded logs', () => {
     const result=await s.service.get(s.user,'alice','app',true);
     expect(result.logs).toBeNull(); expect(s.kube.core.readNamespacedPodLog).not.toHaveBeenCalled();
   });
+  it('only reads aggregated counters for a mounted PVC and binds them to the current Pod', async () => {
+    const s=setup();
+    Object.assign(s.pod.metadata,{uid:'pod-uid'});
+    Object.assign(s.pod.spec,{volumes:[{name:'data',persistentVolumeClaim:{claimName:'app-data'}}]});
+    Object.assign(s.pod.spec.containers[0],{volumeMounts:[{name:'data',mountPath:'/data'}]});
+    const readNamespacedConfigMap=jest.fn(async()=>({data:{'usage.json':JSON.stringify({checkedAt:new Date().toISOString(),
+      volumes:[{namespace:'user-alice',claimName:'app-data',claimUid:'claim-uid',podUids:['pod-uid'],usedBytes:4096,limitBytes:1024**3,usedInodes:2,limitInodes:65536}]})}}));
+    Object.assign(s.kube.core,{readNamespacedConfigMap});
+    const result=await s.service.get(s.user,'alice','app',false);
+    expect(result.storage).toMatchObject({status:'ready',usedBytes:4096,usedInodes:2});
+    expect(readNamespacedConfigMap).toHaveBeenCalledWith({namespace:'swkoo',name:'swkoo-storage-usage'});
+    readNamespacedConfigMap.mockRejectedValue(Error('unavailable'));
+    expect((await s.service.get(s.user,'alice','app',false)).storage).toEqual({status:'unknown'});
+  });
+  it('distinguishes an app without persistent storage from an unknown measurement', async () => {
+    const s=setup(); expect((await s.service.get(s.user,'alice','app',false)).storage).toEqual({status:'not_configured'});
+  });
 });
 
 it('masks known values, structured credentials, cookies, private keys and JWTs', () => {

@@ -9,17 +9,28 @@ test('diagnostics fetches logs only on request, renders text safely and hides st
   await page.route('**/api/deploy/domain/**',route=>json(route,200,{domain:null}));
   await page.route('**/api/account/scan',route=>json(route,200,null));
   let logRequests=0, expired=false;
+  let storage: Record<string, unknown> = {status:'ready',checkedAt:new Date().toISOString(),usedBytes:900*1024**2,limitBytes:1024**3,
+    remainingBytes:124*1024**2,usedInodes:10,limitInodes:65536,remainingInodes:65526,warning:'near_limit'};
   await page.route('**/api/deploy/diagnostics/**',route=>{
     const logs=new URL(route.request().url()).searchParams.get('logs')==='1';
     if(logs)logRequests++;
     return json(route,expired?401:200,{checkedAt:new Date().toISOString(),state:'Running',restarts:0,
       usage:{cpuMillicores:20,memoryMiB:null,cpuLimit:'500m',memoryLimit:'512Mi'},
+      storage,
       logs:logs?'TOKEN=[숨김]\n<script>window.logExecuted=true</script>':null,logSource:logs?'app':null,logError:null});
   });
   await page.goto('/deploy/alice/app');
   const panel=page.getByRole('region',{name:'앱 실행 정보'});
   await expect(panel.getByText('0.02코어 / 최대 0.5코어')).toBeVisible();
   await expect(panel.getByText('측정 대기 / 최대 512MiB')).toBeVisible(); expect(logRequests).toBe(0);
+  await expect(panel.getByText('영구 저장공간 900.0MiB / 1024.0MiB · 남은 공간 124.0MiB')).toBeVisible();
+  await expect(panel.getByText(/파일·폴더 수 10 \/ 65,536/)).toBeVisible();
+  await expect(panel.getByText(/한도의 80% 이상/)).toBeVisible();
+  storage={status:'unknown'}; await page.clock.runFor(31_000);
+  await expect(panel.getByText(/영구 저장공간 사용량: 측정 대기/)).toBeVisible();
+  await expect(panel.getByText(/900.0MiB/)).toHaveCount(0);
+  storage={status:'not_configured'}; await page.clock.runFor(31_000);
+  await expect(panel.getByText('플랫폼 영구 저장공간이 연결되어 있지 않습니다.')).toBeVisible();
   await panel.getByRole('button',{name:'최근 실행 로그 보기'}).click();
   await expect(panel.locator('pre')).toContainText('<script>window.logExecuted=true</script>');
   expect(await page.evaluate(()=> (window as any).logExecuted)).toBeUndefined(); expect(logRequests).toBe(1);

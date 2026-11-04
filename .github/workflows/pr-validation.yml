@@ -47,6 +47,10 @@ jobs:
         if: matrix.service == 'backend'
         working-directory: ${{ github.workspace }}
         run: python3 scripts/test_oci_storage_maintenance.py
+      - name: Test storage usage collection isolation
+        if: matrix.service == 'backend'
+        working-directory: ${{ github.workspace }}
+        run: python3 scripts/test_storage_usage.py
       - name: Test public validation backpressure stop
         if: matrix.service == 'backend'
         working-directory: ${{ github.workspace }}
