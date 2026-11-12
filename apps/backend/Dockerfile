@@ -26,9 +26,8 @@ COPY --from=storage-provisioner-build /src/LICENSE /licenses/local-path-provisio
 USER 65532:65532
 ENTRYPOINT ["/usr/local/bin/local-path-provisioner"]
 
-# Keep native addon build headers and runtime aligned. Node 24.19+ has an
-# ObjectWrap cleanup regression: https://github.com/nodejs/node/issues/65446
-FROM node:24.18.1-alpine AS base
+# Keep native addon build headers and runtime aligned with the tested patch release.
+FROM node:24.22.3-alpine AS base
 WORKDIR /app
 # Build tools for native modules whose prebuilts don't cover the Node 24 +
 # musl + arm64 combo (notably better-sqlite3). Only kept in the intermediate
@@ -48,7 +47,7 @@ FROM base AS prod-deps
 COPY package*.json ./
 RUN npm ci --omit=dev
 
-FROM node:24.18.1-alpine AS runner
+FROM node:24.22.3-alpine AS runner
 # Runtime does not install packages; omit bundled package-manager dependencies.
 RUN apk upgrade --no-cache \
   && rm -rf /usr/local/lib/node_modules/npm /opt/yarn-* \
