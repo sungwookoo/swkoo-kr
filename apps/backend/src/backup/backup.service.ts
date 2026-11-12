@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { ConfigType } from '@nestjs/config';
 import { Cron } from '@nestjs/schedule';
+import { randomUUID } from 'node:crypto';
 import { createReadStream, statSync, unlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -35,7 +36,7 @@ export interface BackupUploadResult {
 @Injectable()
 export class BackupService implements OnModuleInit {
   private readonly logger = new Logger(BackupService.name);
-  private client: objectstorage.ObjectStorageClient | null = null;
+  private client: Promise<objectstorage.ObjectStorageClient> | null = null;
 
   constructor(
     @Inject(backupConfig.KEY)
@@ -43,27 +44,27 @@ export class BackupService implements OnModuleInit {
     private readonly users: UsersRepository
   ) {}
 
-  async onModuleInit(): Promise<void> {
+  onModuleInit(): void {
     if (!this.config.enabled) {
       this.logger.warn(
         'backup disabled (set OCI_REGION / OCI_OBJECT_STORAGE_NAMESPACE / OCI_BACKUP_BUCKET to enable)'
       );
-      return;
     }
-    try {
-      const provider =
-        await new common.InstancePrincipalsAuthenticationDetailsProviderBuilder().build();
-      this.client = new objectstorage.ObjectStorageClient({
+  }
+
+  private getClient(): Promise<objectstorage.ObjectStorageClient> {
+    // The host may not have authorized a replacement Pod when Nest boots.
+    // Authenticate on demand and allow the next backup to retry a failed init.
+    this.client ??= new common.InstancePrincipalsAuthenticationDetailsProviderBuilder()
+      .build()
+      .then(provider => new objectstorage.ObjectStorageClient({
         authenticationDetailsProvider: provider,
+      }))
+      .catch(error => {
+        this.client = null;
+        throw error;
       });
-      this.logger.log(
-        `backup initialized (region=${this.config.region}, bucket=${this.config.bucket})`
-      );
-    } catch (err) {
-      this.logger.error(
-        `backup init failed (instance principal auth): ${(err as Error).message}`
-      );
-    }
+    return this.client;
   }
 
   /** Daily SQLite snapshot → OCI Object Storage. Runs after CleanupService
@@ -71,7 +72,7 @@ export class BackupService implements OnModuleInit {
    * K-PIPA promise that hard-deleted users don't linger in backups. */
   @Cron('0 4 * * *', { timeZone: 'Asia/Seoul' })
   async dailyBackup(): Promise<void> {
-    if (!this.client) return;
+    if (!this.config.enabled) return;
     try {
       const result = await this.runBackup();
       this.logger.log(
@@ -92,20 +93,21 @@ export class BackupService implements OnModuleInit {
   /** One-shot backup. Idempotent within a day — re-running overwrites the
    * same key. Used by both the cron and the admin-triggered endpoint. */
   async runBackup(): Promise<BackupUploadResult> {
-    if (!this.client) {
+    if (!this.config.enabled) {
       throw new Error('BACKUP_DISABLED');
     }
+    const client = await this.getClient();
     const date = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
     const key = `daily/${date}/observatory.sqlite`;
-    const tmpPath = join(tmpdir(), `swkoo-backup-${Date.now()}.sqlite`);
+    const tmpPath = join(tmpdir(), `swkoo-backup-${randomUUID()}.sqlite`);
 
-    await this.users.dumpToFile(tmpPath);
     try {
+      await this.users.dumpToFile(tmpPath);
       const sizeBytes = statSync(tmpPath).size;
       // Stream upload — loading the whole dump as a Buffer crashes V8 on
       // small containers (256 MB default heap) even for modest DBs once
       // the OCI SDK's own resident footprint is factored in.
-      await this.client.putObject({
+      await client.putObject({
         namespaceName: this.config.namespace,
         bucketName: this.config.bucket,
         objectName: key,

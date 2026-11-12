@@ -1,6 +1,11 @@
 # 현재 구현 및 검증 기준선
 
-기준일: 2026-11-04. 아래 날짜가 붙은 내용은 당시 이력이다. 현재 기준은 이 요약과 [저장공간 표시·OCI 후속 결과](./storage-usage-release-2026-11-04.md), [OCI 저장공간 보관 정책](./oci-storage-retention.md), [영구 저장공간 제한 적용 결과](./persistent-storage-quota-release-2026-10-29.md), [저장공간·복구·배포 후 확인](./storage-recovery-release-2026-10-29.md), [운영 제어·진단 보고서](./operating-controls-2026-10-28.md)를 우선한다. Observatory의 정체성은 [VISION](../VISION.md), Deploy의 정체성은 [deploy-vision](./deploy-vision.md)을 따른다.
+기준일: 2026-11-12. 아래 날짜가 붙은 내용은 당시 이력이다. 현재 기준은 이 요약과 [플랫폼 백업·OCI 후속 점검](./platform-followup-2026-11-12.md), [저장공간 표시·OCI 후속 결과](./storage-usage-release-2026-11-04.md), [OCI 저장공간 보관 정책](./oci-storage-retention.md), [영구 저장공간 제한 적용 결과](./persistent-storage-quota-release-2026-10-29.md), [저장공간·복구·배포 후 확인](./storage-recovery-release-2026-10-29.md), [운영 제어·진단 보고서](./operating-controls-2026-10-28.md)를 우선한다. Observatory의 정체성은 [VISION](../VISION.md), Deploy의 정체성은 [deploy-vision](./deploy-vision.md)을 따른다.
+
+## 플랫폼 백업·OCI 후속 점검 (2026-11-12)
+
+- 최신 백업 누락으로 자동 정리가 중단되어 플랫폼 DB를 온라인 백업하고 다운로드 무결성을 확인했다. 기존 보관 정책 재실행 성공, OCI 합계 약 1.73GB로 8GB 예산 이내다.
+- 백업 인증 재시도, Node 갱신, 개발 도구 수정은 검증 후 운영 반영 대상이다. API 교체 시간과 서버 재부팅은 실제 점검 시간에 확인한다.
 
 ## 저장공간 표시 운영 활성화 (2026-11-04)
 
