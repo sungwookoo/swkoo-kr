@@ -26,6 +26,8 @@
 6. 기존 운영자 앱 디렉터리에 `deploy/storage/quota.py`를 적용한다. 초과 데이터·특수 파일·기존 hard link·ID 충돌 발견 시 중단한다. 재개 전에 원본 파일 해시가 일치해야 한다.
 7. stateful Pod에는 `Localhost: swkoo-user-storage-v1.json`을 적용한다. 프로젝트 ID/상속 속성 변경 ioctl을 차단한다. 일반 RuntimeDefault만으로는 파일 소유자의 한도 우회를 막을 수 없다.
 8. `deploy/host/install-storage-guard.sh`를 실행해 UUID·마운트·project quota·seccomp 해시를 K3s 시작 전에 검사하게 한다. 사용 중 및 다음 부팅 커널의 `quota_v2` 모듈을 미리 확보한다. K3s 재시작은 전환에 필요하지 않다.
+
+Ubuntu 커널 업데이트 후에는 `python3 /usr/local/lib/swkoo-storage-maintenance/storage-boot-check.py`를 실행하고 일일 운영 리포트의 `Next boot`를 확인한다. 기본 GRUB 항목의 커널과 initramfs, `quota_v2` 의존 모듈을 읽기 전용으로 검사한다. WARN이면 선택된 부팅 항목과 대응하는 `linux-modules-extra` 패키지를 확인한다. 일회성 부팅 설정이나 커스텀 GRUB 항목은 수동 검증이 필요하다.
 9. 기본 provisioner는 `deploy/local-storage`로 동일 경로·클래스를 유지하며 보안 보완한 이미지로 관리한다. K3s `local-storage.yaml.skip`으로 패키지 재적용만 막는다. `--disable=local-storage`는 기존 리소스를 제거하므로 사용하지 않는다. [K3s 공식 문서](https://docs.k3s.io/installation/packaged-components#using-skip-files)
 10. 원래 복제 수·동기화·작업 상태·스케줄링을 복구하고 신규 quota provisioner를 가동한다. 앱별 HTTPS·DB 무결성·새 PVC 생성 및 회수·운영 버전을 확인하고 실제 중단 시간을 기록한다.
 
