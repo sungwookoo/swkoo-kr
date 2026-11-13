@@ -165,6 +165,8 @@ except (OSError, ValueError, KeyError, TypeError):
 PY
 )
 [[ "$STORAGE_REPORT" == OK:* ]] || bump WARN
+BOOT_REPORT=$(python3 /usr/local/lib/swkoo-storage-maintenance/storage-boot-check.py 2>/dev/null) || BOOT_REPORT='WARN: boot kernel check unavailable'
+[[ "$BOOT_REPORT" == OK:* ]] || bump WARN
 
 # ---- Render ----
 case "$worst" in
@@ -202,5 +204,6 @@ fmt_lv() { printf '%-4s' "$1"; }
   printf 'Free Tier target: %d OCPU / 12GB RAM / 200GB BV / 10GB Standard Object+OCIR\n' "$TARGET_OCPU"
   printf 'Note: current host may still report legacy 4 OCPU / 24GB allocatable.\n'
   printf 'Cloud storage: %s\n' "$STORAGE_REPORT"
+  printf 'Next boot: %s\n' "$BOOT_REPORT"
   printf '```\n'
 }
