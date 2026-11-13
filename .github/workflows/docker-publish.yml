@@ -7,6 +7,12 @@ on:
     paths-ignore:
       - 'deploy/base/**'
   workflow_dispatch:
+    inputs:
+      component:
+        description: Platform images to publish
+        type: choice
+        default: apps
+        options: [apps, backend, frontend, storage]
 
 # Cancel in-progress runs of the same workflow on the same ref. A
 # rapid follow-up push (typo fix, dependent commit) supersedes the
@@ -42,8 +48,8 @@ jobs:
   backend-test:
     needs: changes
     if: |
-      needs.changes.outputs.backend == 'true' ||
-      github.event_name == 'workflow_dispatch'
+      (github.event_name == 'push' && needs.changes.outputs.backend == 'true') ||
+      (github.event_name == 'workflow_dispatch' && (inputs.component == 'apps' || inputs.component == 'backend'))
     runs-on: ubuntu-22.04-arm
     permissions:
       contents: read
@@ -71,8 +77,8 @@ jobs:
     # compile the same code.
     needs: changes
     if: |
-      needs.changes.outputs.frontend == 'true' ||
-      github.event_name == 'workflow_dispatch'
+      (github.event_name == 'push' && needs.changes.outputs.frontend == 'true') ||
+      (github.event_name == 'workflow_dispatch' && (inputs.component == 'apps' || inputs.component == 'frontend'))
     runs-on: ubuntu-22.04-arm
     permissions:
       contents: read
@@ -98,13 +104,10 @@ jobs:
 
   backend:
     needs: [changes, backend-test]
-    # Run on backend code changes, or whenever the workflow is manually dispatched
-    # (paths-filter reports "no changes" on workflow_dispatch, which would otherwise
-    # block intentional manual re-runs). Gated on backend-test to prevent
-    # publishing an image whose unit tests are red.
+    # Run for backend changes or a matching manual selection, after tests.
     if: |
-      needs.changes.outputs.backend == 'true' ||
-      github.event_name == 'workflow_dispatch'
+      (github.event_name == 'push' && needs.changes.outputs.backend == 'true') ||
+      (github.event_name == 'workflow_dispatch' && (inputs.component == 'apps' || inputs.component == 'backend'))
     # A. Native ARM runner — no QEMU emulation (cluster target is VM.Standard.A1.Flex, aarch64)
     runs-on: ubuntu-22.04-arm
     permissions:
@@ -143,6 +146,27 @@ jobs:
         if: github.ref == 'refs/heads/main'
         run: docker buildx imagetools create --tag "${REGISTRY_HOST}/${NAMESPACE}/${BACKEND_REPO}:latest" "${REGISTRY_HOST}/${NAMESPACE}/${BACKEND_REPO}:${GITHUB_SHA}"
 
+  storage:
+    if: github.event_name == 'workflow_dispatch' && inputs.component == 'storage' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-22.04-arm
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to OCI registry
+        env:
+          OCI_USERNAME: ${{ secrets.OCI_USERNAME }}
+          OCI_AUTH_TOKEN: ${{ secrets.OCI_AUTH_TOKEN }}
+        run: |
+          if [ -z "$REGISTRY_HOST" ]; then
+            echo "REGISTRY_HOST secret is required" >&2
+            exit 1
+          fi
+          echo "$OCI_AUTH_TOKEN" | docker login "${REGISTRY_HOST}" --username "$OCI_USERNAME" --password-stdin
+
       - uses: docker/build-push-action@v6
         with:
           context: apps/backend
@@ -171,8 +195,8 @@ jobs:
     # frontend-test fails or is skipped because it wasn't relevant,
     # this job won't run and no broken image gets pushed.
     if: |
-      needs.changes.outputs.frontend == 'true' ||
-      github.event_name == 'workflow_dispatch'
+      (github.event_name == 'push' && needs.changes.outputs.frontend == 'true') ||
+      (github.event_name == 'workflow_dispatch' && (inputs.component == 'apps' || inputs.component == 'frontend'))
     # C. Parallel with backend — independent jobs on native ARM runners
     runs-on: ubuntu-22.04-arm
     permissions:
@@ -210,12 +234,12 @@ jobs:
         run: docker buildx imagetools create --tag "${REGISTRY_HOST}/${NAMESPACE}/${FRONTEND_REPO}:latest" "${REGISTRY_HOST}/${NAMESPACE}/${FRONTEND_REPO}:${GITHUB_SHA}"
 
   update-manifests:
-    needs: [changes, backend, frontend]
+    needs: [changes, backend, frontend, storage]
     # Run if at least one build succeeded. Skipped/failed builds do not commit a stale tag.
     if: |
       always() &&
       github.ref == 'refs/heads/main' &&
-      (needs.backend.result == 'success' || needs.frontend.result == 'success')
+      (needs.backend.result == 'success' || needs.frontend.result == 'success' || needs.storage.result == 'success')
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -231,6 +255,11 @@ jobs:
         run: |
           SHA_TAG="${GITHUB_SHA}"
           sed -i "s|image: ${REGISTRY_HOST}/${NAMESPACE}/${BACKEND_REPO}:.*|image: ${REGISTRY_HOST}/${NAMESPACE}/${BACKEND_REPO}:${SHA_TAG}|g" deploy/base/backend/deployment.yaml
+
+      - name: Update storage image tags
+        if: needs.storage.result == 'success'
+        run: |
+          SHA_TAG="${GITHUB_SHA}"
           sed -i "s|image: .*|image: ${REGISTRY_HOST}/${NAMESPACE}/${BACKEND_REPO}:storage-helper-${SHA_TAG}|" deploy/storage/helperPod.yaml
           sed -i "s|image: .*|image: ${REGISTRY_HOST}/${NAMESPACE}/${BACKEND_REPO}:storage-provisioner-${SHA_TAG}|" deploy/storage/resources.yaml
           sed -i "s|image: .*|image: ${REGISTRY_HOST}/${NAMESPACE}/${BACKEND_REPO}:storage-helper-${SHA_TAG}|" deploy/local-storage/helperPod.yaml
@@ -263,7 +292,7 @@ jobs:
           gh workflow run pr-validation.yml --ref "$BRANCH"
           gh workflow run frontend-smoke.yml --ref "$BRANCH"
           HEAD=$(git rev-parse HEAD)
-          for attempt in $(seq 1 90); do
+          for _ in $(seq 1 90); do
             # Approve only validation runs for this bot-created commit/branch.
             for WORKFLOW in pr-validation.yml frontend-smoke.yml; do
               for RUN in $(gh run list --workflow "$WORKFLOW" --branch "$BRANCH" --event pull_request --json databaseId,headSha,status,conclusion --jq ".[] | select(.headSha == \"$HEAD\" and (.status == \"action_required\" or .conclusion == \"action_required\")) | .databaseId"); do
@@ -286,6 +315,7 @@ jobs:
           fi
 
       - name: Verify deployed revision, HTTPS and public routes
+        if: needs.backend.result == 'success' || needs.frontend.result == 'success'
         timeout-minutes: 17
         env:
           BACKEND_BUILT: ${{ needs.backend.result }}
