@@ -6,6 +6,11 @@ import { firstValueFrom, from, Observable } from 'rxjs';
 @Injectable()
 export class AccountMutationInterceptor implements NestInterceptor {
   private readonly active = new Set<string>();
+  private readonly pending = new Set<Promise<unknown>>();
+
+  async waitForCompletion(): Promise<void> {
+    await Promise.allSettled(this.pending);
+  }
 
   intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
     const req = context.switchToHttp().getRequest();
@@ -28,6 +33,10 @@ export class AccountMutationInterceptor implements NestInterceptor {
       try { return await firstValueFrom(next.handle()); }
       finally { keys.forEach(key => this.active.delete(key)); }
     };
-    return from(complete());
+    const operation = complete();
+    this.pending.add(operation);
+    const remove = () => { this.pending.delete(operation); };
+    void operation.then(remove, remove);
+    return from(operation);
   }
 }

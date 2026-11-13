@@ -53,7 +53,8 @@ import { WebhooksModule } from './webhooks/webhooks.module';
   providers: [
     OverviewService,
     { provide: APP_GUARD, useClass: ThrottlerGuard },
-    { provide: APP_INTERCEPTOR, useClass: AccountMutationInterceptor },
+    AccountMutationInterceptor,
+    { provide: APP_INTERCEPTOR, useExisting: AccountMutationInterceptor },
   ],
 })
 export class AppModule {}

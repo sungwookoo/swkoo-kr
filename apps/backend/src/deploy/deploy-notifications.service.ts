@@ -24,7 +24,7 @@ export class DeployNotificationsService {
     private readonly status: DeployStatusService
   ) {}
 
-  @Cron('*/1 * * * *')
+  @Cron('*/1 * * * *', { waitForCompletion: true })
   async notifyReadyDeployments(): Promise<void> {
     if (this.running || !this.email.enabled()) return;
     this.running = true;

@@ -35,7 +35,7 @@ export class CleanupService {
     private readonly config: ConfigType<typeof onboardingConfig>
   ) {}
 
-  @Cron(CronExpression.EVERY_DAY_AT_3AM, { timeZone: 'Asia/Seoul' })
+  @Cron(CronExpression.EVERY_DAY_AT_3AM, { timeZone: 'Asia/Seoul', waitForCompletion: true })
   async runDailyCleanup(): Promise<void> {
     this.logger.log('daily housekeeping cron tick');
     await this.cleanupSoftDeletedUsers();
