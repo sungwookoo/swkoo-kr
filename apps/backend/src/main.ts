@@ -1,10 +1,13 @@
 import { Logger, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
+import { SchedulerRegistry } from '@nestjs/schedule';
 import cookieParser from 'cookie-parser';
 import { bodyParsers } from './http-body';
 import type { Request, Response, NextFunction } from 'express';
+import type { Server } from 'node:http';
 
 import { AppModule } from './app.module';
+import { AccountMutationInterceptor } from './deploy/account-mutation.interceptor';
 
 // Single source of truth for both CORS allowlist and the CSRF Origin
 // check below. If CORS_ORIGINS env is unset we fall back to a hard
@@ -136,6 +139,22 @@ async function bootstrap(): Promise<void> {
 
   const port = Number(process.env.PORT) || 3000;
   await app.listen(port);
+  const server: Server = app.getHttpServer();
+  process.once('SIGTERM', () => {
+    // Close HTTP and stop new cron ticks before Nest destroys SQLite handles.
+    const requests = new Promise<void>((resolve, reject) => {
+      server.close(error => error ? reject(error) : resolve());
+    });
+    const scheduled = [...app.get(SchedulerRegistry).getCronJobs().values()].map(job => job.stop());
+    void Promise.all([requests, ...scheduled])
+      .then(() => app.get(AccountMutationInterceptor).waitForCompletion())
+      .then(() => app.close())
+      .then(() => process.exit(0))
+      .catch(error => {
+        logger.error('Graceful shutdown failed', error);
+        process.exit(1);
+      });
+  });
   logger.log(`API ready on port ${port}`);
 }
 

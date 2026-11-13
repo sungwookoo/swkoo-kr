@@ -70,7 +70,7 @@ export class BackupService implements OnModuleInit {
   /** Daily SQLite snapshot → OCI Object Storage. Runs after CleanupService
    * (03:00) so the snapshot reflects post-cleanup state — matches the
    * K-PIPA promise that hard-deleted users don't linger in backups. */
-  @Cron('0 4 * * *', { timeZone: 'Asia/Seoul' })
+  @Cron('0 4 * * *', { timeZone: 'Asia/Seoul', waitForCompletion: true })
   async dailyBackup(): Promise<void> {
     if (!this.config.enabled) return;
     try {

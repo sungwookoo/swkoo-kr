@@ -30,7 +30,13 @@ describe('account mutation exclusion', () => {
     const guard = new AccountMutationInterceptor(), pending = new Subject<string>();
     const subscription = guard.intercept(ctx(1), { handle: () => pending }).subscribe(); subscription.unsubscribe();
     expect(() => guard.intercept(ctx(1), { handle: () => of('wrong') })).toThrow('처리 중');
-    pending.next('ok'); await Promise.resolve(); await Promise.resolve();
+    const drained = jest.fn();
+    const wait = guard.waitForCompletion().then(drained);
+    await Promise.resolve();
+    expect(drained).not.toHaveBeenCalled();
+    pending.next('ok');
+    await wait;
+    expect(drained).toHaveBeenCalledTimes(1);
     expect(await firstValueFrom(guard.intercept(ctx(1), { handle: () => of('done') }))).toBe('done');
   });
   it('blocks registration and account deletion while recovery rechecks resources', async () => {
