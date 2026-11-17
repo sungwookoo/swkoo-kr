@@ -79,4 +79,5 @@ export async function mockAuthenticatedAs(
   await page.route('**/api/account/scan', async (route) => {
     await json(route, 200, null);
   });
+  await page.route('**/api/account/scan?repo=*', route => json(route, 200, null));
 }

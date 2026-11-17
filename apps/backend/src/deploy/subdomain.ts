@@ -40,7 +40,7 @@ export type SubdomainCheck =
 
 export function validateSubdomainFormat(slug: string): SubdomainCheck {
   if (!FORMAT_RE.test(slug)) return { ok: false, reason: 'FORMAT' };
-  if (RESERVED.has(slug)) return { ok: false, reason: 'RESERVED' };
+  if (RESERVED.has(slug) || slug.startsWith('app--')) return { ok: false, reason: 'RESERVED' };
   return { ok: true };
 }
 

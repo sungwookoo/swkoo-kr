@@ -155,7 +155,7 @@ export class DomainService {
     domain: string;
   }): Promise<DomainInfo> {
     const { userId, current, domain } = args;
-    const login = current.login;
+    const login = current.deploymentKey ?? current.login;
     const appName = current.appName;
 
     const validation = validateCustomDomain(domain);
@@ -217,7 +217,7 @@ export class DomainService {
       expectedCname,
     });
     this.users.audit({
-      actor: login,
+      actor: current.login,
       action: 'DOMAIN_REGISTER',
       target: `${login}/${appName}:${normalized}`,
       reason: null,
@@ -230,7 +230,7 @@ export class DomainService {
    *  pending|error → verified → applying. Idempotent on re-call for the
    *  same row: if already applying|active, no-op. */
   async verify(current: CurrentDeployment): Promise<DomainInfo> {
-    const login = current.login;
+    const login = current.deploymentKey ?? current.login;
     const appName = current.appName;
     const row = this.repo.findByLoginApp(login, appName);
     if (!row) {
@@ -276,7 +276,7 @@ export class DomainService {
         lastErrorReason: dnsErr.reason,
       });
       this.users.audit({
-        actor: login,
+        actor: current.login,
         action: 'DOMAIN_VERIFY_FAILED',
         target: `${login}/${appName}:${row.domain}`,
         reason: dnsErr.reason,
@@ -284,7 +284,7 @@ export class DomainService {
       });
       this.notifyOperatorOfFailure({
         stage: 'verify',
-        actor: login,
+        actor: current.login,
         appName,
         domain: row.domain,
         reason: dnsErr.reason,
@@ -306,7 +306,7 @@ export class DomainService {
       this.repo.markApplied(row.id, sha);
       const updated = this.repo.updateStatus(row.id, 'applying');
       this.users.audit({
-        actor: login,
+        actor: current.login,
         action: 'DOMAIN_VERIFIED',
         target: `${login}/${appName}:${row.domain}`,
         reason: null,
@@ -319,7 +319,7 @@ export class DomainService {
         lastError: `manifest 커밋 실패: ${msg}`,
       });
       this.users.audit({
-        actor: login,
+        actor: current.login,
         action: 'DOMAIN_COMMIT_FAILED',
         target: `${login}/${appName}:${row.domain}`,
         reason: 'COMMIT_FAILED',
@@ -327,7 +327,7 @@ export class DomainService {
       });
       this.notifyOperatorOfFailure({
         stage: 'commit',
-        actor: login,
+        actor: current.login,
         appName,
         domain: row.domain,
         reason: 'COMMIT_FAILED',
@@ -342,7 +342,7 @@ export class DomainService {
    *  row stays — better to leak a deploy-repo file than to claim a
    *  domain is gone while it's still routing traffic. */
   async delete(current: CurrentDeployment): Promise<void> {
-    const login = current.login;
+    const login = current.deploymentKey ?? current.login;
     const appName = current.appName;
     const row = this.repo.findByLoginApp(login, appName);
     if (!row) {
@@ -360,7 +360,7 @@ export class DomainService {
           lastError: `삭제 커밋 실패: ${msg}`,
         });
         this.users.audit({
-          actor: login,
+          actor: current.login,
           action: 'DOMAIN_DELETE_FAILED',
           target: `${login}/${appName}:${row.domain}`,
           reason: 'COMMIT_FAILED',
@@ -368,7 +368,7 @@ export class DomainService {
         });
         this.notifyOperatorOfFailure({
           stage: 'delete',
-          actor: login,
+          actor: current.login,
           appName,
           domain: row.domain,
           reason: 'COMMIT_FAILED',
@@ -380,7 +380,7 @@ export class DomainService {
     this.repo.delete(row.id);
     this.certCache.invalidate(`user-${login}`, `${appName}-custom-domain-tls`);
     this.users.audit({
-      actor: login,
+      actor: current.login,
       action: 'DOMAIN_DELETED',
       target: `${login}/${appName}:${row.domain}`,
       reason: null,
@@ -608,7 +608,7 @@ export class DomainService {
     if (row.status === 'applying' && cert.ready) {
       row2 = this.repo.updateStatus(row.id, 'active') ?? row;
       this.users.audit({
-        actor: row.login,
+        actor: this.users.findById?.(row.userId)?.githubLogin ?? row.login,
         action: 'DOMAIN_ACTIVE',
         target: `${row.login}/${row.appName}:${row.domain}`,
         reason: null,

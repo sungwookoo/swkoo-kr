@@ -15,6 +15,7 @@ import {
   StackPreview,
   SubdomainCheckResult,
   useCurrent,
+  useDeployments,
   useRepos,
   usePreview,
   useSourceSetup,
@@ -191,7 +192,7 @@ export function DeployPageClient(): import("react").ReactNode {
           </button>
         </header>
 
-        <CurrentBanner />
+        {me.isAdmin ? <AdminDeployments /> : <CurrentBanner />}
 
         <div className="space-y-3">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -219,7 +220,7 @@ export function DeployPageClient(): import("react").ReactNode {
           onClear={() => router.replace('/deploy', { scroll: false })}
         />
 
-        {selectedRepo && <PreviewPanel fullName={selectedRepo} />}
+        {selectedRepo && <PreviewPanel key={selectedRepo} fullName={selectedRepo} automaticAddress={me.isAdmin} />}
 
         <AccountSection login={me.githubLogin} />
       </div>
@@ -392,6 +393,17 @@ function CurrentBanner(): import("react").ReactNode {
   // own once ApplicationSet finishes pruning (~1-3 min).
   const { current, isLoading } = useCurrent(true, { refreshInterval: 5000 });
   if (isLoading || !current) return null;
+  return <DeploymentBanner current={current} />;
+}
+
+function AdminDeployments() {
+  const { data, error } = useDeployments(true);
+  if (error) return <p className="text-sm text-amber-400">{error.message}</p>;
+  if (!data?.length) return null;
+  return <div className="space-y-3">{data.map(current => <DeploymentBanner key={current.fullName} current={current} />)}</div>;
+}
+
+function DeploymentBanner({ current }: { current: NonNullable<ReturnType<typeof useCurrent>['current']> }) {
 
   if (current.state === 'deleting') {
     return (
@@ -611,7 +623,7 @@ function RepoCard({
   );
 }
 
-function PreviewPanel({ fullName }: { fullName: string }): import("react").ReactNode {
+function PreviewPanel({ fullName, automaticAddress }: { fullName: string; automaticAddress: boolean }): import("react").ReactNode {
   const { preview, isLoading, error } = usePreview(fullName);
 
   return (
@@ -621,7 +633,7 @@ function PreviewPanel({ fullName }: { fullName: string }): import("react").React
       <hr className="my-4 border-slate-800" />
       {isLoading && <p className="text-sm text-slate-400">스택 감지 중…</p>}
       {error && <p className="text-sm text-amber-400">감지 실패: {error.message}</p>}
-      {preview && <PreviewResult fullName={fullName} preview={preview} />}
+      {preview && <PreviewResult fullName={fullName} preview={preview} automaticAddress={automaticAddress} />}
     </div>
   );
 }
@@ -633,9 +645,11 @@ export { PreviewResult as _PreviewResultForTest };
 function PreviewResult({
   fullName,
   preview,
+  automaticAddress,
 }: {
   fullName: string;
   preview: StackPreview;
+  automaticAddress?: boolean;
 }): import("react").ReactNode {
   if (preview.stack === 'unsupported') {
     return (
@@ -676,7 +690,7 @@ function PreviewResult({
       {preview.storageProfile && (
         <PrismaStorageInfo profile={preview.storageProfile} />
       )}
-      <DeployTrigger fullName={fullName} blocked={hasFail} />
+      <DeployTrigger fullName={fullName} blocked={hasFail} automaticAddress={automaticAddress} />
     </div>
   );
 }
@@ -779,6 +793,7 @@ function deriveDefaultSlug(fullName: string): string {
 function DeployTrigger({
   fullName,
   blocked = false,
+  automaticAddress,
 }: {
   fullName: string;
   /** Set true when one or more preview checks failed. We disable the
@@ -786,6 +801,7 @@ function DeployTrigger({
    *  minutes on a known-broken config (e.g. non-main branch, missing
    *  Next.js dep). User must fix the underlying issue first. */
   blocked?: boolean;
+  automaticAddress?: boolean;
 }): import("react").ReactNode {
   const router = useRouter();
   const [state, setState] = useState<DeployState>({ kind: 'idle' });
@@ -875,7 +891,9 @@ function DeployTrigger({
           <button type="button" className="ml-3 text-emerald-300 underline" onClick={() => router.push(`/deploy/${encodeURIComponent(registered.owner)}/${encodeURIComponent(registered.repo)}`)}>배포 진행상황 보기</button>
         </div>}
       </section>}
-      <div className="space-y-1.5">
+      {automaticAddress ? (
+        <p className="text-xs text-slate-400">새 앱 주소는 자동으로 지정됩니다. 배포 후 이 앱에 별도 도메인을 연결할 수 있습니다.</p>
+      ) : <div className="space-y-1.5">
         <label className="text-xs font-medium text-slate-400" htmlFor="slug">
           URL 슬러그 <span className="text-slate-600">(선택)</span>
         </label>
@@ -910,7 +928,7 @@ function DeployTrigger({
             </>
           )}
         </p>
-      </div>
+      </div>}
 
       {state.kind === 'error' && (
         <div className="space-y-2">

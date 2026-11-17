@@ -64,7 +64,7 @@ export class EnvService {
     }
   }
 
-  async setEnv(login: string, appName: string, vars: Record<string, string>): Promise<void> {
+  async setEnv(login: string, appName: string, vars: Record<string, string>, actor = login): Promise<void> {
     if (!this.kube.available()) throw new Error('KUBE_NOT_AVAILABLE');
     for (const key of Object.keys(vars)) {
       if (!KEY_REGEX.test(key)) {
@@ -107,7 +107,7 @@ export class EnvService {
 
     // Audit log records which keys were set; values intentionally omitted.
     this.users.audit({
-      actor: login,
+      actor,
       action: 'ENV_UPDATE',
       target: `${login}/${appName}`,
       reason: null,

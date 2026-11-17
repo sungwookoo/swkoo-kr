@@ -6,6 +6,7 @@ import {
   Delete,
   ForbiddenException,
   Get,
+  Header,
   HttpCode,
   HttpException,
   InternalServerErrorException,
@@ -33,7 +34,6 @@ import {
   subdomainErrorMessage,
   validateSubdomainFormat,
 } from './subdomain';
-import { sanitizeName } from './templates';
 
 class RegisterDto {
   @IsString()
@@ -141,10 +141,25 @@ export class DeployController {
     return this.service.getCurrentDeployment(req.user.githubLogin);
   }
 
+  @Get('apps')
+  @Header('Cache-Control', 'no-store')
+  listApps(@Req() req: AuthedRequest): Promise<CurrentDeployment[]> {
+    return this.service.listDeployments(req.user.githubLogin);
+  }
+
   @Delete()
   @HttpCode(200)
   remove(@Req() req: AuthedRequest): Promise<{ commit: string }> {
+    if (this.users.listAdditionalDeployments?.(req.user.id).length) {
+      throw new ConflictException('관리 화면에서 삭제할 앱을 선택해 주세요.');
+    }
     return this.service.deleteDeployment(req.user.githubLogin);
+  }
+
+  @Delete('apps/:repo')
+  @HttpCode(200)
+  removeApp(@Req() req: AuthedRequest, @Param('repo') repo: string): Promise<{ commit: string }> {
+    return this.service.deleteDeployment(req.user.githubLogin, repo);
   }
 
   @Get('env/:login/:repo')
@@ -154,9 +169,12 @@ export class DeployController {
     @Param('repo') repo: string
   ): Promise<{ vars: Record<string, string> }> {
     this.assertOwnDeployment(req, login);
-    const appName = sanitizeName(repo);
     try {
-      const vars = await this.envService.getEnv(login, appName);
+      const current = await this.service.getCurrentDeployment(login, true, repo);
+      if (!current || current.state !== 'active' || current.repo?.toLowerCase() !== repo.toLowerCase()) {
+        throw new ConflictException({ reason: 'DEPLOYMENT_NOT_CURRENT', message: '현재 배포된 앱이 아닙니다.' });
+      }
+      const vars = await this.envService.getEnv(current.deploymentKey ?? login, current.appName);
       return { vars };
     } catch (err) {
       this.translateKubeError(err);
@@ -209,13 +227,13 @@ export class DeployController {
       stringVars[k] = v;
     }
 
-    const appName = sanitizeName(repo);
     try {
-      const current = await this.service.getCurrentDeployment(login, true);
-      if (!current || current.state !== 'active' || current.appName !== appName) {
+      const current = await this.service.getCurrentDeployment(login, true, repo);
+      if (!current || current.state !== 'active' || current.repo?.toLowerCase() !== repo.toLowerCase()) {
         throw new ConflictException({ reason: 'DEPLOYMENT_NOT_CURRENT', message: '현재 배포된 앱이 아닙니다. 배포 목록에서 상태를 다시 확인해 주세요.' });
       }
-      await this.envService.setEnv(login, appName, stringVars);
+      if (current.deploymentKey) await this.envService.setEnv(current.deploymentKey, current.appName, stringVars, login);
+      else await this.envService.setEnv(login, current.appName, stringVars);
     } catch (err) {
       if (err instanceof HttpException) throw err;
       const msg = (err as Error).message;

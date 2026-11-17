@@ -42,7 +42,7 @@ test('failed save retains input; failed removal stays on the app; both can retry
     }
     return json(route, 200, { vars });
   });
-  await page.route('**/api/deploy', route => ++removals === 1
+  await page.route('**/api/deploy/apps/sample', route => ++removals === 1
     ? json(route, 503, { message: 'GitHub 연결 일시 실패' })
     : json(route, 200, { commit: 'removed-sha' }));
   await page.goto('/deploy/alice/sample');

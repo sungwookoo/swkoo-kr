@@ -144,28 +144,35 @@ export class ScanService {
     let scanned = 0;
     for (const u of allUsers) {
       try {
-        const deployment = await this.deploy.getCurrentDeployment(u.githubLogin);
-        if (!deployment || deployment.state !== 'active') continue;
-        const pods = await this.kube.core!.listNamespacedPod({ namespace: `user-${u.githubLogin.toLowerCase()}`, labelSelector: `app=${deployment.appName}` });
-        const image = runningImage(pods.items, deployment.appName);
-        if (!image) continue;
-        const result = await this.runScan(u.githubLogin, image);
-        if (!result) continue;
-        const previous = this.users.latestScanResultForUser(u.id);
-        this.users.insertScanResult({
-          userId: u.id,
-          image,
-          critical: result.critical,
-          high: result.high,
-          medium: result.medium,
-          trivyVersion: TRIVY_VERSION,
-          findingsJson: JSON.stringify(result.findings),
-        });
-        scanned += 1;
-        this.logger.log(
-          `scan complete for ${u.githubLogin}: critical=${result.critical} high=${result.high} medium=${result.medium}`
-        );
-        this.maybeNotifyScanFindings(u.githubLogin, image, result, previous);
+        const multiple = Boolean(this.users.listAdditionalDeployments?.(u.id).length);
+        const deployments = multiple
+          ? await this.deploy.listDeployments(u.githubLogin)
+          : [await this.deploy.getCurrentDeployment(u.githubLogin)];
+        for (const deployment of deployments) {
+          if (!deployment || deployment.state !== 'active') continue;
+          const pods = await this.kube.core!.listNamespacedPod({ namespace: `user-${deployment.deploymentKey ?? u.githubLogin.toLowerCase()}`, labelSelector: `app=${deployment.appName}` });
+          const image = runningImage(pods.items, deployment.appName);
+          if (!image) continue;
+          const result = await this.runScan(u.githubLogin, image);
+          if (!result) continue;
+          const previous = multiple
+            ? this.users.latestScanResultForUser(u.id, `ghcr.io/${deployment.fullName.toLowerCase()}`)
+            : this.users.latestScanResultForUser(u.id);
+          this.users.insertScanResult({
+            userId: u.id,
+            image,
+            critical: result.critical,
+            high: result.high,
+            medium: result.medium,
+            trivyVersion: TRIVY_VERSION,
+            findingsJson: JSON.stringify(result.findings),
+          });
+          scanned += 1;
+          this.logger.log(
+            `scan complete for ${u.githubLogin}: critical=${result.critical} high=${result.high} medium=${result.medium}`
+          );
+          this.maybeNotifyScanFindings(u.githubLogin, image, result, previous);
+        }
       } catch (err) {
         this.logger.warn(`scan failed for ${u.githubLogin}: ${(err as Error).message}`);
       }

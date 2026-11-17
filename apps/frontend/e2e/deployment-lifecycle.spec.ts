@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { installCatchAll, json, mockAuthenticatedAs } from './fixtures';
+import { ALICE, installCatchAll, json, mockAuthenticatedAs } from './fixtures';
 
 test('reviewed deployment → progress → environment save → reload → removal', async ({ page }) => {
   await installCatchAll(page);
@@ -26,7 +26,7 @@ test('reviewed deployment → progress → environment save → reload → remov
       await json(route, 200, { ok: true, count: Object.keys(vars).length });
     } else await json(route, 200, { vars });
   });
-  await page.route('**/api/deploy', async route => {
+  await page.route('**/api/deploy/apps/sample', async route => {
     expect(route.request().method()).toBe('DELETE'); active = false;
     await json(route, 200, { commit: 'removed-sha' });
   });
@@ -53,4 +53,38 @@ test('reviewed deployment → progress → environment save → reload → remov
   await page.getByRole('button', { name: '제거 확정' }).click();
   await expect(page).toHaveURL(/\/deploy\?removed=1$/);
   expect(active).toBe(false);
+});
+
+test('administrator can select and remove the second app from a two-app list', async ({ page }) => {
+  await installCatchAll(page);
+  await mockAuthenticatedAs(page, { ...ALICE, isAdmin: true });
+  const key = 'app--campaign-01234567890123456789';
+  const primary = { login: 'alice', repo: 'sprintflow', fullName: 'alice/sprintflow', appName: 'sprintflow',
+    liveUrl: 'https://sprintflow.apps.swkoo.kr', state: 'active', syncStatus: 'Synced', healthStatus: 'Healthy' };
+  const extra = { ...primary, repo: 'campaign', fullName: 'alice/campaign', appName: 'campaign',
+    deploymentKey: key, liveUrl: `https://${key}.apps.swkoo.kr` };
+  let removed = false;
+  await page.route('**/api/deploy/apps', route => json(route, 200, removed ? [primary] : [primary, extra]));
+  await page.route('**/api/deploy/repos', route => json(route, 200, []));
+  await page.route('**/api/deploy/status/alice/campaign', route => json(route, 200, {
+    ...extra,
+    stages: Object.fromEntries(['manifests', 'build', 'imageDetected', 'deploy', 'live'].map(stage => [stage, { status: 'success', message: stage }])),
+  }));
+  await page.route('**/api/deploy/domain/**', route => json(route, 200, { domain: null }));
+  await page.route('**/api/deploy/env/alice/campaign', route => json(route, 200, { vars: {} }));
+  await page.route('**/api/deploy/apps/campaign', async route => {
+    expect(route.request().method()).toBe('DELETE');
+    removed = true;
+    await json(route, 200, { commit: 'campaign-removal' });
+  });
+  await page.goto('/deploy');
+  await expect(page.getByText('alice/sprintflow')).toBeVisible();
+  await expect(page.getByText('alice/campaign')).toBeVisible();
+  await page.locator('a[href="/deploy/alice/campaign"]').click();
+  await page.getByRole('button', { name: '이 앱 제거하기' }).click();
+  await page.getByRole('button', { name: '제거 확정' }).click();
+  await expect(page).toHaveURL(/\/deploy\?removed=1$/);
+  await expect(page.getByText('alice/sprintflow')).toBeVisible();
+  await expect(page.getByText('alice/campaign')).toHaveCount(0);
+  expect(removed).toBe(true);
 });

@@ -8,10 +8,12 @@ describe('source review before deployment side effects', () => {
   const req = { fullName: 'alice/app', setupDigest: 'digest', setupConsent: SOURCE_SETUP_CONSENT };
   function setup() {
     const github = { getInstallationTokenForOrg: jest.fn(async () => 'org-admin-token'), getInstallationTokenForRepo: jest.fn(async () => 'repo-contents-token'),
-      ensureRepoInOrg: jest.fn(async () => undefined), commitFilesAtomic: jest.fn(async () => 'manifest-sha') };
-    const users = { findByLogin: jest.fn(() => ({ id: 1, githubLogin: 'alice', isAllowed: true })), audit: jest.fn() };
+      ensureRepoInOrg: jest.fn(async () => undefined), commitFilesAtomic: jest.fn(async (_args: unknown) => 'manifest-sha'), archiveRepo: jest.fn() };
+    const users = { findByLogin: jest.fn(() => ({ id: 1, githubLogin: 'alice', isAllowed: true })), audit: jest.fn(),
+      findBySubdomain: jest.fn(), listAdditionalDeployments: jest.fn(() => [] as Array<{ key: string; sourceRepo: string }>),
+      addAdditionalDeployment: jest.fn(), releaseAdmissionReservation: jest.fn() };
     const service = new DeployService({} as any, github as any, users as any, {} as any, {} as any,
-      { findForRender: () => null } as any, { appsDomain: 'apps.swkoo.kr', deployOwner: 'swkoo-deploy', manifestRepo: 'operator/control', manifestBranch: 'deployment-data' } as any, {} as any, { reserve: jest.fn(async () => undefined) } as any);
+      { findForRender: () => null, findByLogin: () => [] } as any, { appsDomain: 'apps.swkoo.kr', deployOwner: 'swkoo-deploy', manifestRepo: 'operator/control', manifestBranch: 'deployment-data', adminLogins: [] } as any, {} as any, { reserve: jest.fn(async () => undefined) } as any);
     jest.spyOn(service, 'detectStack').mockResolvedValue({ stack: 'nextjs', packageName: 'app', port: 3000, nodeEngine: null, checks: [] });
     jest.spyOn(service, 'getCurrentDeployment').mockResolvedValue(null);
     const claim = jest.spyOn(service as any, 'claimSubdomainOrDefault').mockReturnValue('alice-app');
@@ -42,6 +44,46 @@ describe('source review before deployment side effects', () => {
     const s = setup(); jest.spyOn(s.service, 'getCurrentDeployment').mockResolvedValue({ state: 'active', repo: 'app' } as any);
     expect(await s.service.registerForUser('alice', req)).toMatchObject({ ok: true });
     expect((s.service as any).admission.reserve).not.toHaveBeenCalled();
+  });
+  it('registers independent stateful apps from one administrator and preserves the original registration', async () => {
+    const s = setup();
+    (s.service as any).config.adminLogins = ['ALICE'];
+    const primary = { login: 'alice', repo: 'sprintflow', state: 'active' } as any;
+    jest.spyOn(s.service, 'getCurrentDeployment').mockResolvedValue(primary);
+    const read = jest.spyOn(s.service as any, 'readDeployment').mockResolvedValue(null);
+    jest.spyOn(s.service, 'detectStack').mockResolvedValue({
+      stack: 'nextjs', packageName: 'app', port: 3000, nodeEngine: null, checks: [],
+      storageProfile: { type: 'prisma-sqlite', size: '1Gi', mountPath: '/data', databaseUrl: 'file:/data/app.db', initMode: 'db-push' },
+    });
+    const first = await s.service.registerForUser('alice', req);
+    const second = await s.service.registerForUser('alice', { ...req, fullName: 'alice/second' });
+    expect(first.subdomain).not.toBe(second.subdomain);
+    expect(first.liveUrl).toBe(`https://${first.subdomain}.apps.swkoo.kr`);
+    for (const result of [first, second]) {
+      const key = result.subdomain;
+      expect((s.service as any).admission.reserve).toHaveBeenCalledWith(key);
+      expect(s.github.commitFilesAtomic).toHaveBeenCalledWith(expect.objectContaining({
+        repo: key, files: expect.objectContaining({ [`${key}/pvc.yaml`]: expect.stringContaining(`namespace: user-${key}`) }),
+      }));
+      expect(s.github.commitFilesAtomic).toHaveBeenCalledWith(expect.objectContaining({
+        repo: 'control', files: { [`deploy/users/${key}.yaml`]: expect.stringContaining(`login: ${key}`) },
+      }));
+    }
+    expect(read).toHaveBeenCalledTimes(2);
+    expect(s.claim).not.toHaveBeenCalled();
+  });
+  it('removes only the selected app registration and deploy repository', async () => {
+    const s = setup();
+    const key = 'app--second-01234567890123456789';
+    jest.spyOn(s.service, 'getCurrentDeployment').mockResolvedValue({ state: 'active', repo: 'second', deploymentKey: key } as any);
+    await expect(s.service.deleteDeployment('alice', 'sprintflow')).rejects.toThrow('삭제할 앱');
+    expect(s.github.commitFilesAtomic).not.toHaveBeenCalled();
+    await s.service.deleteDeployment('alice', 'second');
+    expect(s.github.commitFilesAtomic).toHaveBeenCalledWith(expect.objectContaining({
+      repo: 'control', deletePaths: [`deploy/users/${key}.yaml`],
+    }));
+    expect(s.github.archiveRepo).toHaveBeenCalledWith(expect.objectContaining({ repo: key }));
+    expect(s.users.releaseAdmissionReservation).toHaveBeenCalledWith(key);
   });
   it('preserves the immutable storage class of an existing legacy PVC', async () => {
     const s = setup();

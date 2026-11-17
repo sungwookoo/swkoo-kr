@@ -2,6 +2,7 @@ import { ConflictException, ForbiddenException, Inject, Injectable, Logger, Serv
 import { ConfigType } from '@nestjs/config';
 import { PatchStrategy, setHeaderOptions } from '@kubernetes/client-node';
 import axios from 'axios';
+import { createHash } from 'node:crypto';
 
 import { onboardingConfig } from '../config/onboarding.config';
 import { CustomDomainsRepository } from '../domain/domain.repository';
@@ -172,6 +173,7 @@ export interface StageInfo {
 
 export interface CurrentDeployment {
   login: string;
+  deploymentKey?: string;
   repo: string;
   fullName: string;
   appName: string;
@@ -186,6 +188,7 @@ export interface CurrentDeployment {
 
 export interface DeploymentStatus {
   login: string;
+  deploymentKey?: string;
   repo: string;
   appName: string;
   liveUrl: string;
@@ -611,7 +614,7 @@ export class DeployService {
    *
    * Source files are only created when absent, after explicit review;
    * differing existing files must go through a user-requested draft PR.
-   * the deploy repo persists across re-deploys. Phase 1 caps one app per user. */
+   * The deploy repo persists across re-deploys. */
   async registerForUser(userLogin: string, req: RegisterRequest): Promise<RegisterResponse> {
     // GitHub logins preserve case; k8s naming needs lowercase.
     const loginLc = userLogin.toLowerCase();
@@ -672,16 +675,43 @@ export class DeployService {
     this.sourceSetup.assertReviewed(sourcePlan, req.setupDigest, req.setupConsent);
     if (sourcePlan.files.some(file => file.action === 'review')) throw new ConflictException('기존 파일 변경은 PR 검토가 필요합니다. 배포 설정을 다시 확인해 주세요.');
 
-    const current = await this.getCurrentDeployment(userLogin, true);
-    if (current?.state === 'deleting') throw new ConflictException({ reason: 'DEPLOYMENT_DELETING', message: '앱과 저장공간을 삭제 중입니다. 삭제가 완료된 뒤 다시 배포해 주세요.' });
-    if (current && current.repo.toLowerCase() !== repo.toLowerCase()) {
+    const primary = await this.getCurrentDeployment(userLogin, true);
+    const sourceRepo = req.fullName.toLowerCase();
+    const isAdmin = this.config.adminLogins?.some(login => login.toLowerCase() === loginLc);
+    const extraRows = this.users.listAdditionalDeployments?.(user.id) ?? [];
+    const existingExtra = extraRows.find(row => row.sourceRepo === sourceRepo);
+    if (!isAdmin && !primary && !existingExtra && extraRows.length
+        && (await this.listDeployments(userLogin, true)).length) {
       throw new ConflictException({ reason: 'APP_ALREADY_EXISTS', message: '계정당 앱은 1개입니다. 기존 앱을 제거한 뒤 다른 앱을 배포해 주세요.' });
     }
-    if (!current) await this.admission.reserve(loginLc);
+    const additional = Boolean(existingExtra || (isAdmin && primary?.repo.toLowerCase() !== repo.toLowerCase()));
+    const deploymentKey = existingExtra?.key ?? (additional
+      ? `app--${sanitizeName(repo, 18).replace(/-$/, '') || 'site'}-${createHash('sha256').update(`${user.id}:${sourceRepo}`).digest('hex').slice(0, 20)}`
+      : loginLc);
+    const appName = additional ? deploymentKey : sanitizeName(repo);
+    const current = additional
+      ? await this.readDeployment(loginLc, deploymentKey, true)
+      : primary;
+    if (additional && !isAdmin && !current) {
+      throw new ForbiddenException('추가 앱을 신규 배포하려면 관리자 권한이 필요합니다.');
+    }
+    if (current?.state === 'deleting') throw new ConflictException({ reason: 'DEPLOYMENT_DELETING', message: '앱과 저장공간을 삭제 중입니다. 삭제가 완료된 뒤 다시 배포해 주세요.' });
+    if (current && current.repo.toLowerCase() !== repo.toLowerCase()) {
+      if (additional) throw new ConflictException('이 배포 식별자는 다른 저장소에서 사용 중입니다.');
+      throw new ConflictException({ reason: 'APP_ALREADY_EXISTS', message: '계정당 앱은 1개입니다. 기존 앱을 제거한 뒤 다른 앱을 배포해 주세요.' });
+    }
+    if (additional && req.subdomain?.trim()) {
+      throw new ConflictException('추가 관리자 앱은 고유 주소를 자동으로 받습니다. 배포 후 별도 도메인을 연결할 수 있습니다.');
+    }
+    if (additional && this.users.findBySubdomain(deploymentKey)) {
+      throw new ConflictException('자동으로 할당한 주소가 기존 앱과 충돌했습니다. 운영자에게 문의해 주세요.');
+    }
+    if (existingExtra && !current) await this.assertAdditionalStorageRemoved(deploymentKey);
+    if (!current) await this.admission.reserve(deploymentKey);
+    if (additional && !existingExtra) this.users.addAdditionalDeployment(user.id, deploymentKey, sourceRepo);
 
-    const appName = sanitizeName(repo);
-    const subdomain = this.claimSubdomainOrDefault(user, loginLc, appName, req.subdomain);
-    const deployRepoName = getUserDeployRepoName(loginLc);
+    const subdomain = additional ? deploymentKey : this.claimSubdomainOrDefault(user, loginLc, appName, req.subdomain);
+    const deployRepoName = getUserDeployRepoName(deploymentKey);
     const deployRepoFullName = `${this.config.deployOwner}/${deployRepoName}`;
     // Preserve an in-place custom domain across redeploys. The guard in
     // findForRender returns rows whose manifest commit has already
@@ -689,7 +719,7 @@ export class DeployService {
     // error) — pending rows are excluded since their ingress is not
     // yet in the deploy repo. Without this, every redeploy would
     // silently wipe the custom-domain Ingress + Cert.
-    const existingDomain = this.customDomains.findForRender(loginLc, appName);
+    const existingDomain = this.customDomains.findForRender(deploymentKey, appName);
 
     // Preserve an existing Persistent Storage Profile across redeploys.
     // Once an app was registered with a profile (PVC committed to the
@@ -702,7 +732,7 @@ export class DeployService {
     // appeared/disappeared since last deploy), the detected value
     // takes precedence — the data on disk is unaffected, only the
     // init container's behaviour changes.
-    const existingStorageProfile = await this.readExistingStorageProfile(loginLc);
+    const existingStorageProfile = await this.readExistingStorageProfile(deploymentKey, Boolean(additional));
     const detectedStorageProfile = preview.storageProfile;
     const selectedStorageProfile = detectedStorageProfile ?? existingStorageProfile;
     // PVC storageClassName is immutable. Legacy registered volumes retain
@@ -713,7 +743,7 @@ export class DeployService {
     } : undefined;
 
     const params = {
-      login: loginLc,
+      login: deploymentKey,
       appName,
       imageRepo: `ghcr.io/${loginLc}/${repo.toLowerCase()}`,
       subdomain,
@@ -802,7 +832,7 @@ export class DeployService {
           owner: manifestOwner,
           repo: manifestRepo,
           branch: this.config.manifestBranch,
-          files: { [getUserRegistrationPath(loginLc)]: registrationContent },
+          files: { [getUserRegistrationPath(deploymentKey)]: registrationContent },
           message: `feat(deploy): register ${loginLc}/${appName} via swkoo.kr/deploy\n\nUser: ${userLogin}\nApp: ${appName}\nDeployRepo: ${deployRepoFullName}\nURL: https://${subdomain}.${this.config.appsDomain}`,
           token: manifestToken,
         });
@@ -871,25 +901,54 @@ export class DeployService {
    * After a delete the registration file is gone immediately, but the ArgoCD
    * app lingers ~1-3 min until ApplicationSet prunes it — that window is
    * exposed as state === 'deleting'. */
-  async getCurrentDeployment(login: string, requireArgo = false): Promise<CurrentDeployment | null> {
-    if (requireArgo && !this.argo.isConfigured()) throw new ServiceUnavailableException({ reason: 'DEPLOYMENT_STATE_UNAVAILABLE', message: '배포 상태 연결을 확인하지 못했습니다. 운영자에게 문의해 주세요.' });
+  async getCurrentDeployment(login: string, requireArgo = false, repo?: string): Promise<CurrentDeployment | null> {
     const loginLc = login.toLowerCase();
+    if (repo) {
+      const user = this.users.findByLogin(loginLc);
+      const row = user && this.users.listAdditionalDeployments?.(user.id)
+        ?.find(entry => entry.sourceRepo === `${loginLc}/${repo.toLowerCase()}`);
+      if (row) return this.readDeployment(loginLc, row.key, requireArgo);
+    }
+    return this.readDeployment(loginLc, loginLc, requireArgo);
+  }
+
+  async listDeployments(login: string, requireArgo = false): Promise<CurrentDeployment[]> {
+    const user = this.users.findByLogin(login);
+    if (!user) return [];
+    const primary = await this.getCurrentDeployment(login, requireArgo);
+    const deployments = primary ? [primary] : [];
+    for (const row of this.users.listAdditionalDeployments(user.id)) {
+      const app = await this.readDeployment(login.toLowerCase(), row.key, requireArgo);
+      if (app) deployments.push(app);
+    }
+    return deployments;
+  }
+
+  private async readDeployment(loginLc: string, deploymentKey: string, requireArgo: boolean): Promise<CurrentDeployment | null> {
+    if (requireArgo && !this.argo.isConfigured()) throw new ServiceUnavailableException({ reason: 'DEPLOYMENT_STATE_UNAVAILABLE', message: '배포 상태 연결을 확인하지 못했습니다. 운영자에게 문의해 주세요.' });
     const [manifestOwner, manifestRepoName] = this.config.manifestRepo.split('/');
 
     const registrationContent = await this.readManifestFile(
       manifestOwner,
       manifestRepoName,
-      getUserRegistrationPath(loginLc)
+      getUserRegistrationPath(deploymentKey)
     );
     const app = await this.argo
-      .getApplication(`swkoo-user-${loginLc}`, 'default')
+      .getApplication(`swkoo-user-${deploymentKey}`, 'default')
       .catch(() => {
         if (requireArgo) throw new ServiceUnavailableException({ reason: 'DEPLOYMENT_STATE_UNAVAILABLE', message: '기존 배포 상태를 확인하지 못했습니다. 잠시 후 다시 시도해 주세요.' });
         return null;
       });
 
-    if (!registrationContent && !app) {
+    if (registrationContent === null && !app) {
       return null;
+    }
+    if (deploymentKey !== loginLc && registrationContent !== null) {
+      const source = registrationContent.match(/^sourceRepo:\s*([^/\s]+)\/([^\s]+)$/m);
+      const key = registrationContent.match(/^login:\s*(\S+)$/m);
+      if (source?.[1].toLowerCase() !== loginLc || key?.[1] !== deploymentKey) {
+        throw new ServiceUnavailableException('추가 앱의 배포 등록 정보를 확인할 수 없습니다.');
+      }
     }
 
     // Derive repo from the registration file if present; fall back to ArgoCD
@@ -904,15 +963,22 @@ export class DeployService {
       const m = imageList?.match(/=ghcr\.io\/([^/]+)\/([^:]+)/);
       userRepo = m?.[2] ?? null;
     }
-    if (!userRepo) return null;
+    if (!userRepo) {
+      if (requireArgo && deploymentKey !== loginLc) {
+        throw new ServiceUnavailableException('추가 앱의 배포 등록 정보를 확인할 수 없습니다.');
+      }
+      return null;
+    }
 
-    const appName = sanitizeName(userRepo);
+    const appName = deploymentKey === loginLc ? sanitizeName(userRepo) : deploymentKey;
     const user = this.users.findByLogin(loginLc);
-    const subdomain = this.resolveSubdomain(user, loginLc, appName);
+    const subdomain = deploymentKey === loginLc
+      ? this.resolveSubdomain(user, loginLc, appName) : deploymentKey;
     const state: CurrentDeployment['state'] = registrationContent ? 'active' : 'deleting';
 
     return {
       login: loginLc,
+      ...(deploymentKey !== loginLc ? { deploymentKey } : {}),
       repo: userRepo,
       fullName: `${loginLc}/${userRepo}`,
       appName,
@@ -921,6 +987,22 @@ export class DeployService {
       healthStatus: app?.status?.health?.status ?? null,
       state,
     };
+  }
+
+  private async assertAdditionalStorageRemoved(key: string): Promise<void> {
+    const kube = this.kube.core;
+    if (!kube) throw new ServiceUnavailableException('기존 앱 저장공간의 제거 여부를 확인할 수 없습니다.');
+    const namespace = `user-${key}`;
+    const [exists, volumes] = await Promise.all([
+      kube.readNamespace({ name: namespace }).then(() => true).catch(error => {
+        if (error?.code === 404 || error?.statusCode === 404 || error?.response?.statusCode === 404) return false;
+        throw error;
+      }),
+      kube.listPersistentVolume(),
+    ]);
+    if (exists || volumes.items.some(volume => volume.spec?.claimRef?.namespace === namespace)) {
+      throw new ConflictException('이전 배포의 네임스페이스 또는 저장공간이 정리 중입니다.');
+    }
   }
 
   /** Reads the user's existing registration file (if any) from the
@@ -932,14 +1014,18 @@ export class DeployService {
    *  for the (common) stateless case so the caller can fall through
    *  to the detected profile or undefined. */
   private async readExistingStorageProfile(
-    loginLc: string
+    loginLc: string,
+    strict = false
   ): Promise<StorageProfile | null> {
     const [owner, name] = this.config.manifestRepo.split('/');
     const content = await this.readManifestFile(
       owner,
       name,
       getUserRegistrationPath(loginLc)
-    ).catch(() => null);
+    ).catch(error => {
+      if (strict) throw error;
+      return null;
+    });
     if (!content) return null;
     return parseStorageProfileBlock(content) ?? null;
   }
@@ -975,11 +1061,19 @@ export class DeployService {
    * to namespace deletion. The user's source repo (Dockerfile + workflow +
    * GHCR images) is untouched; the archived deploy repo is recoverable from
    * the GitHub UI. */
-  async deleteDeployment(userLogin: string): Promise<{ commit: string }> {
+  async deleteDeployment(userLogin: string, repoName?: string): Promise<{ commit: string }> {
     const loginLc = userLogin.toLowerCase();
     const user = this.users.findByLogin(userLogin);
     if (!user || !user.isAllowed) {
       throw new ForbiddenException({ reason: 'NOT_ALLOWED', message: '액세스 권한이 없습니다.' });
+    }
+    let deploymentKey = loginLc;
+    if (repoName) {
+      const current = await this.getCurrentDeployment(loginLc, true, repoName);
+      if (!current || current.state !== 'active' || current.repo.toLowerCase() !== repoName.toLowerCase()) {
+        throw new ConflictException({ reason: 'DEPLOYMENT_NOT_CURRENT', message: '삭제할 앱을 확인할 수 없습니다.' });
+      }
+      deploymentKey = current.deploymentKey ?? loginLc;
     }
     const [owner, repo] = this.config.manifestRepo.split('/');
     let commit: string;
@@ -992,7 +1086,7 @@ export class DeployService {
         files: {},
         message: `feat(deploy): unregister ${loginLc} via swkoo.kr/deploy\n\nUser-initiated removal.`,
         token,
-        deletePaths: [getUserRegistrationPath(loginLc)],
+        deletePaths: [getUserRegistrationPath(deploymentKey)],
       });
     } catch (err) {
       const msg = (err as Error).message;
@@ -1022,7 +1116,7 @@ export class DeployService {
     // /api/deploy/domain/:login/:repo calls 404 NO_DEPLOYMENT (can't
     // self-remove) AND the same domain can't be re-registered later
     // because of the global UNIQUE index.
-    const orphanRows = this.customDomains.findByLogin(loginLc);
+    const orphanRows = this.customDomains.findByLogin(deploymentKey);
     for (const row of orphanRows) {
       this.users.audit({
         actor: userLogin,
@@ -1033,13 +1127,13 @@ export class DeployService {
       });
     }
     if (orphanRows.length > 0) {
-      this.customDomains.deleteByLogin(loginLc);
+      this.customDomains.deleteByLogin(deploymentKey);
     }
 
     // Archive the deploy repo. Best-effort: log and continue if it fails —
     // the registration file is already gone so the user view is consistent.
     try {
-      const deployRepoName = getUserDeployRepoName(loginLc);
+      const deployRepoName = getUserDeployRepoName(deploymentKey);
       const repoToken = await this.githubApp.getInstallationTokenForRepo(
         this.config.deployOwner, deployRepoName, { administration: 'write' });
       await this.githubApp.archiveRepo({
@@ -1061,7 +1155,7 @@ export class DeployService {
 
     void this.refreshUsersApplicationSet();
 
-    this.users.releaseAdmissionReservation(loginLc);
+    this.users.releaseAdmissionReservation(deploymentKey);
     return { commit };
   }
 
@@ -1103,16 +1197,20 @@ export class DeployService {
     repo: string
   ): Promise<DeploymentStatus> {
     const loginLc = login.toLowerCase();
-    const appName = sanitizeName(repo);
     const user = this.users.findByLogin(loginLc);
-    const subdomain = this.resolveSubdomain(user, loginLc, appName);
+    const row = user && this.users.listAdditionalDeployments?.(user.id)
+      ?.find(entry => entry.sourceRepo === `${loginLc}/${repo.toLowerCase()}`);
+    const deploymentKey = row?.key ?? loginLc;
+    const appName = row?.key ?? sanitizeName(repo);
+    const subdomain = row?.key ?? this.resolveSubdomain(user, loginLc, appName);
     const liveUrl = `https://${subdomain}.${this.config.appsDomain}`;
 
     const [stages, storageProfile] = await Promise.all([
-      this.statusService.getStages(requestingUserId, loginLc, repo, liveUrl),
-      this.readExistingStorageProfile(loginLc),
+      row ? this.statusService.getStages(requestingUserId, loginLc, repo, liveUrl, deploymentKey)
+        : this.statusService.getStages(requestingUserId, loginLc, repo, liveUrl),
+      this.readExistingStorageProfile(deploymentKey),
     ]);
-    return { login: loginLc, repo, appName, liveUrl, stages,
+    return { login: loginLc, ...(row ? { deploymentKey } : {}), repo, appName, liveUrl, stages,
       storageProfile: storageProfile ?? undefined };
   }
 

@@ -35,13 +35,13 @@ async function fetcher<T>(url: string): Promise<T> {
   return (await response.json()) as T;
 }
 
-export function useLatestScan(enabled: boolean): {
+export function useLatestScan(enabled: boolean, repo?: string): {
   scan: LatestScan | null | undefined;
   isLoading: boolean;
   error: Error | undefined;
 } {
   const { data, error, isLoading } = useSWR<LatestScan | null>(
-    enabled ? `${API_BASE_URL}/account/scan` : null,
+    enabled ? `${API_BASE_URL}/account/scan${repo ? `?repo=${encodeURIComponent(repo)}` : ''}` : null,
     fetcher,
     { refreshInterval: 30_000 }
   );

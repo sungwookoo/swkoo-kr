@@ -1,9 +1,11 @@
 import {
   Controller,
+  ConflictException,
   Delete,
   Get,
   Header,
   Logger,
+  Query,
   Res,
   UseGuards,
 } from '@nestjs/common';
@@ -35,14 +37,21 @@ export class AccountController {
    * findings JSON for the frontend (it doesn't need to know we stored it
    * as a string). The full record lives in /account/export. */
   @Get('scan')
-  async getLatestScan(@Req() req: AuthedRequest, @Res() res: Response): Promise<unknown> {
-    const row = this.users.latestScanResultForUser(req.user.id);
+  async getLatestScan(@Req() req: AuthedRequest, @Res() res: Response, @Query('repo') repo?: string): Promise<unknown> {
+    const scoped = Boolean(repo || this.users.listAdditionalDeployments?.(req.user.id).length);
+    const legacyScan = scoped ? null : this.users.latestScanResultForUser(req.user.id);
+    if (!scoped && !legacyScan) return res.json(null);
+    const deployment = await this.deploy.getCurrentDeployment(req.user.githubLogin, false, repo).catch(() => null);
+    if (scoped && (!deployment || (repo && deployment.repo.toLowerCase() !== repo.toLowerCase()))) return res.json(null);
+    const row = scoped && deployment
+      ? this.users.latestScanResultForUser(req.user.id, `ghcr.io/${deployment.fullName.toLowerCase()}`)
+      : legacyScan;
     if (!row) return res.json(null);
     let currentImage: string | null = null;
     try {
-      const deployment = await this.deploy.getCurrentDeployment(req.user.githubLogin);
       if (deployment?.state === 'active' && this.kube.available()) {
-        const pods = await this.kube.core!.listNamespacedPod({ namespace: `user-${req.user.githubLogin.toLowerCase()}`, labelSelector: `app=${deployment.appName}` });
+        const key = deployment.deploymentKey ?? req.user.githubLogin.toLowerCase();
+        const pods = await this.kube.core!.listNamespacedPod({ namespace: `user-${key}`, labelSelector: `app=${deployment.appName}` });
         currentImage = runningImage(pods.items, deployment.appName);
       }
     } catch { /* Unknown is never displayed as a match. */ }
@@ -80,6 +89,9 @@ export class AccountController {
   async exportData(@Req() req: AuthedRequest): Promise<unknown> {
     const user = req.user;
     const deployment = await this.deploy.getCurrentDeployment(user.githubLogin);
+    const additionalApps = this.users.listAdditionalDeployments?.(user.id).length
+      ? (await this.deploy.listDeployments(user.githubLogin)).filter(app => app.deploymentKey)
+      : [];
     let envVars: Record<string, string> = {};
     if (deployment) {
       try {
@@ -104,6 +116,14 @@ export class AccountController {
       },
       deployment,
       envVars,
+      ...(additionalApps.length ? {
+        additionalDeployments: await Promise.all(additionalApps.map(async app => ({
+          ...app,
+          envVars: app.state === 'active'
+            ? await this.env.getEnv(app.deploymentKey!, app.appName)
+            : {},
+        }))),
+      } : {}),
       latestScan,
       auditLog,
       deployNotifications: this.users.listDeployNotifications(user.id),
@@ -123,6 +143,10 @@ export class AccountController {
   ): Promise<{ ok: true }> {
     const user = req.user;
     const login = user.githubLogin;
+    if (this.users.listAdditionalDeployments?.(user.id).length) {
+      const additional = (await this.deploy.listDeployments(login, true)).filter(app => app.deploymentKey);
+      if (additional.length) throw new ConflictException('추가 배포 앱의 삭제를 완료한 뒤 계정을 삭제해 주세요.');
+    }
 
     // Tear down deployment if active. NO_EXISTING_DEPLOYMENT is fine — just
     // means there was nothing to delete.

@@ -71,6 +71,21 @@ describe('Deployment HTTP authorization boundary', () => {
       .send({ vars: { TOKEN: 'test-value' } }).expect(403);
     expect(env.setEnv).not.toHaveBeenCalled();
   });
+  it('uses the selected deployment key for its environment and the authenticated owner for deletion', async () => {
+    const key = 'app--second-01234567890123456789';
+    const cookie = `${SESSION_COOKIE}=alice-session`;
+    service.getCurrentDeployment.mockResolvedValue({ state: 'active', repo: 'second', appName: 'second', deploymentKey: key });
+    env.getEnv.mockResolvedValue({ MARKER: 'second' });
+    service.deleteDeployment.mockResolvedValue({ commit: 'deleted-second' });
+    const result = await request(app.getHttpServer()).get('/deploy/env/alice/second').set('Cookie', cookie).expect(200);
+    expect(result.body.vars).toEqual({ MARKER: 'second' });
+    expect(env.getEnv).toHaveBeenCalledWith(key, 'second');
+    await request(app.getHttpServer()).put('/deploy/env/alice/second').set('Cookie', cookie)
+      .send({ vars: { MARKER: 'updated' } }).expect(200);
+    expect(env.setEnv).toHaveBeenCalledWith(key, 'second', { MARKER: 'updated' }, 'alice');
+    await request(app.getHttpServer()).delete('/deploy/apps/second').set('Cookie', cookie).expect(200);
+    expect(service.deleteDeployment).toHaveBeenCalledWith('alice', 'second');
+  });
   it('passes the authenticated identity and structured status through HTTP', async () => {
     service.getDeploymentStatus.mockResolvedValue({ stages: { deploy: { status: 'failed', reason: 'POD_NOT_READY' } } });
     const result = await request(app.getHttpServer()).get('/deploy/status/alice/app')
