@@ -23,7 +23,7 @@ export class AccountMutationInterceptor implements NestInterceptor {
     const keys = [`account:${req.user.id}`];
     // Different accounts share the registration Git branch; don't race commits
     // or capacity admission while a previous registration is still being saved.
-    if (recovery || path === '/deploy/register' || path === '/deploy' || path === '/account') keys.push('registration');
+    if (recovery || path === '/deploy/register' || path === '/deploy' || path.startsWith('/deploy/apps/') || path === '/account') keys.push('registration');
     if (keys.some(key => this.active.has(key))) {
       throw new ConflictException({ reason: 'OPERATION_IN_PROGRESS',
         message: '변경 작업을 처리 중입니다. 현재 상태를 확인하고 잠시 후 다시 시도해 주세요.' });

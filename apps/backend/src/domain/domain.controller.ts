@@ -17,7 +17,6 @@ import {
 import { IsString, MaxLength } from 'class-validator';
 
 import { CurrentDeployment, DeployService } from '../deploy/deploy.service';
-import { sanitizeName } from '../deploy/templates';
 import { AuthedRequest, JwtAuthGuard } from '../onboarding/jwt-auth.guard';
 import { DomainInfo, DomainService } from './domain.service';
 
@@ -45,7 +44,7 @@ export class DomainController {
     @Param('repo') repo: string
   ): Promise<DomainInfo> {
     const current = await this.resolveCurrentDeployment(req, login, repo);
-    return this.service.get(login.toLowerCase(), current);
+    return this.service.get(current.deploymentKey ?? login.toLowerCase(), current);
   }
 
   @Post(':login/:repo')
@@ -115,14 +114,14 @@ export class DomainController {
         message: '도메인 관리 권한이 없습니다. 운영자에게 문의하세요.',
       });
     }
-    const current = await this.deploy.getCurrentDeployment(req.user.githubLogin);
+    const current = await this.deploy.getCurrentDeployment(req.user.githubLogin, false, routeRepo);
     if (!current || current.state !== 'active') {
       throw new NotFoundException({
         reason: 'NO_DEPLOYMENT',
         message: '활성 배포가 없습니다. 먼저 swkoo.kr/deploy 에서 앱을 배포하세요.',
       });
     }
-    if (sanitizeName(current.repo) !== sanitizeName(routeRepo)) {
+    if (current.repo.toLowerCase() !== routeRepo.toLowerCase()) {
       throw new ConflictException({
         reason: 'REPO_NOT_CURRENT',
         message: `이 앱은 현재 배포된 앱(${current.repo})이 아닙니다. URL의 repo 부분을 확인하세요.`,

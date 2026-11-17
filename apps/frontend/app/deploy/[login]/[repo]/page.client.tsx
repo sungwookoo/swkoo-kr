@@ -7,6 +7,8 @@ import { useSWRConfig } from 'swr';
 
 import {
   CURRENT_SWR_KEY,
+  DEPLOYMENTS_SWR_KEY,
+  CurrentDeployment,
   deleteCurrentDeployment,
   DeploymentStatus,
   envSwrKey,
@@ -88,7 +90,7 @@ export function StatusClient({ login, repo }: StatusClientProps): import("react"
           />
         )}
 
-        {status && <ScanPanel />}
+        {status && <ScanPanel repo={status.deploymentKey ? repo : undefined} />}
         {status && <SecurityPatchPanel key={`${login}/${repo}`} repo={`${login}/${repo}`} />}
 
         {status && <DeleteCard login={login} repo={repo} />}
@@ -343,8 +345,8 @@ export function EnvVarsPanel({
   );
 }
 
-function ScanPanel(): import("react").ReactNode {
-  const { scan, isLoading, error } = useLatestScan(true);
+function ScanPanel({ repo }: { repo?: string }): import("react").ReactNode {
+  const { scan, isLoading, error } = useLatestScan(true, repo);
 
   return (
     <div className="space-y-3 rounded-lg border border-slate-800 bg-slate-900/30 p-4">
@@ -531,8 +533,13 @@ function DeleteCard({ login, repo }: { login: string; repo: string }): import("r
   const handleConfirm = async (): Promise<void> => {
     setState({ kind: 'pending' });
     try {
-      await deleteCurrentDeployment();
-      await mutate(CURRENT_SWR_KEY, null, { revalidate: false });
+      await deleteCurrentDeployment(repo);
+      await Promise.all([
+        mutate<CurrentDeployment | null>(CURRENT_SWR_KEY, current =>
+          current?.repo.toLowerCase() === repo.toLowerCase() ? undefined : current, { revalidate: false }),
+        mutate<CurrentDeployment[]>(DEPLOYMENTS_SWR_KEY, apps =>
+          apps?.filter(app => app.repo.toLowerCase() !== repo.toLowerCase()), { revalidate: false }),
+      ]);
       router.push('/deploy?removed=1');
     } catch (err) {
       setState({ kind: 'error', message: (err as Error).message });

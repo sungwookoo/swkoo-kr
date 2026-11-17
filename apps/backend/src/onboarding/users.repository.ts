@@ -138,6 +138,12 @@ export class UsersRepository implements OnModuleInit, OnModuleDestroy {
       CREATE TABLE IF NOT EXISTS admission_reservations (
         login TEXT PRIMARY KEY, created_at INTEGER NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS additional_deployments (
+        deployment_key TEXT PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        source_repo TEXT NOT NULL,
+        UNIQUE (user_id, source_repo)
+      );
     `);
     // Idempotent column adds (SQLite has no "ADD COLUMN IF NOT EXISTS").
     // GitHub App user tokens expire (8h by default); we refresh on demand.
@@ -329,6 +335,8 @@ export class UsersRepository implements OnModuleInit, OnModuleDestroy {
         .get(userId) as { github_login: string } | undefined;
       if (!row) return;
       this.db.prepare('UPDATE admission_reservations SET login = ? WHERE login = ?').run(placeholder, row.github_login.toLowerCase());
+      this.db.prepare('DELETE FROM admission_reservations WHERE login IN (SELECT deployment_key FROM additional_deployments WHERE user_id = ?)').run(userId);
+      this.db.prepare('DELETE FROM additional_deployments WHERE user_id = ?').run(userId);
       this.db.prepare('DELETE FROM sessions WHERE user_id = ?').run(userId);
       this.db.prepare('DELETE FROM deploy_notifications WHERE user_id = ?').run(userId);
       if (this.db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='security_patch_plans'").get()) {
@@ -380,16 +388,19 @@ export class UsersRepository implements OnModuleInit, OnModuleDestroy {
       .run(entry);
   }
 
-  latestScanResultForUser(userId: number): ScanResultRow | null {
+  latestScanResultForUser(userId: number, imageRepo?: string): ScanResultRow | null {
+    const imageFilter = imageRepo
+      ? 'AND substr(image, 1, ?) IN (?, ?)'
+      : '';
     const row = this.db
       .prepare(
         `SELECT id, user_id AS userId, image, critical, high, medium,
                 scanned_at AS scannedAt, trivy_version AS trivyVersion,
                 findings_json AS findingsJson
-         FROM scan_results WHERE user_id = ?
+         FROM scan_results WHERE user_id = ? ${imageFilter}
          ORDER BY scanned_at DESC LIMIT 1`
       )
-      .get(userId) as ScanResultRow | undefined;
+      .get(userId, ...(imageRepo ? [imageRepo.length + 1, `${imageRepo}:`, `${imageRepo}@`] : [])) as ScanResultRow | undefined;
     return row ?? null;
   }
 
@@ -450,6 +461,18 @@ export class UsersRepository implements OnModuleInit, OnModuleDestroy {
   /** Claims a sub-slug for the user, or releases it (subdomain=null).
    *  Returns 'taken' if another user already owns the slug (UNIQUE index
    *  violation), 'ok' on success, 'no_user' if the login doesn't exist. */
+  listAdditionalDeployments(userId: number): Array<{ key: string; sourceRepo: string }> {
+    return this.db.prepare(
+      'SELECT deployment_key AS key, source_repo AS sourceRepo FROM additional_deployments WHERE user_id = ? ORDER BY source_repo',
+    ).all(userId) as Array<{ key: string; sourceRepo: string }>;
+  }
+
+  addAdditionalDeployment(userId: number, key: string, sourceRepo: string): void {
+    this.db.prepare(
+      'INSERT INTO additional_deployments (deployment_key, user_id, source_repo) VALUES (?, ?, ?) ON CONFLICT(user_id, source_repo) DO NOTHING',
+    ).run(key, userId, sourceRepo);
+  }
+
   setSubdomain(login: string, subdomain: string | null): 'ok' | 'taken' | 'no_user' {
     try {
       const result = this.db

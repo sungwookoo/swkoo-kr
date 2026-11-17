@@ -26,7 +26,7 @@ export class SecurityPatchService {
   private async ownedRepo(user: UserRow, repo: string): Promise<void> {
     if (!user.isAllowed || !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repo) ||
         repo.split('/')[0].toLowerCase() !== user.githubLogin.toLowerCase()) throw new ForbiddenException('본인 저장소만 요청할 수 있습니다.');
-    const current = await this.deploy.getCurrentDeployment(user.githubLogin);
+    const current = await this.deploy.getCurrentDeployment(user.githubLogin, true, repo.split('/')[1]);
     if (current?.state !== 'active' || current.fullName.toLowerCase() !== repo.toLowerCase()) throw new ForbiddenException('현재 배포 중인 본인 저장소만 지원합니다.');
   }
 

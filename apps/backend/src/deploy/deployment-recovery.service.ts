@@ -10,7 +10,9 @@ export class DeploymentRecoveryService {
 
   async inspect(rawLogin: string) {
     const login = rawLogin.toLowerCase();
-    if (!/^[a-z0-9](?:[a-z0-9-]{0,37}[a-z0-9])?$/.test(login)) throw new BadRequestException('GitHub 로그인 이름을 입력해 주세요. 익명화된 예약은 자동 복구할 수 없습니다.');
+    if (!/^(?:[a-z0-9](?:[a-z0-9-]{0,37}[a-z0-9])?|app--[a-z0-9-]{1,18}-[a-f0-9]{20})$/.test(login)) {
+      throw new BadRequestException('GitHub 로그인 이름 또는 앱 배포 식별자를 입력해 주세요.');
+    }
     if (!this.kube.core) throw new ServiceUnavailableException('클러스터 상태를 확인할 수 없습니다.');
     try {
       const namespace = `user-${login}`;

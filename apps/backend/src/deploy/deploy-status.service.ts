@@ -34,10 +34,10 @@ export class DeployStatusService {
     @Inject(onboardingConfig.KEY) private readonly config: ConfigType<typeof onboardingConfig>
   ) {}
 
-  async getStages(userId: number, login: string, repo: string, liveUrl: string): Promise<DeploymentStatus['stages']> {
+  async getStages(userId: number, login: string, repo: string, liveUrl: string, deploymentKey = login): Promise<DeploymentStatus['stages']> {
     const [manifests, build, app] = await Promise.all([
-      this.checkManifestStage(login), this.checkBuildStage(userId, login, repo),
-      this.argo.getApplication(`swkoo-user-${login}`).catch(() => null),
+      this.checkManifestStage(deploymentKey), this.checkBuildStage(userId, login, repo),
+      this.argo.getApplication(`swkoo-user-${deploymentKey}`).catch(() => null),
     ]);
     const waiting: StageInfo = { status: 'pending', message: '최신 빌드 확인 후 진행합니다.' };
     const stages = { manifests, build, imageDetected: waiting, deploy: waiting, live: waiting };
@@ -63,7 +63,7 @@ export class DeployStatusService {
     }
     stages.imageDetected = { status: 'success', imageDigest: expected, message: `최신 빌드 이미지 확인 (${expected.slice(0, 19)}…)` };
     stages.deploy = this.checkDeployStage(app);
-    const runtime = await this.checkRuntime(login, repo, expected);
+    const runtime = await this.checkRuntime(login, repo, expected, deploymentKey);
     if (runtime.status === 'failed' || runtime.reason === 'CLUSTER_CAPACITY_PENDING') {
       stages.deploy = runtime; return stages;
     }
@@ -82,11 +82,11 @@ export class DeployStatusService {
     return stages;
   }
 
-  async checkRuntime(login: string, repo: string, digest: string): Promise<StageInfo> {
+  async checkRuntime(login: string, repo: string, digest: string, deploymentKey = login): Promise<StageInfo> {
     const pending: StageInfo = { status: 'running', message: '최신 이미지의 컨테이너 준비를 기다리는 중입니다.' };
     if (!this.kube.core || !this.kube.apps) return { ...pending, message: '컨테이너 상태를 확인할 수 없습니다.' };
-    const namespace = `user-${login}`;
-    const appName = sanitizeName(repo);
+    const namespace = `user-${deploymentKey}`;
+    const appName = deploymentKey === login ? sanitizeName(repo) : deploymentKey;
     const matches = (image?: string) => Boolean(image?.startsWith(`ghcr.io/${login}/${repo.toLowerCase()}:`)
       && image.endsWith(`@${digest}`));
     try {

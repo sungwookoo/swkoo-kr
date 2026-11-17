@@ -25,10 +25,11 @@ export class DeploymentDiagnosticsService {
 
   async get(user: UserRow, login: string, repo: string, includeLogs: boolean) {
     if (login.toLowerCase() !== user.githubLogin.toLowerCase() || !user.isAllowed) throw new ForbiddenException('본인 앱만 확인할 수 있습니다.');
-    const current = await this.deploy.getCurrentDeployment(user.githubLogin, true);
+    const current = await this.deploy.getCurrentDeployment(user.githubLogin, true, repo);
     if (!current || current.state !== 'active' || current.repo.toLowerCase() !== repo.toLowerCase()) throw new ConflictException('현재 배포된 앱이 아닙니다. 배포 목록에서 다시 확인해 주세요.');
     if (!this.kube.available()) throw new ServiceUnavailableException('앱 실행 상태를 확인하지 못했습니다.');
-    const namespace = `user-${user.githubLogin.toLowerCase()}`, appName = current.appName;
+    const key = current.deploymentKey ?? user.githubLogin.toLowerCase();
+    const namespace = `user-${key}`, appName = current.appName;
     const response = await this.kube.core!.listNamespacedPod({ namespace, labelSelector: `app=${appName}` });
     const pod = response.items.filter(p => p.metadata?.namespace === namespace && p.metadata.labels?.app === appName && !p.metadata.deletionTimestamp)
       .sort((a,b) => Date.parse(String(b.metadata?.creationTimestamp)) - Date.parse(String(a.metadata?.creationTimestamp)))[0];
@@ -65,7 +66,7 @@ export class DeploymentDiagnosticsService {
     } catch { /* Telemetry unavailable is shown as unknown, never as zero. */ }
     if (includeLogs) {
       try {
-        const vars = await this.env.getEnv(user.githubLogin, appName);
+        const vars = await this.env.getEnv(key, appName);
         const raw = await this.kube.core!.readNamespacedPodLog({ namespace, name: pod.metadata.name, container: initialization?.name ?? appName,
           tailLines: 100, limitBytes: 16_384, sinceSeconds: 3600, timestamps: true, follow: false });
         const values = [...Object.values(vars), ...(container.env ?? []).flatMap(v => v.value ? [v.value] : [])];

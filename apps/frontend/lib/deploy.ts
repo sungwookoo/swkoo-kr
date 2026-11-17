@@ -128,6 +128,7 @@ export interface CurrentDeployment {
 }
 
 export const CURRENT_SWR_KEY = `${API_BASE_URL}/deploy/current`;
+export const DEPLOYMENTS_SWR_KEY = `${API_BASE_URL}/deploy/apps`;
 
 export function useCurrent(enabled: boolean, options?: { refreshInterval?: number }): {
   current: CurrentDeployment | null | undefined;
@@ -145,8 +146,16 @@ export function useCurrent(enabled: boolean, options?: { refreshInterval?: numbe
   return { current: data, isLoading, error };
 }
 
-export async function deleteCurrentDeployment(): Promise<{ commit: string }> {
-  const response = await fetch(`${API_BASE_URL}/deploy`, {
+export function useDeployments(enabled: boolean) {
+  return useSWR<CurrentDeployment[]>(enabled ? DEPLOYMENTS_SWR_KEY : null, async url => {
+    const response = await fetch(url, { credentials: 'include', cache: 'no-store' });
+    if (!response.ok) throw new Error('배포 앱 목록을 불러오지 못했습니다.');
+    return response.json();
+  }, { refreshInterval: 30000 });
+}
+
+export async function deleteCurrentDeployment(repo?: string): Promise<{ commit: string }> {
+  const response = await fetch(`${API_BASE_URL}/deploy${repo ? `/apps/${encodeURIComponent(repo)}` : ''}`, {
     method: 'DELETE',
     credentials: 'include',
   });
@@ -218,6 +227,7 @@ export interface StageInfo {
 }
 
 export interface DeploymentStatus {
+  deploymentKey?: string;
   login: string;
   repo: string;
   appName: string;
