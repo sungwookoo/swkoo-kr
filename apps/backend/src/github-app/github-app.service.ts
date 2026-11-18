@@ -167,14 +167,18 @@ export class GithubAppService {
     name: string;
     description: string;
     token: string;
+    requirePrivate?: boolean;
   }): Promise<void> {
     const { org, name, description, token } = args;
     const headers = this.installationAuthHeaders(token);
     try {
-      const resp = await axios.get<{ archived?: boolean }>(
+      const resp = await axios.get<{ archived?: boolean; private?: boolean; visibility?: string }>(
         `https://api.github.com/repos/${org}/${name}`,
         { headers }
       );
+      if (args.requirePrivate && (!resp.data.private || resp.data.visibility !== 'private')) {
+        throw new Error('Deployment manifest repository must be private');
+      }
       if (resp.data.archived) {
         await axios.patch(
           `https://api.github.com/repos/${org}/${name}`,

@@ -7,8 +7,9 @@ import { GithubAppService } from '../github-app/github-app.service';
 import { ArgoCdClient } from '../pipelines/services/argo-cd.client';
 import type { ArgoCdApplication } from '../pipelines/types/argo-cd.types';
 import { KubeClient } from '../kube/kube.client';
-import type { DeploymentStatus, StageInfo, StageAction, StageReason } from './deploy.service';
+import type { CurrentDeployment, DeploymentStatus, StageInfo, StageAction, StageReason } from './deploy.service';
 import { getUserRegistrationPath, sanitizeName } from './templates';
+import { GHCR_SECRET, privateImageDigest } from './private-image';
 import { readyImageDigest } from './deployment-readiness';
 
 interface GithubContent { content: string }
@@ -34,26 +35,33 @@ export class DeployStatusService {
     @Inject(onboardingConfig.KEY) private readonly config: ConfigType<typeof onboardingConfig>
   ) {}
 
-  async getStages(userId: number, login: string, repo: string, liveUrl: string, deploymentKey = login): Promise<DeploymentStatus['stages']> {
+  async getStages(userId: number, login: string, repo: string, liveUrl: string, deploymentKey = login, privateApp?: CurrentDeployment): Promise<DeploymentStatus['stages']> {
+    const [sourceOwner, sourceName] = privateApp?.fullName.split('/') ?? [login, repo];
     const [manifests, build, app] = await Promise.all([
-      this.checkManifestStage(deploymentKey), this.checkBuildStage(userId, login, repo),
+      this.checkManifestStage(deploymentKey, privateApp?.privateImage), this.checkBuildStage(userId, sourceOwner, sourceName, Boolean(privateApp)),
       this.argo.getApplication(`swkoo-user-${deploymentKey}`).catch(() => null),
     ]);
     const waiting: StageInfo = { status: 'pending', message: '최신 빌드 확인 후 진행합니다.' };
     const stages = { manifests, build, imageDetected: waiting, deploy: waiting, live: waiting };
     if (manifests.status !== 'success' || build.status !== 'success' || !build.sourceSha) return stages;
 
+    const imageRepo = privateApp?.imageRepo ?? `ghcr.io/${login}/${repo}`.toLowerCase();
     let expected: string | undefined;
     try {
-      const token = await this.githubApp.getInstallationTokenForRepo(login, repo, { metadata: 'read' });
-      const versions = await this.githubApp.listUserPackageVersions({
-        owner: login, packageName: repo.toLowerCase(), token,
-      });
-      expected = versions?.find((v) => v.metadata.container.tags.includes(build.sourceSha!))?.name;
+      if (privateApp) {
+        const secret = await this.kube.core?.readNamespacedSecret({
+          name: GHCR_SECRET, namespace: `user-${deploymentKey}`,
+        });
+        const config = JSON.parse(Buffer.from(secret?.data?.['.dockerconfigjson'] ?? '', 'base64').toString());
+        expected = await privateImageDigest(imageRepo, build.sourceSha, config.auths['ghcr.io'].auth, Boolean(privateApp.imageOrganization));
+      } else {
+        const token = await this.githubApp.getInstallationTokenForRepo(sourceOwner, sourceName, { metadata: 'read' });
+        const versions = await this.githubApp.listUserPackageVersions({ owner: sourceOwner, packageName: imageRepo.split('/')[2], token });
+        expected = versions?.find((v) => v.metadata.container.tags.includes(build.sourceSha!))?.name;
+      }
     } catch {
       // Missing registry evidence must never be replaced by a time-based guess.
     }
-    const imageRepo = `ghcr.io/${login}/${repo}`.toLowerCase();
     const desired = app?.spec.source?.kustomize?.images?.find((i) =>
       i.startsWith(`${imageRepo}:`) || i.startsWith(`${imageRepo}@`));
     if (!expected || !/^sha256:[a-f0-9]{64}$/.test(expected) || !desired?.endsWith(`@${expected}`)) {
@@ -63,12 +71,13 @@ export class DeployStatusService {
     }
     stages.imageDetected = { status: 'success', imageDigest: expected, message: `최신 빌드 이미지 확인 (${expected.slice(0, 19)}…)` };
     stages.deploy = this.checkDeployStage(app);
-    const runtime = await this.checkRuntime(login, repo, expected, deploymentKey);
+    const runtime = privateApp ? await this.checkRuntime(login, repo, expected, deploymentKey, imageRepo)
+      : await this.checkRuntime(login, repo, expected, deploymentKey);
     if (runtime.status === 'failed' || runtime.reason === 'CLUSTER_CAPACITY_PENDING') {
       stages.deploy = runtime; return stages;
     }
     if (stages.deploy.status === 'failed') return stages;
-    if (readyImageDigest(app, login, repo) !== expected) {
+    if (readyImageDigest(app, login, repo, imageRepo) !== expected) {
       stages.deploy = { status: 'running', message: '최신 이미지의 Argo CD 동기화 완료를 기다리는 중입니다.' };
       return stages;
     }
@@ -82,12 +91,12 @@ export class DeployStatusService {
     return stages;
   }
 
-  async checkRuntime(login: string, repo: string, digest: string, deploymentKey = login): Promise<StageInfo> {
+  async checkRuntime(login: string, repo: string, digest: string, deploymentKey = login, imageRepo = `ghcr.io/${login}/${repo.toLowerCase()}`): Promise<StageInfo> {
     const pending: StageInfo = { status: 'running', message: '최신 이미지의 컨테이너 준비를 기다리는 중입니다.' };
     if (!this.kube.core || !this.kube.apps) return { ...pending, message: '컨테이너 상태를 확인할 수 없습니다.' };
     const namespace = `user-${deploymentKey}`;
     const appName = deploymentKey === login ? sanitizeName(repo) : deploymentKey;
-    const matches = (image?: string) => Boolean(image?.startsWith(`ghcr.io/${login}/${repo.toLowerCase()}:`)
+    const matches = (image?: string) => Boolean(image?.startsWith(`${imageRepo}:`)
       && image.endsWith(`@${digest}`));
     try {
       const [deployment, pods] = await Promise.all([
@@ -131,8 +140,8 @@ export class DeployStatusService {
     }
   }
 
-  private async checkManifestStage(login: string): Promise<StageInfo> {
-    const [owner, name] = this.config.manifestRepo.split('/');
+  private async checkManifestStage(login: string, privateImage = false): Promise<StageInfo> {
+    const [owner, name] = (privateImage ? this.config.privateManifestRepo! : this.config.manifestRepo).split('/');
     try {
       const token = await this.githubApp.getInstallationTokenForRepo(owner, name, { contents: 'read' });
       await axios.get(
@@ -142,7 +151,7 @@ export class DeployStatusService {
             Authorization: `token ${token}`,
             Accept: 'application/vnd.github+json',
           },
-          params: { ref: this.config.manifestBranch },
+          params: { ref: privateImage ? 'main' : this.config.manifestBranch },
         }
       );
       return { status: 'success', message: '매니페스트 등록 완료' };
@@ -158,7 +167,8 @@ export class DeployStatusService {
   private async checkBuildStage(
     userId: number,
     owner: string,
-    repo: string
+    repo: string,
+    suppressNotification = false
   ): Promise<StageInfo> {
     let accessToken: string;
     try {
@@ -198,7 +208,7 @@ export class DeployStatusService {
         };
       }
       if (run.status === 'completed') {
-        this.maybeNotifyBuildFailure(owner, repo, run);
+        if (!suppressNotification) this.maybeNotifyBuildFailure(owner, repo, run);
         const classified = await this.classifyBuildFailure(accessToken, owner, repo, run);
         return {
           status: 'failed',

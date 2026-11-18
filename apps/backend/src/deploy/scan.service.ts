@@ -149,7 +149,7 @@ export class ScanService {
           ? await this.deploy.listDeployments(u.githubLogin)
           : [await this.deploy.getCurrentDeployment(u.githubLogin)];
         for (const deployment of deployments) {
-          if (!deployment || deployment.state !== 'active') continue;
+          if (!deployment || deployment.state !== 'active' || deployment.privateImage) continue;
           const pods = await this.kube.core!.listNamespacedPod({ namespace: `user-${deployment.deploymentKey ?? u.githubLogin.toLowerCase()}`, labelSelector: `app=${deployment.appName}` });
           const image = runningImage(pods.items, deployment.appName);
           if (!image) continue;

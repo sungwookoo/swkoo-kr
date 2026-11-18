@@ -13,6 +13,7 @@ import {
   DeploymentStatus,
   envSwrKey,
   saveEnvVars,
+  saveRegistryCredential,
   StageInfo,
   StageStatus,
   StorageProfile,
@@ -71,6 +72,7 @@ export function StatusClient({ login, repo }: StatusClientProps): import("react"
           </p>
         )}
         {status && <Checklist status={status} />}
+        {status?.privateImage && <PrivateImagePanel login={login} repo={repo} image={status.imageRepo} />}
         {status && <DeploymentDiagnostics key={`diagnostics:${login}/${repo}`} login={login} repo={repo} />}
 
         {status && (
@@ -90,8 +92,8 @@ export function StatusClient({ login, repo }: StatusClientProps): import("react"
           />
         )}
 
-        {status && <ScanPanel repo={status.deploymentKey ? repo : undefined} />}
-        {status && <SecurityPatchPanel key={`${login}/${repo}`} repo={`${login}/${repo}`} />}
+        {status && !status.privateImage && <ScanPanel repo={status.deploymentKey ? repo : undefined} />}
+        {status && !status.privateImage && <SecurityPatchPanel key={`${login}/${repo}`} repo={`${login}/${repo}`} />}
 
         {status && <DeleteCard login={login} repo={repo} />}
 
@@ -105,6 +107,50 @@ export function StatusClient({ login, repo }: StatusClientProps): import("react"
         </footer>
       </div>
     </main>
+  );
+}
+
+function PrivateImagePanel({ login, repo, image }: { login: string; repo: string; image?: string }) {
+  const [token, setToken] = useState('');
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState('');
+  const [saved, setSaved] = useState(false);
+  return (
+    <form className="space-y-3 rounded-lg border border-slate-800 p-5 text-sm text-slate-300"
+      onSubmit={async event => {
+        event.preventDefault();
+        setPending(true);
+        setError('');
+        setSaved(false);
+        try {
+          await saveRegistryCredential(login, repo, token.trim());
+          setSaved(true);
+        } catch (err) {
+          setError((err as Error).message);
+        } finally {
+          setToken('');
+          setPending(false);
+        }
+      }}>
+      <h2 className="text-base font-semibold text-slate-100">비공개 이미지 접근 권한</h2>
+      <p>
+        첫 빌드가 끝나면 GitHub에서 <code>read:packages</code> 권한만 가진 만료일 있는 클래식 토큰을 만들어 입력해 주세요.
+        조직에서 SSO를 사용한다면 해당 조직에 토큰을 승인해야 합니다. 토큰이 만료되면 여기에서 교체할 수 있습니다.
+      </p>
+      {image && <p className="break-all font-mono text-xs">{image}</p>}
+      <p className="text-xs text-slate-400">토큰은 서버의 이 앱 전용 비밀 저장소에 보관합니다. 조직에서 클래식 토큰을 차단한 경우 연결할 수 없습니다.</p>
+      <label className="block">
+        GitHub 패키지 읽기 토큰
+        <input type="password" autoComplete="off" maxLength={100} value={token} required
+          onChange={event => setToken(event.target.value)}
+          className="mt-1 block w-full rounded border border-slate-700 bg-slate-950 px-3 py-2" />
+      </label>
+      <button disabled={pending || !token.trim()} className="rounded bg-slate-800 px-3 py-2 disabled:opacity-50">
+        {pending ? '확인 중…' : '이미지 읽기 권한 저장'}
+      </button>
+      {error && <p role="alert" className="text-amber-400">{error}</p>}
+      {saved && <p role="status">읽기 권한을 저장했습니다. 배포 진행 상황이 자동으로 갱신됩니다.</p>}
+    </form>
   );
 }
 

@@ -1,4 +1,5 @@
 jest.mock('@kubernetes/client-node', () => ({}));
+import axios from 'axios';
 import { DeployService } from './deploy.service';
 import { SourceSetup, SourceSetupPlan, SOURCE_SETUP_CONSENT } from './source-setup';
 
@@ -12,7 +13,12 @@ describe('source review before deployment side effects', () => {
     const users = { findByLogin: jest.fn(() => ({ id: 1, githubLogin: 'alice', isAllowed: true })), audit: jest.fn(),
       findBySubdomain: jest.fn(), listAdditionalDeployments: jest.fn(() => [] as Array<{ key: string; sourceRepo: string }>),
       addAdditionalDeployment: jest.fn(), releaseAdmissionReservation: jest.fn() };
-    const service = new DeployService({} as any, github as any, users as any, {} as any, {} as any,
+    const sourceMetadata = jest.spyOn(axios, 'get').mockImplementation(async (url: string) => {
+      const full_name = url.replace('https://api.github.com/repos/', '');
+      const [login, name] = full_name.split('/');
+      return { status: 200, data: { full_name, name, owner: { login, type: 'User' }, visibility: 'public', private: false } };
+    });
+    const service = new DeployService({ getValidAccessToken: async () => 'user-token' } as any, github as any, users as any, {} as any, {} as any,
       { findForRender: () => null, findByLogin: () => [] } as any, { appsDomain: 'apps.swkoo.kr', deployOwner: 'swkoo-deploy', manifestRepo: 'operator/control', manifestBranch: 'deployment-data', adminLogins: [] } as any, {} as any, { reserve: jest.fn(async () => undefined) } as any);
     jest.spyOn(service, 'detectStack').mockResolvedValue({ stack: 'nextjs', packageName: 'app', port: 3000, nodeEngine: null, checks: [] });
     jest.spyOn(service, 'getCurrentDeployment').mockResolvedValue(null);
@@ -22,9 +28,24 @@ describe('source review before deployment side effects', () => {
     const inspect = jest.spyOn(SourceSetup.prototype, 'inspect').mockResolvedValue(plan);
     const create = jest.spyOn(SourceSetup.prototype, 'createMissing').mockResolvedValue('source-sha');
     const pr = jest.spyOn(SourceSetup.prototype, 'createPr').mockResolvedValue({ prUrl: 'https://github.com/alice/app/pull/1' });
-    return { service, github, users, claim, inspect, create, pr };
+    return { service, github, users, claim, inspect, create, pr, sourceMetadata };
   }
   afterEach(() => jest.restoreAllMocks());
+  it('filters the repository list on the server and requests public results by default', async () => {
+    const s = setup();
+    (s.service as any).config.privateManifestRepo = 'operator/private-control';
+    const repos = [
+      { name: 'public', full_name: 'alice/public', visibility: 'public', owner: { login: 'alice', type: 'User' } },
+      { name: 'private', full_name: 'alice/private', private: true, visibility: 'private', owner: { login: 'alice', type: 'User' } },
+      { name: 'peer', full_name: 'bob/peer', visibility: 'public', owner: { login: 'bob', type: 'User' } },
+      { name: 'org', full_name: 'org/org', visibility: 'public', owner: { login: 'org', type: 'Organization' }, permissions: { admin: true } },
+    ];
+    s.sourceMetadata.mockResolvedValue({ data: repos });
+    expect((await s.service.listRepos(1, 'alice')).map(repo => repo.name)).toEqual(['public', 'org']);
+    expect(s.sourceMetadata).toHaveBeenLastCalledWith(expect.stringContaining('/user/repos'),
+      expect.objectContaining({ params: expect.objectContaining({ visibility: 'public' }) }));
+    expect((await s.service.listRepos(1, 'alice', true)).map(repo => repo.name)).toEqual(['public', 'private', 'org']);
+  });
   it('recovery treats an empty or malformed registration as present and propagates Argo lookup failures', async () => {
     const s = setup(), argo = (s.service as any).argo;
     argo.isConfigured = () => true; argo.getApplication = jest.fn(async () => null);
@@ -41,14 +62,14 @@ describe('source review before deployment side effects', () => {
     expect(s.create).not.toHaveBeenCalled(); expect(s.claim).not.toHaveBeenCalled(); expect(s.github.commitFilesAtomic).not.toHaveBeenCalled();
   });
   it('allows existing app recovery without a new admission reservation', async () => {
-    const s = setup(); jest.spyOn(s.service, 'getCurrentDeployment').mockResolvedValue({ state: 'active', repo: 'app' } as any);
+    const s = setup(); jest.spyOn(s.service, 'getCurrentDeployment').mockResolvedValue({ state: 'active', repo: 'app', fullName: 'alice/app' } as any);
     expect(await s.service.registerForUser('alice', req)).toMatchObject({ ok: true });
     expect((s.service as any).admission.reserve).not.toHaveBeenCalled();
   });
   it('registers independent stateful apps from one administrator and preserves the original registration', async () => {
     const s = setup();
     (s.service as any).config.adminLogins = ['ALICE'];
-    const primary = { login: 'alice', repo: 'sprintflow', state: 'active' } as any;
+    const primary = { login: 'alice', repo: 'sprintflow', fullName: 'alice/sprintflow', state: 'active' } as any;
     jest.spyOn(s.service, 'getCurrentDeployment').mockResolvedValue(primary);
     const read = jest.spyOn(s.service as any, 'readDeployment').mockResolvedValue(null);
     jest.spyOn(s.service, 'detectStack').mockResolvedValue({
@@ -97,7 +118,7 @@ describe('source review before deployment side effects', () => {
   });
   it.each(['deleting', 'other-app'])('blocks %s before any source or manifest writes', async state => {
     const s = setup();
-    jest.spyOn(s.service, 'getCurrentDeployment').mockResolvedValue({ repo: state === 'deleting' ? 'app' : 'other', state: state === 'deleting' ? 'deleting' : 'active' } as any);
+    jest.spyOn(s.service, 'getCurrentDeployment').mockResolvedValue({ repo: state === 'deleting' ? 'app' : 'other', fullName: state === 'deleting' ? 'alice/app' : 'alice/other', state: state === 'deleting' ? 'deleting' : 'active' } as any);
     await expect(s.service.registerForUser('alice', req)).rejects.toThrow(state === 'deleting' ? '삭제 중' : '1개');
     expect(s.claim).not.toHaveBeenCalled(); expect(s.create).not.toHaveBeenCalled(); expect(s.github.commitFilesAtomic).not.toHaveBeenCalled();
   });
@@ -111,6 +132,35 @@ describe('source review before deployment side effects', () => {
     await expect(s.service.registerForUser('alice', req)).rejects.toThrow('PR 검토');
     expect(s.claim).not.toHaveBeenCalled(); expect(s.create).not.toHaveBeenCalled();
   });
+  it('writes a private organization app only to private repositories after consent', async () => {
+    const s = setup();
+    const { config } = s.service as any;
+    config.privateManifestRepo = 'operator/private-control';
+    const repo = { full_name: 'team/app', name: 'app', id: 123, owner: { login: 'team', type: 'Organization' },
+      permissions: { admin: true }, visibility: 'private', private: true };
+    s.sourceMetadata.mockResolvedValueOnce({ status: 200, data: repo });
+    await expect(s.service.registerForUser('alice', { ...req, fullName: repo.full_name })).rejects.toThrow('조직');
+    expect(s.create).not.toHaveBeenCalled();
+    s.sourceMetadata.mockResolvedValueOnce({ status: 200, data: repo })
+      .mockResolvedValueOnce({ status: 200, data: { ...repo, full_name: 'operator/private-control' } });
+    await s.service.registerForUser('alice', { ...req, fullName: repo.full_name, includePrivate: true });
+    expect(s.github.commitFilesAtomic).toHaveBeenCalledWith(expect.objectContaining({
+      repo: 'private-control', branch: 'main',
+      files: { 'deploy/users/alice.yaml': expect.stringContaining('sourceRepo: team/app') },
+    }));
+    expect(s.github.commitFilesAtomic).not.toHaveBeenCalledWith(expect.objectContaining({ repo: 'control' }));
+  });
+  it('rejects a public repository configured as the private registration store', async () => {
+    const s = setup();
+    (s.service as any).config.privateManifestRepo = 'operator/control';
+    s.sourceMetadata.mockResolvedValueOnce({ status: 200, data: {
+      id: 55, full_name: 'alice/app', name: 'app', owner: { type: 'User', login: 'alice' },
+      private: true, visibility: 'private',
+    }});
+    await expect(s.service.registerForUser('alice', { ...req, includePrivate: true })).rejects.toThrow('비공개 배포 설정');
+    expect(s.create).not.toHaveBeenCalled();
+    expect(s.github.commitFilesAtomic).not.toHaveBeenCalled();
+  });
   it('PR request performs no URL claim, manifest registration or deployment', async () => {
     const s = setup();
     expect(await s.service.requestSourceSetupPr('alice', req)).toHaveProperty('prUrl');
@@ -121,7 +171,7 @@ describe('source review before deployment side effects', () => {
     const s = setup();
     await expect(s.service.previewSourceSetup('alice', 'bob/app')).rejects.toThrow('본인');
     s.users.findByLogin.mockReturnValue({ id: 1, githubLogin: 'alice', isAllowed: false });
-    await expect(s.service.requestSourceSetupPr('alice', req)).rejects.toThrow('본인');
+    await expect(s.service.requestSourceSetupPr('alice', req)).rejects.toThrow('배포 권한');
     expect(s.inspect).not.toHaveBeenCalled(); expect(s.pr).not.toHaveBeenCalled();
   });
   it('reports the source commit after downstream registration failure and does not roll it back', async () => {
