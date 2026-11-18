@@ -940,9 +940,8 @@ export class DeployService {
   /** Recovery must test file presence, even when a registration is malformed. */
   async getRecoveryRegistrationState(login: string): Promise<{ registration: boolean; application: boolean }> {
     if (!this.argo.isConfigured()) throw new ServiceUnavailableException('배포 상태 연결을 확인하지 못했습니다.');
-    const [owner, repo] = this.config.manifestRepo.split('/');
-    const [content, app] = await Promise.all([
-      this.readManifestFile(owner, repo, getUserRegistrationPath(login)),
+    const [{ content }, app] = await Promise.all([
+      this.readRegistration(login),
       this.argo.getApplication(`swkoo-user-${login}`, 'default'),
     ]);
     return { registration: content !== null, application: app !== null };
@@ -979,7 +978,7 @@ export class DeployService {
 
   private async readDeployment(loginLc: string, deploymentKey: string, requireArgo: boolean): Promise<CurrentDeployment | null> {
     if (requireArgo && !this.argo.isConfigured()) throw new ServiceUnavailableException({ reason: 'DEPLOYMENT_STATE_UNAVAILABLE', message: '배포 상태 연결을 확인하지 못했습니다. 운영자에게 문의해 주세요.' });
-    const { content: registrationContent, privateImage } = await this.readRegistration(deploymentKey);
+    const { content: registrationContent, privateImage: privateRegistration } = await this.readRegistration(deploymentKey);
     const app = await this.argo
       .getApplication(`swkoo-user-${deploymentKey}`, 'default')
       .catch(() => {
@@ -990,6 +989,7 @@ export class DeployService {
     if (registrationContent === null && !app) {
       return null;
     }
+    const privateImage = privateRegistration || app?.metadata?.annotations?.['swkoo.kr/private-image'] === 'true';
     const sourceRepo = registrationContent?.match(/^sourceRepo:\s*(\S+)$/m)?.[1]
       ?? app?.metadata?.annotations?.['swkoo.kr/source-repo'];
     const imageRepo = registrationContent?.match(/^  repo:\s*(ghcr\.io\/[^/\s]+\/[^\s:]+)$/m)?.[1]
