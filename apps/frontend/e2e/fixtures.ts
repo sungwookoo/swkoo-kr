@@ -12,6 +12,7 @@ export interface MeShape {
   avatarUrl: string | null;
   isAllowed: boolean;
   isAdmin: boolean;
+  privateDeployEnabled?: boolean;
   requiresReauth: boolean;
   requiresConsent: boolean;
   policyVersion: string;
