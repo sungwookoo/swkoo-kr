@@ -17,7 +17,7 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
-import { IsOptional, IsString, Matches } from 'class-validator';
+import { IsBoolean, IsOptional, IsString, Matches } from 'class-validator';
 
 import { AuthedRequest, JwtAuthGuard } from '../onboarding/jwt-auth.guard';
 import { UsersRepository } from '../onboarding/users.repository';
@@ -48,6 +48,7 @@ class RegisterDto {
   subdomain?: string;
   @IsOptional() @IsString() setupDigest?: string;
   @IsOptional() @IsString() setupConsent?: string;
+  @IsOptional() @IsBoolean() includePrivate?: boolean;
 }
 
 @Controller('deploy')
@@ -84,23 +85,22 @@ export class DeployController {
   }
 
   @Get('repos')
-  listRepos(@Req() req: AuthedRequest): Promise<RepoSummary[]> {
-    return this.service.listRepos(req.user.id);
+  @Header('Cache-Control', 'private, no-store')
+  listRepos(@Req() req: AuthedRequest, @Query('includePrivate') includePrivate?: string): Promise<RepoSummary[]> {
+    return this.service.listRepos(req.user.id, req.user.githubLogin, includePrivate === 'true');
   }
 
   @Get('preview')
+  @Header('Cache-Control', 'private, no-store')
   detectStack(
     @Req() req: AuthedRequest,
-    @Query('repo') repo: string | undefined
+    @Query('repo') repo: string | undefined,
+    @Query('includePrivate') includePrivate?: string
   ): Promise<StackPreview> {
     if (!repo) {
       throw new BadRequestException('repo query param required (owner/name)');
     }
-    const [owner, name] = repo.split('/');
-    if (!owner || !name) {
-      throw new BadRequestException('invalid repo format; expected owner/name');
-    }
-    return this.service.detectStack(req.user.id, owner, name);
+    return this.service.previewRepository(req.user.id, req.user.githubLogin, repo, includePrivate === 'true');
   }
 
   @Post('register')
@@ -112,8 +112,9 @@ export class DeployController {
   }
 
   @Get('setup')
-  sourceSetup(@Req() req: AuthedRequest, @Query('repo') repo: string = '') {
-    return this.service.previewSourceSetup(req.user.githubLogin, repo);
+  @Header('Cache-Control', 'private, no-store')
+  sourceSetup(@Req() req: AuthedRequest, @Query('repo') repo = '', @Query('includePrivate') includePrivate?: string) {
+    return this.service.previewSourceSetup(req.user.githubLogin, repo, includePrivate === 'true');
   }
 
   @Post('setup/pr')
@@ -122,6 +123,7 @@ export class DeployController {
   }
 
   @Get('status/:login/:repo')
+  @Header('Cache-Control', 'private, no-store')
   getStatus(
     @Req() req: AuthedRequest,
     @Param('login') login: string,
@@ -134,6 +136,15 @@ export class DeployController {
     // Admin cross-user debugging goes through /admin if needed later.
     this.assertOwnDeployment(req, login);
     return this.service.getDeploymentStatus(req.user.id, login, repo);
+  }
+
+  @Put('registry/:login/:repo')
+  @Header('Cache-Control', 'private, no-store')
+  setRegistryCredential(@Req() req: AuthedRequest, @Param('login') login: string,
+    @Param('repo') repo: string, @Body() body: { token?: unknown }) {
+    this.assertOwnDeployment(req, login);
+    if (!req.user.isAllowed) throw new ForbiddenException('배포 권한이 없습니다.');
+    return this.service.setRegistryCredential(req.user.id, req.user.githubLogin, repo, body?.token);
   }
 
   @Get('current')

@@ -33,7 +33,7 @@ export class DeployNotificationsService {
         if (!user.email || !user.isAllowed) continue;
         try {
           const current = await this.deploy.getCurrentDeployment(user.githubLogin);
-          if (!current || current.state !== 'active') continue;
+          if (!current || current.state !== 'active' || current.privateImage) continue;
           const app = await this.argo.getApplication(`swkoo-user-${current.login}`);
           const digest = readyImageDigest(app, current.login, current.repo);
           if (!digest || this.users.getLastNotifiedImageSha(user.id) === digest) continue;

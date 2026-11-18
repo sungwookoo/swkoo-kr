@@ -12,6 +12,8 @@ import { UsersRepository } from '../onboarding/users.repository';
 import { DeployStatusService } from './deploy-status.service';
 import { ArgoCdClient } from '../pipelines/services/argo-cd.client';
 import { GithubAppService } from '../github-app/github-app.service';
+import { canDeploySource, SourceRepository, sourceRepository } from './repository-access';
+import { GHCR_SECRET, privateImageDigest } from './private-image';
 import { SourceSetup } from './source-setup';
 import { DeploymentAdmissionService } from './deployment-admission.service';
 import {
@@ -94,18 +96,6 @@ export type StackPreview =
     }
   | { stack: 'unsupported'; reason: string; checks: PreviewCheck[] };
 
-interface GithubRepo {
-  name: string;
-  full_name: string;
-  description: string | null;
-  language: string | null;
-  default_branch: string;
-  html_url: string;
-  updated_at: string;
-  fork: boolean;
-  private: boolean;
-}
-
 interface GithubContent {
   content: string;
   encoding: 'base64' | string;
@@ -116,6 +106,7 @@ export interface RegisterRequest {
   subdomain?: string; // optional user-chosen sub-slug for <slug>.apps.swkoo.kr
   setupDigest?: string;
   setupConsent?: string;
+  includePrivate?: boolean;
 }
 
 export interface RegisterResponse {
@@ -184,6 +175,9 @@ export interface CurrentDeployment {
   // 'deleting' — metadata.yaml is gone but the ArgoCD Application lingers
   // until ApplicationSet prunes it (~1-3 min).
   state: 'active' | 'deleting';
+  privateImage?: boolean;
+  imageRepo?: string;
+  imageOrganization?: boolean;
 }
 
 export interface DeploymentStatus {
@@ -192,6 +186,8 @@ export interface DeploymentStatus {
   repo: string;
   appName: string;
   liveUrl: string;
+  privateImage?: boolean;
+  imageRepo?: string;
   stages: {
     manifests: StageInfo;
     build: StageInfo;
@@ -222,31 +218,86 @@ export class DeployService {
     private readonly admission: DeploymentAdmissionService
   ) {}
 
-  async listRepos(userId: number): Promise<RepoSummary[]> {
+  async listRepos(userId: number, login: string, includePrivate = false): Promise<RepoSummary[]> {
     const accessToken = await this.auth.getValidAccessToken(userId);
-    const resp = await axios.get<GithubRepo[]>('https://api.github.com/user/repos', {
-      params: {
-        affiliation: 'owner',
-        sort: 'updated',
-        direction: 'desc',
-        per_page: 30,
-      },
-      headers: {
-        Authorization: `token ${accessToken}`,
-        Accept: 'application/vnd.github+json',
-      },
-    });
-    return resp.data.map((r) => ({
-      name: r.name,
-      fullName: r.full_name,
-      description: r.description,
-      language: r.language,
-      defaultBranch: r.default_branch,
-      htmlUrl: r.html_url,
-      updatedAt: r.updated_at,
-      isFork: r.fork,
-      isPrivate: r.private,
+    const allowPrivate = includePrivate && Boolean(this.config.privateManifestRepo);
+    const repos: SourceRepository[] = [];
+    for (let page = 1; page <= 10 && repos.length < 30; page++) {
+      const { data } = await axios.get<SourceRepository[]>('https://api.github.com/user/repos', {
+        params: {
+          affiliation: this.config.privateManifestRepo ? 'owner,organization_member' : 'owner',
+          visibility: allowPrivate ? 'all' : 'public',
+          sort: 'updated', direction: 'desc', page, per_page: 100,
+        },
+        headers: { Authorization: `Bearer ${accessToken}`, Accept: 'application/vnd.github+json' },
+        timeout: 5000,
+      });
+      repos.push(...data.filter(repo => canDeploySource(login, repo, allowPrivate)));
+      if (data.length < 100) break;
+    }
+    return repos.slice(0, 30).map(r => ({
+      name: r.name, fullName: r.full_name, description: r.description, language: r.language,
+      defaultBranch: r.default_branch, htmlUrl: r.html_url, updatedAt: r.updated_at,
+      isFork: r.fork, isPrivate: r.visibility !== 'public',
     }));
+  }
+
+  private async authorizeSource(userId: number, login: string, fullName: string, includePrivate: boolean) {
+    if (!this.config.privateManifestRepo && fullName.split('/')[0].toLowerCase() !== login.toLowerCase()) {
+      throw new ForbiddenException({ reason: 'NOT_REPO_OWNER', message: '본인 GitHub 계정 소유의 repo만 배포할 수 있습니다.' });
+    }
+    const token = await this.auth.getValidAccessToken(userId);
+    const repo = await sourceRepository(token, login, fullName, includePrivate && Boolean(this.config.privateManifestRepo));
+    const privateImage = repo.visibility !== 'public' || repo.owner.type === 'Organization';
+    const packageName = privateImage ? `swkoo-${repo.id}` : repo.name.toLowerCase();
+    return { repo, privateImage, imageRepo: `ghcr.io/${repo.owner.login.toLowerCase()}/${packageName}` };
+  }
+
+  async previewRepository(userId: number, login: string, fullName: string, includePrivate: boolean) {
+    const source = await this.authorizeSource(userId, login, fullName, includePrivate);
+    return this.detectStack(userId, source.repo.owner.login, source.repo.name);
+  }
+
+  async setRegistryCredential(userId: number, login: string, name: string, token: unknown) {
+    if (typeof token !== 'string' || !/^ghp_[A-Za-z0-9]{36}$/.test(token)) {
+      throw new ForbiddenException('GitHub 클래식 토큰에 read:packages 권한만 부여해 입력해 주세요.');
+    }
+    const app = await this.getCurrentDeployment(login, true, name);
+    if (!app?.privateImage || !app.imageRepo || app.state !== 'active' || app.repo.toLowerCase() !== name.toLowerCase()) {
+      throw new ForbiddenException('본인의 활성 비공개 이미지 배포만 설정할 수 있습니다.');
+    }
+    const source = await this.authorizeSource(userId, login, app.fullName, true);
+    if (source.imageRepo !== app.imageRepo || !source.privateImage) throw new ForbiddenException('저장소 설정을 다시 확인해 주세요.');
+    const auth = Buffer.from(`${login}:${token}`).toString('base64');
+    try {
+      const { data, headers } = await axios.get<{ login: string }>('https://api.github.com/user', {
+        headers: { Authorization: `Bearer ${token}` }, timeout: 5000, maxRedirects: 0,
+      });
+      if (data.login.toLowerCase() !== login.toLowerCase() || headers['x-oauth-scopes']?.trim() !== 'read:packages') {
+        throw new Error('scope');
+      }
+      await privateImageDigest(app.imageRepo, 'latest', auth, source.repo.owner.type === 'Organization');
+    } catch {
+      throw new ForbiddenException('비공개 패키지를 가져올 수 없습니다. 첫 빌드 완료, 토큰 권한과 조직의 SSO 승인을 확인해 주세요.');
+    }
+    const core = this.kube.core;
+    if (!core) throw new ServiceUnavailableException('배포 서버에 연결하지 못했습니다.');
+    const namespace = `user-${app.deploymentKey ?? app.login}`;
+    const secretName = GHCR_SECRET;
+    const data = { '.dockerconfigjson': Buffer.from(JSON.stringify({ auths: { 'ghcr.io': { auth, username: login, password: token } } })).toString('base64') };
+    try {
+      const previous = await core.readNamespacedSecret({ namespace, name: secretName }).catch((error: { code?: number }) => {
+        if (error.code === 404) return null;
+        throw error;
+      });
+      const body = { metadata: { name: secretName, namespace, resourceVersion: previous?.metadata?.resourceVersion },
+        type: 'kubernetes.io/dockerconfigjson', data };
+      if (previous) await core.replaceNamespacedSecret({ namespace, name: secretName, body });
+      else await core.createNamespacedSecret({ namespace, body });
+    } catch {
+      throw new ServiceUnavailableException('이미지 접근 권한을 저장하지 못했습니다. 잠시 후 다시 시도해 주세요.');
+    }
+    return { ok: true };
   }
 
   async detectStack(userId: number, owner: string, repo: string): Promise<StackPreview> {
@@ -585,18 +636,21 @@ export class DeployService {
     };
   }
 
-  async previewSourceSetup(login: string, fullName: string) {
+  async previewSourceSetup(login: string, fullName: string, includePrivate = false) {
     const user = this.users.findByLogin(login);
-    if (!user?.isAllowed || !/^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/.test(fullName) ||
-        fullName.split('/')[0].toLowerCase() !== login.toLowerCase()) throw new ForbiddenException('본인 저장소만 설정할 수 있습니다.');
-    const [owner, repo] = fullName.split('/');
-    const preview = await this.detectStack(user.id, owner, repo);
+    if (!user?.isAllowed) throw new ForbiddenException('배포 권한이 없습니다.');
+    const source = await this.authorizeSource(user.id, login, fullName, includePrivate);
+    const preview = await this.detectStack(user.id, source.repo.owner.login, source.repo.name);
     if (preview.stack !== 'nextjs') throw new ConflictException('배포 사전 점검을 먼저 해결해 주세요.');
-    return this.sourceSetup.inspect(fullName, renderUserRepoFiles({ port: preview.port, imageRepo: `ghcr.io/${login.toLowerCase()}/${repo.toLowerCase()}` }));
+    const plan = await this.sourceSetup.inspect(source.repo.full_name, renderUserRepoFiles({
+      port: preview.port, imageRepo: source.imageRepo, privateImage: source.privateImage,
+      organization: source.repo.owner.type === 'Organization',
+    }));
+    return { ...plan, ...(source.privateImage ? { privateImage: true } : {}) };
   }
 
   async requestSourceSetupPr(login: string, req: RegisterRequest) {
-    const plan = await this.previewSourceSetup(login, req.fullName);
+    const plan = await this.previewSourceSetup(login, req.fullName, req.includePrivate);
     this.sourceSetup.assertReviewed(plan, req.setupDigest, req.setupConsent);
     const result = await this.sourceSetup.createPr(plan);
     this.users.audit({ actor: login, action: 'DEPLOY_SETUP_PR', target: req.fullName, reason: 'user_requested',
@@ -634,28 +688,16 @@ export class DeployService {
       throw new ForbiddenException({ reason: 'NOT_ALLOWED', message: '액세스 권한이 없습니다.' });
     }
 
-    const [owner, repo] = req.fullName.split('/');
-    if (!owner || !repo) {
-      throw new ForbiddenException({ reason: 'INVALID_REPO', message: 'invalid fullName' });
-    }
-
-    // Self-only ownership: the JWT identifies *who* is deploying, the body
-    // says *what* — without this check, A could register B's repo by
-    // crafting a request body even though detectStack would later reject
-    // it (defense in depth + clean 403 boundary).
-    if (owner.toLowerCase() !== loginLc) {
-      this.users.audit({
-        actor: userLogin,
-        action: 'ACCESS_DENIED',
-        target: req.fullName,
-        reason: 'NOT_REPO_OWNER',
-        metaJson: null,
+    const source = await this.authorizeSource(user.id, userLogin, req.fullName, req.includePrivate === true)
+      .catch(error => {
+        if (error instanceof ForbiddenException) this.users.audit({
+          actor: userLogin, action: 'ACCESS_DENIED', target: req.fullName, reason: 'NOT_REPO_OWNER', metaJson: null,
+        });
+        throw error;
       });
-      throw new ForbiddenException({
-        reason: 'NOT_REPO_OWNER',
-        message: '본인 GitHub 계정 소유의 repo만 배포할 수 있습니다.',
-      });
-    }
+    const { privateImage, imageRepo } = source;
+    const { name: repo, owner: { login: owner } } = source.repo;
+    const privateManifestRepo = privateImage ? await this.requirePrivateManifestRepo() : undefined;
 
     // Re-detect stack to make sure preview wasn't stale.
     const preview = await this.detectStack(user.id, owner, repo);
@@ -670,13 +712,14 @@ export class DeployService {
       throw new ForbiddenException({ reason: 'STACK_UNSUPPORTED', message: preview.reason });
     }
 
-    const sourcePlan = await this.sourceSetup.inspect(req.fullName,
-      renderUserRepoFiles({ port: preview.port, imageRepo: `ghcr.io/${loginLc}/${repo.toLowerCase()}` }));
+    const sourcePlan = await this.sourceSetup.inspect(source.repo.full_name, renderUserRepoFiles({
+      port: preview.port, imageRepo, privateImage, organization: source.repo.owner.type === 'Organization',
+    }));
     this.sourceSetup.assertReviewed(sourcePlan, req.setupDigest, req.setupConsent);
     if (sourcePlan.files.some(file => file.action === 'review')) throw new ConflictException('기존 파일 변경은 PR 검토가 필요합니다. 배포 설정을 다시 확인해 주세요.');
 
     const primary = await this.getCurrentDeployment(userLogin, true);
-    const sourceRepo = req.fullName.toLowerCase();
+    const sourceRepo = source.repo.full_name.toLowerCase();
     const isAdmin = this.config.adminLogins?.some(login => login.toLowerCase() === loginLc);
     const extraRows = this.users.listAdditionalDeployments?.(user.id) ?? [];
     const existingExtra = extraRows.find(row => row.sourceRepo === sourceRepo);
@@ -684,9 +727,13 @@ export class DeployService {
         && (await this.listDeployments(userLogin, true)).length) {
       throw new ConflictException({ reason: 'APP_ALREADY_EXISTS', message: '계정당 앱은 1개입니다. 기존 앱을 제거한 뒤 다른 앱을 배포해 주세요.' });
     }
-    const additional = Boolean(existingExtra || (isAdmin && primary?.repo.toLowerCase() !== repo.toLowerCase()));
+    const additional = Boolean(existingExtra || (isAdmin && primary?.fullName.toLowerCase() !== sourceRepo));
+    if (extraRows.some(row => row.sourceRepo !== sourceRepo && row.sourceRepo.split('/')[1] === repo.toLowerCase())
+        || (primary?.repo.toLowerCase() === repo.toLowerCase() && primary.fullName.toLowerCase() !== sourceRepo)) {
+      throw new ConflictException('같은 이름으로 배포된 앱이 있습니다. 다른 저장소 이름을 사용해 주세요.');
+    }
     const deploymentKey = existingExtra?.key ?? (additional
-      ? `app--${sanitizeName(repo, 18).replace(/-$/, '') || 'site'}-${createHash('sha256').update(`${user.id}:${sourceRepo}`).digest('hex').slice(0, 20)}`
+      ? `app--${sanitizeName(privateImage ? 'private' : repo, 18).replace(/-$/, '') || 'site'}-${createHash('sha256').update(`${user.id}:${sourceRepo}`).digest('hex').slice(0, 20)}`
       : loginLc);
     const appName = additional ? deploymentKey : sanitizeName(repo);
     const current = additional
@@ -695,8 +742,11 @@ export class DeployService {
     if (additional && !isAdmin && !current) {
       throw new ForbiddenException('추가 앱을 신규 배포하려면 관리자 권한이 필요합니다.');
     }
+    if (current && Boolean(current.privateImage) !== privateImage) {
+      throw new ConflictException('기존 배포의 공개 설정과 다릅니다. 운영자에게 문의해 주세요.');
+    }
     if (current?.state === 'deleting') throw new ConflictException({ reason: 'DEPLOYMENT_DELETING', message: '앱과 저장공간을 삭제 중입니다. 삭제가 완료된 뒤 다시 배포해 주세요.' });
-    if (current && current.repo.toLowerCase() !== repo.toLowerCase()) {
+    if (current && current.fullName.toLowerCase() !== sourceRepo) {
       if (additional) throw new ConflictException('이 배포 식별자는 다른 저장소에서 사용 중입니다.');
       throw new ConflictException({ reason: 'APP_ALREADY_EXISTS', message: '계정당 앱은 1개입니다. 기존 앱을 제거한 뒤 다른 앱을 배포해 주세요.' });
     }
@@ -710,7 +760,7 @@ export class DeployService {
     if (!current) await this.admission.reserve(deploymentKey);
     if (additional && !existingExtra) this.users.addAdditionalDeployment(user.id, deploymentKey, sourceRepo);
 
-    const subdomain = additional ? deploymentKey : this.claimSubdomainOrDefault(user, loginLc, appName, req.subdomain);
+    const subdomain = additional ? deploymentKey : this.claimSubdomainOrDefault(user, loginLc, privateImage ? 'app' : appName, req.subdomain);
     const deployRepoName = getUserDeployRepoName(deploymentKey);
     const deployRepoFullName = `${this.config.deployOwner}/${deployRepoName}`;
     // Preserve an in-place custom domain across redeploys. The guard in
@@ -745,7 +795,9 @@ export class DeployService {
     const params = {
       login: deploymentKey,
       appName,
-      imageRepo: `ghcr.io/${loginLc}/${repo.toLowerCase()}`,
+      imageRepo,
+      privateImage,
+      imageOrganization: source.repo.owner.type === 'Organization',
       subdomain,
       port: preview.port,
       uid: 1000,
@@ -793,8 +845,9 @@ export class DeployService {
         await this.githubApp.ensureRepoInOrg({
           org: this.config.deployOwner,
           name: deployRepoName,
-          description: `swkoo.kr deploy manifests for ${loginLc}/${repo}. Managed by https://swkoo.kr/deploy — do not edit by hand.`,
+          description: 'Private swkoo.kr deployment manifests. Managed by https://swkoo.kr/deploy.',
           token: orgToken,
+          ...(privateImage ? { requirePrivate: true } : {}),
         });
         const deployToken = await this.githubApp.getInstallationTokenForRepo(
           this.config.deployOwner, deployRepoName, { contents: 'write' });
@@ -820,7 +873,7 @@ export class DeployService {
       // 3. Commit the registration file to the control repo. ApplicationSet
       //    will materialize an Application that pulls from the deploy repo.
       completed.push('배포 매니페스트 저장');
-      const [manifestOwner, manifestRepo] = this.config.manifestRepo.split('/');
+      const [manifestOwner, manifestRepo] = (privateManifestRepo ?? this.config.manifestRepo).split('/');
       let manifestRepoCommit: string;
       try {
         const manifestToken = await this.githubApp.getInstallationTokenForRepo(
@@ -831,7 +884,7 @@ export class DeployService {
         manifestRepoCommit = await this.githubApp.commitFilesAtomic({
           owner: manifestOwner,
           repo: manifestRepo,
-          branch: this.config.manifestBranch,
+          branch: privateManifestRepo ? 'main' : this.config.manifestBranch,
           files: { [getUserRegistrationPath(deploymentKey)]: registrationContent },
           message: `feat(deploy): register ${loginLc}/${appName} via swkoo.kr/deploy\n\nUser: ${userLogin}\nApp: ${appName}\nDeployRepo: ${deployRepoFullName}\nURL: https://${subdomain}.${this.config.appsDomain}`,
           token: manifestToken,
@@ -867,7 +920,7 @@ export class DeployService {
       // Nudge ArgoCD to pick up the new metadata.yaml immediately instead of
       // waiting for the default ~3 min git poll. Failure is non-fatal — the
       // poll still gets it eventually.
-      void this.refreshUsersApplicationSet();
+      void this.refreshUsersApplicationSet(privateImage);
 
       return {
         ok: true,
@@ -887,9 +940,8 @@ export class DeployService {
   /** Recovery must test file presence, even when a registration is malformed. */
   async getRecoveryRegistrationState(login: string): Promise<{ registration: boolean; application: boolean }> {
     if (!this.argo.isConfigured()) throw new ServiceUnavailableException('배포 상태 연결을 확인하지 못했습니다.');
-    const [owner, repo] = this.config.manifestRepo.split('/');
-    const [content, app] = await Promise.all([
-      this.readManifestFile(owner, repo, getUserRegistrationPath(login)),
+    const [{ content }, app] = await Promise.all([
+      this.readRegistration(login),
       this.argo.getApplication(`swkoo-user-${login}`, 'default'),
     ]);
     return { registration: content !== null, application: app !== null };
@@ -906,7 +958,7 @@ export class DeployService {
     if (repo) {
       const user = this.users.findByLogin(loginLc);
       const row = user && this.users.listAdditionalDeployments?.(user.id)
-        ?.find(entry => entry.sourceRepo === `${loginLc}/${repo.toLowerCase()}`);
+        ?.find(entry => entry.sourceRepo.split('/')[1] === repo.toLowerCase());
       if (row) return this.readDeployment(loginLc, row.key, requireArgo);
     }
     return this.readDeployment(loginLc, loginLc, requireArgo);
@@ -926,13 +978,7 @@ export class DeployService {
 
   private async readDeployment(loginLc: string, deploymentKey: string, requireArgo: boolean): Promise<CurrentDeployment | null> {
     if (requireArgo && !this.argo.isConfigured()) throw new ServiceUnavailableException({ reason: 'DEPLOYMENT_STATE_UNAVAILABLE', message: '배포 상태 연결을 확인하지 못했습니다. 운영자에게 문의해 주세요.' });
-    const [manifestOwner, manifestRepoName] = this.config.manifestRepo.split('/');
-
-    const registrationContent = await this.readManifestFile(
-      manifestOwner,
-      manifestRepoName,
-      getUserRegistrationPath(deploymentKey)
-    );
+    const { content: registrationContent, privateImage: privateRegistration } = await this.readRegistration(deploymentKey);
     const app = await this.argo
       .getApplication(`swkoo-user-${deploymentKey}`, 'default')
       .catch(() => {
@@ -943,25 +989,19 @@ export class DeployService {
     if (registrationContent === null && !app) {
       return null;
     }
+    const privateImage = privateRegistration || app?.metadata?.annotations?.['swkoo.kr/private-image'] === 'true';
+    const sourceRepo = registrationContent?.match(/^sourceRepo:\s*(\S+)$/m)?.[1]
+      ?? app?.metadata?.annotations?.['swkoo.kr/source-repo'];
+    const imageRepo = registrationContent?.match(/^  repo:\s*(ghcr\.io\/[^/\s]+\/[^\s:]+)$/m)?.[1]
+      ?? app?.metadata?.annotations?.['argocd-image-updater.argoproj.io/image-list']?.match(/=([^:]+):latest$/)?.[1];
+    const userRepo = sourceRepo?.split('/')[1] ?? imageRepo?.split('/')[2];
     if (deploymentKey !== loginLc && registrationContent !== null) {
-      const source = registrationContent.match(/^sourceRepo:\s*([^/\s]+)\/([^\s]+)$/m);
+      const user = this.users.findByLogin(loginLc);
+      const row = user && this.users.listAdditionalDeployments(user.id).find(entry => entry.key === deploymentKey);
       const key = registrationContent.match(/^login:\s*(\S+)$/m);
-      if (source?.[1].toLowerCase() !== loginLc || key?.[1] !== deploymentKey) {
+      if (!row || row.sourceRepo !== sourceRepo?.toLowerCase() || key?.[1] !== deploymentKey) {
         throw new ServiceUnavailableException('추가 앱의 배포 등록 정보를 확인할 수 없습니다.');
       }
-    }
-
-    // Derive repo from the registration file if present; fall back to ArgoCD
-    // annotation (useful during the deleting window when the file is already gone).
-    let userRepo: string | null = null;
-    if (registrationContent) {
-      const m = registrationContent.match(/repo:\s*ghcr\.io\/[^/]+\/(\S+)/);
-      userRepo = m?.[1] ?? null;
-    }
-    if (!userRepo && app) {
-      const imageList = app.metadata?.annotations?.['argocd-image-updater.argoproj.io/image-list'];
-      const m = imageList?.match(/=ghcr\.io\/([^/]+)\/([^:]+)/);
-      userRepo = m?.[2] ?? null;
     }
     if (!userRepo) {
       if (requireArgo && deploymentKey !== loginLc) {
@@ -973,14 +1013,16 @@ export class DeployService {
     const appName = deploymentKey === loginLc ? sanitizeName(userRepo) : deploymentKey;
     const user = this.users.findByLogin(loginLc);
     const subdomain = deploymentKey === loginLc
-      ? this.resolveSubdomain(user, loginLc, appName) : deploymentKey;
+      ? this.resolveSubdomain(user, loginLc, privateImage ? 'app' : appName) : deploymentKey;
     const state: CurrentDeployment['state'] = registrationContent ? 'active' : 'deleting';
 
     return {
       login: loginLc,
       ...(deploymentKey !== loginLc ? { deploymentKey } : {}),
       repo: userRepo,
-      fullName: `${loginLc}/${userRepo}`,
+      fullName: sourceRepo ?? `${loginLc}/${userRepo}`,
+      ...(privateImage ? { privateImage: true, imageRepo,
+        imageOrganization: registrationContent?.includes('imageOrganization: true') } : {}),
       appName,
       liveUrl: `https://${subdomain}.${this.config.appsDomain}`,
       syncStatus: app?.status?.sync?.status ?? null,
@@ -1017,23 +1059,50 @@ export class DeployService {
     loginLc: string,
     strict = false
   ): Promise<StorageProfile | null> {
-    const [owner, name] = this.config.manifestRepo.split('/');
-    const content = await this.readManifestFile(
-      owner,
-      name,
-      getUserRegistrationPath(loginLc)
-    ).catch(error => {
+    const { content } = await this.readRegistration(loginLc).catch(error => {
       if (strict) throw error;
-      return null;
+      return { content: null };
     });
     if (!content) return null;
     return parseStorageProfileBlock(content) ?? null;
   }
 
+  private async readRegistration(deploymentKey: string) {
+    const [owner, name] = this.config.manifestRepo.split('/');
+    const path = getUserRegistrationPath(deploymentKey);
+    const publicContent = await this.readManifestFile(owner, name, path);
+    if (publicContent !== null || !this.config.privateManifestRepo) {
+      return { content: publicContent, privateImage: false };
+    }
+    const [privateOwner, privateName] = this.config.privateManifestRepo.split('/');
+    const content = await this.readManifestFile(privateOwner, privateName, path, 'main');
+    return { content, privateImage: content !== null };
+  }
+
+  private async requirePrivateManifestRepo() {
+    const fullName = this.config.privateManifestRepo;
+    if (fullName) {
+      const [owner, repo] = fullName.split('/');
+      try {
+        const token = await this.githubApp.getInstallationTokenForRepo(owner, repo, { metadata: 'read' });
+        const { data } = await axios.get<SourceRepository>(`https://api.github.com/repos/${fullName}`, {
+          headers: { Authorization: `Bearer ${token}` }, timeout: 5000, maxRedirects: 0,
+        });
+        if (data.private && data.visibility === 'private' && data.full_name.toLowerCase() === fullName.toLowerCase()) {
+          return fullName;
+        }
+      } catch {
+        // Never write private app registration to the public control repository.
+      }
+    }
+    throw new ServiceUnavailableException('비공개 배포 설정을 확인하지 못했습니다. 운영자에게 문의해 주세요.');
+  }
+
   private async readManifestFile(
     owner: string,
     repo: string,
-    path: string
+    path: string,
+    branch = this.config.manifestBranch
   ): Promise<string | null> {
     try {
       const token = await this.githubApp.getInstallationTokenForRepo(owner, repo, { contents: 'read' });
@@ -1044,7 +1113,7 @@ export class DeployService {
             Authorization: `token ${token}`,
             Accept: 'application/vnd.github+json',
           },
-          params: { ref: this.config.manifestBranch },
+          params: { ref: branch },
         }
       );
       return Buffer.from(resp.data.content, 'base64').toString('utf8');
@@ -1075,14 +1144,15 @@ export class DeployService {
       }
       deploymentKey = current.deploymentKey ?? loginLc;
     }
-    const [owner, repo] = this.config.manifestRepo.split('/');
+    const privateRegistration = Boolean(this.config.privateManifestRepo) && (await this.readRegistration(deploymentKey)).privateImage;
+    const [owner, repo] = (privateRegistration ? this.config.privateManifestRepo! : this.config.manifestRepo).split('/');
     let commit: string;
     try {
       const token = await this.githubApp.getInstallationTokenForRepo(owner, repo, { contents: 'write' });
       commit = await this.githubApp.commitFilesAtomic({
         owner,
         repo,
-        branch: this.config.manifestBranch,
+        branch: privateRegistration ? 'main' : this.config.manifestBranch,
         files: {},
         message: `feat(deploy): unregister ${loginLc} via swkoo.kr/deploy\n\nUser-initiated removal.`,
         token,
@@ -1153,7 +1223,7 @@ export class DeployService {
       metaJson: JSON.stringify({ commit }),
     });
 
-    void this.refreshUsersApplicationSet();
+    void this.refreshUsersApplicationSet(privateRegistration);
 
     this.users.releaseAdmissionReservation(deploymentKey);
     return { commit };
@@ -1165,7 +1235,7 @@ export class DeployService {
    * deploy/argocd/swkoo-backend-applicationset-rbac.yaml — operator must
    * have applied that once. Best-effort: 3 min poll fallback covers us
    * if this fails. */
-  private async refreshUsersApplicationSet(): Promise<void> {
+  private async refreshUsersApplicationSet(privateImage = false): Promise<void> {
     if (!this.kube.available()) return;
     try {
       await this.kube.custom!.patchNamespacedCustomObject(
@@ -1174,7 +1244,7 @@ export class DeployService {
           version: 'v1alpha1',
           namespace: 'argocd',
           plural: 'applicationsets',
-          name: 'swkoo-users',
+          name: privateImage ? 'swkoo-private-users' : 'swkoo-users',
           body: {
             metadata: {
               annotations: { 'argocd.argoproj.io/application-set-refresh': 'true' },
@@ -1199,18 +1269,22 @@ export class DeployService {
     const loginLc = login.toLowerCase();
     const user = this.users.findByLogin(loginLc);
     const row = user && this.users.listAdditionalDeployments?.(user.id)
-      ?.find(entry => entry.sourceRepo === `${loginLc}/${repo.toLowerCase()}`);
+      ?.find(entry => entry.sourceRepo.split('/')[1] === repo.toLowerCase());
     const deploymentKey = row?.key ?? loginLc;
     const appName = row?.key ?? sanitizeName(repo);
     const subdomain = row?.key ?? this.resolveSubdomain(user, loginLc, appName);
     const liveUrl = `https://${subdomain}.${this.config.appsDomain}`;
 
+    const current = this.config.privateManifestRepo ? await this.getCurrentDeployment(login, false, repo) : null;
+    const protectedApp = current?.privateImage && current.repo.toLowerCase() === repo.toLowerCase() ? current : null;
     const [stages, storageProfile] = await Promise.all([
-      row ? this.statusService.getStages(requestingUserId, loginLc, repo, liveUrl, deploymentKey)
+      protectedApp ? this.statusService.getStages(requestingUserId, loginLc, repo, protectedApp.liveUrl, deploymentKey, protectedApp)
+        : row ? this.statusService.getStages(requestingUserId, loginLc, repo, liveUrl, deploymentKey)
         : this.statusService.getStages(requestingUserId, loginLc, repo, liveUrl),
       this.readExistingStorageProfile(deploymentKey),
     ]);
-    return { login: loginLc, ...(row ? { deploymentKey } : {}), repo, appName, liveUrl, stages,
+    return { login: loginLc, ...(row ? { deploymentKey } : {}), repo, appName, liveUrl: protectedApp?.liveUrl ?? liveUrl, stages,
+      ...(protectedApp ? { privateImage: true, imageRepo: protectedApp.imageRepo } : {}),
       storageProfile: storageProfile ?? undefined };
   }
 

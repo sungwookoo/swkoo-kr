@@ -177,6 +177,7 @@ export class AuthController {
       avatarUrl: user.avatarUrl,
       isAllowed: user.isAllowed,
       isAdmin,
+      privateDeployEnabled: Boolean(this.config.privateManifestRepo),
       requiresReauth,
       requiresConsent: user.policyVersion !== CURRENT_POLICY_VERSION,
       policyVersion: CURRENT_POLICY_VERSION,

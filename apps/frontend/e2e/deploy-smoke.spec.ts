@@ -64,7 +64,7 @@ test('scenario 2: empty repo list shows template CTA and GitHub App access link'
   // Authenticated header rendered.
   await expect(page.getByText(`@${ALICE.githubLogin}`)).toBeVisible();
   // Empty state copy.
-  await expect(page.getByText(/본인이 owner인 GitHub repo가 아직 없네요/)).toBeVisible();
+  await expect(page.getByText('선택할 수 있는 GitHub 저장소가 없습니다.')).toBeVisible();
   // Template CTA links out to GitHub /generate.
   const tpl = page.getByRole('link', { name: /템플릿으로 새 repo 만들기/ });
   await expect(tpl).toBeVisible();
@@ -78,6 +78,32 @@ test('scenario 2: empty repo list shows template CTA and GitHub App access link'
     'href',
     'https://github.com/apps/swkoo-deploy/installations/select_target'
   );
+});
+
+test('private repositories are requested only after opt-in and hidden again when turned off', async ({ page }) => {
+  await mockAuthenticatedAs(page, { ...ALICE, privateDeployEnabled: true });
+  const requests: boolean[] = [];
+  await page.route(/\/api\/deploy\/repos(?:\?|$)/, async route => {
+    const includePrivate = new URL(route.request().url()).searchParams.get('includePrivate') === 'true';
+    requests.push(includePrivate);
+    await json(route, 200, [{
+      name: 'demo', fullName: 'alice/demo', updatedAt: '2026-10-01', isPrivate: false,
+    }, ...(includePrivate ? [{
+      name: 'private-demo', fullName: 'my-team/private-demo', updatedAt: '2026-10-01', isPrivate: true,
+    }] : [])]);
+  });
+  await page.goto('/deploy');
+  const toggle = page.getByRole('checkbox', { name: '비공개 저장소 포함' });
+  const privateRepo = page.getByRole('button', { name: /my-team\/private-demo/ });
+  await expect(page.getByRole('button', { name: /alice\/demo/ })).toBeVisible();
+  await expect(toggle).not.toBeChecked();
+  await expect(privateRepo).toHaveCount(0);
+  expect(requests).toEqual([false]);
+  await toggle.check();
+  await expect(privateRepo).toBeVisible();
+  expect(requests).toEqual([false, true]);
+  await toggle.uncheck();
+  await expect(privateRepo).toHaveCount(0);
 });
 
 // ─────────────────────────────────────────────────────────────────────

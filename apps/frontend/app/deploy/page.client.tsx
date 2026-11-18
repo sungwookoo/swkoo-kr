@@ -31,9 +31,13 @@ export function DeployPageClient(): import("react").ReactNode {
   const params = useSearchParams();
   const { mutate } = useSWRConfig();
   const oauthError = params.get('error') === 'oauth_failed';
-  const selectedRepo = params.get('repo');
+  const [includePrivate, setIncludePrivate] = useState(false);
+  const [privateSelection, setPrivateSelection] = useState<string | null>(null);
+  const selectedRepo = privateSelection ?? params.get('repo');
 
   const handleLogout = async (): Promise<void> => {
+    setIncludePrivate(false);
+    setPrivateSelection(null);
     await logout();
     await mutate(ME_SWR_KEY, null, { revalidate: false });
   };
@@ -205,22 +209,35 @@ export function DeployPageClient(): import("react").ReactNode {
             </Link>
           </div>
           <p className="text-sm text-slate-500">
-            본인이 owner인 GitHub repo 30개 (최근 업데이트 순). 클릭하면 swkoo.kr이 자동
-            으로 스택을 감지합니다.
+            {me.privateDeployEnabled ? '내 개인 저장소와 GitHub 관리 권한이 있는 조직 저장소를 최근 업데이트 순으로 보여줍니다.' : '내 공개 저장소를 최근 업데이트 순으로 보여줍니다.'}
           </p>
+          {me.privateDeployEnabled && <label className="flex items-center gap-2 text-sm text-slate-300">
+            <input type="checkbox" checked={includePrivate} onChange={event => {
+              setIncludePrivate(event.target.checked);
+              setPrivateSelection(null);
+            }} />
+            비공개 저장소 포함
+          </label>}
+          {includePrivate && <p className="text-xs text-slate-400">GitHub App에 허용한 저장소만 조회합니다. 저장소와 이미지의 공개 설정은 바뀌지 않습니다.</p>}
         </div>
 
         <RepoGrid
+          includePrivate={includePrivate}
           selectedFullName={selectedRepo}
-          onSelect={(fullName) => {
+          onSelect={(fullName, isPrivate) => {
+            if (isPrivate) {
+              setPrivateSelection(fullName);
+              return;
+            }
+            setPrivateSelection(null);
             const next = new URLSearchParams(params.toString());
             next.set('repo', fullName);
             router.replace(`/deploy?${next.toString()}`, { scroll: false });
           }}
-          onClear={() => router.replace('/deploy', { scroll: false })}
+          onClear={() => { setPrivateSelection(null); router.replace('/deploy', { scroll: false }); }}
         />
 
-        {selectedRepo && <PreviewPanel key={selectedRepo} fullName={selectedRepo} automaticAddress={me.isAdmin} />}
+        {selectedRepo && <PreviewPanel key={selectedRepo} fullName={selectedRepo} includePrivate={includePrivate} deploymentLogin={me.githubLogin} automaticAddress={me.isAdmin} />}
 
         <AccountSection login={me.githubLogin} />
       </div>
@@ -506,14 +523,16 @@ function ProfileBadge({
 
 function RepoGrid({
   selectedFullName,
+  includePrivate,
   onSelect,
   onClear,
 }: {
   selectedFullName: string | null;
-  onSelect: (fullName: string) => void;
+  includePrivate: boolean;
+  onSelect: (fullName: string, isPrivate: boolean) => void;
   onClear: () => void;
 }): import("react").ReactNode {
-  const { repos, isLoading, error } = useRepos(true);
+  const { repos, isLoading, error } = useRepos(true, includePrivate);
 
   if (isLoading) {
     return <p className="text-slate-500">repo 목록을 가져오는 중…</p>;
@@ -529,7 +548,7 @@ function RepoGrid({
     return (
       <div className="space-y-4 rounded-lg border border-slate-800 bg-slate-900/40 p-6">
         <p className="text-slate-300">
-          본인이 owner인 GitHub repo가 아직 없네요. 새로 만들면 여기에 표시됩니다.
+          선택할 수 있는 GitHub 저장소가 없습니다.
         </p>
         <p className="text-sm text-slate-500">
           처음이시면 swkoo.kr 에서 검증된 Next.js 템플릿으로 시작하시는 게 가장 빠릅니다 — 한 번 클릭으로 본인 GitHub 에 새 repo 가 만들어집니다.
@@ -574,7 +593,7 @@ function RepoGrid({
           key={repo.fullName}
           repo={repo}
           selected={repo.fullName === selectedFullName}
-          onSelect={() => onSelect(repo.fullName)}
+          onSelect={() => onSelect(repo.fullName, repo.isPrivate)}
           onClear={onClear}
         />
       ))}
@@ -605,7 +624,8 @@ function RepoCard({
       }
     >
       <div className="flex items-start justify-between gap-2">
-        <p className="font-medium text-slate-100">{repo.name}</p>
+        <p className="break-all font-medium text-slate-100">{repo.fullName}</p>
+        {repo.isPrivate && <span className="shrink-0 text-xs text-slate-400">비공개</span>}
         {repo.isFork && (
           <span className="rounded-sm bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-400">
             fork
@@ -623,8 +643,8 @@ function RepoCard({
   );
 }
 
-function PreviewPanel({ fullName, automaticAddress }: { fullName: string; automaticAddress: boolean }): import("react").ReactNode {
-  const { preview, isLoading, error } = usePreview(fullName);
+function PreviewPanel({ fullName, automaticAddress, includePrivate, deploymentLogin }: { fullName: string; automaticAddress: boolean; includePrivate: boolean; deploymentLogin: string }): import("react").ReactNode {
+  const { preview, isLoading, error } = usePreview(fullName, includePrivate);
 
   return (
     <div className="rounded-lg border border-slate-800 bg-slate-900/50 p-6">
@@ -633,7 +653,7 @@ function PreviewPanel({ fullName, automaticAddress }: { fullName: string; automa
       <hr className="my-4 border-slate-800" />
       {isLoading && <p className="text-sm text-slate-400">스택 감지 중…</p>}
       {error && <p className="text-sm text-amber-400">감지 실패: {error.message}</p>}
-      {preview && <PreviewResult fullName={fullName} preview={preview} automaticAddress={automaticAddress} />}
+      {preview && <PreviewResult fullName={fullName} preview={preview} includePrivate={includePrivate} deploymentLogin={deploymentLogin} automaticAddress={automaticAddress} />}
     </div>
   );
 }
@@ -646,10 +666,14 @@ function PreviewResult({
   fullName,
   preview,
   automaticAddress,
+  includePrivate,
+  deploymentLogin,
 }: {
   fullName: string;
   preview: StackPreview;
   automaticAddress?: boolean;
+  includePrivate?: boolean;
+  deploymentLogin?: string;
 }): import("react").ReactNode {
   if (preview.stack === 'unsupported') {
     return (
@@ -690,7 +714,7 @@ function PreviewResult({
       {preview.storageProfile && (
         <PrismaStorageInfo profile={preview.storageProfile} />
       )}
-      <DeployTrigger fullName={fullName} blocked={hasFail} automaticAddress={automaticAddress} />
+      <DeployTrigger includePrivate={includePrivate} deploymentLogin={deploymentLogin} fullName={fullName} blocked={hasFail} automaticAddress={automaticAddress} />
     </div>
   );
 }
@@ -794,6 +818,8 @@ function DeployTrigger({
   fullName,
   blocked = false,
   automaticAddress,
+  includePrivate,
+  deploymentLogin,
 }: {
   fullName: string;
   /** Set true when one or more preview checks failed. We disable the
@@ -802,20 +828,22 @@ function DeployTrigger({
    *  Next.js dep). User must fix the underlying issue first. */
   blocked?: boolean;
   automaticAddress?: boolean;
+  includePrivate?: boolean;
+  deploymentLogin?: string;
 }): import("react").ReactNode {
   const router = useRouter();
   const [state, setState] = useState<DeployState>({ kind: 'idle' });
   const [slug, setSlug] = useState('');
   const [slugCheck, setSlugCheck] = useState<SubdomainCheckResult | null>(null);
   const [checking, setChecking] = useState(false);
-  const { data: setup, error: setupError, isLoading: setupLoading, mutate: refreshSetup } = useSourceSetup(blocked ? null : fullName);
+  const { data: setup, error: setupError, isLoading: setupLoading, mutate: refreshSetup } = useSourceSetup(blocked ? null : fullName, includePrivate);
   const [setupConsent, setSetupConsent] = useState(false);
   const [prUrl, setPrUrl] = useState('');
   const [registered, setRegistered] = useState<{ commit: string; owner: string; repo: string } | null>(null);
   const needsReview = setup?.files.some(file => file.action === 'review');
   useEffect(() => { setSetupConsent(false); setPrUrl(''); setRegistered(null); setState({ kind: 'idle' }); }, [fullName, setup?.digest]);
 
-  const defaultSlug = deriveDefaultSlug(fullName);
+  const defaultSlug = setup?.privateImage && deploymentLogin ? `${deploymentLogin.toLowerCase()}-app` : deriveDefaultSlug(fullName);
 
   const handleSlugBlur = async (): Promise<void> => {
     const trimmed = slug.trim().toLowerCase();
@@ -839,10 +867,10 @@ function DeployTrigger({
     setState({ kind: 'pending' });
     try {
       if (needsReview) {
-        const result = await createSetupPr(fullName, setup.digest);
+        const result = await createSetupPr(fullName, setup.digest, includePrivate);
         setPrUrl(result.prUrl);
       } else {
-        const result = await registerDeploy(fullName, slug.trim() || undefined, setup.digest);
+        const result = await registerDeploy(fullName, slug.trim() || undefined, setup.digest, includePrivate);
         const [owner, repo] = result.fullName.split('/');
         setRegistered({ commit: result.userRepoCommit, owner, repo });
       }
@@ -869,6 +897,7 @@ function DeployTrigger({
         {setupLoading && <p>파일과 대상 브랜치 확인 중…</p>}
         {setupError && <div><p role="alert">{setupError.message}</p><a href={installUrl()} className="text-emerald-300 underline">GitHub App 설치·저장소 접근 확인</a></div>}
         {setup && <>
+          {setup.privateImage && <p>이미지는 비공개 상태로 빌드됩니다. 첫 빌드 후 배포 진행 화면에서 이미지 읽기 권한을 연결해 주세요. 앱 주소는 공개되므로 로그인 보호가 필요한 경우 앱에서 설정해 주세요.</p>}
           <p>{setup.repo} · 대상 브랜치: {setup.branch} · 기준: {setup.sha.slice(0, 7)}</p>
           {setup.files.map(file => <details key={file.path} className="rounded border border-slate-800 p-2">
             <summary className="cursor-pointer break-all">{file.path}: {file.action === 'create' ? '새 파일 생성' : file.action === 'keep' ? '기존 파일 유지' : '차이 있음 — PR 검토 필요'}</summary>
@@ -888,7 +917,7 @@ function DeployTrigger({
         {prUrl && <p><a href={prUrl} target="_blank" rel="noreferrer" className="text-emerald-300 underline">GitHub에서 설정 PR 검토</a> · 신규 배포 등록은 아직 시작하지 않았습니다.</p>}
         {registered && <div className="space-y-2"><p>소스 파일 확인·배포 매니페스트 저장·배포 등록을 완료했습니다.</p>
           <a href={`https://github.com/${registered.owner}/${registered.repo}/commit/${registered.commit}`} target="_blank" rel="noreferrer" className="text-emerald-300 underline">소스 커밋 확인</a>
-          <button type="button" className="ml-3 text-emerald-300 underline" onClick={() => router.push(`/deploy/${encodeURIComponent(registered.owner)}/${encodeURIComponent(registered.repo)}`)}>배포 진행상황 보기</button>
+          <button type="button" className="ml-3 text-emerald-300 underline" onClick={() => router.push(`/deploy/${encodeURIComponent(deploymentLogin ?? registered.owner)}/${encodeURIComponent(registered.repo)}`)}>배포 진행상황 보기</button>
         </div>}
       </section>}
       {automaticAddress ? (

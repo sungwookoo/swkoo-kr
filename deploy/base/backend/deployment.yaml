@@ -51,6 +51,12 @@ spec:
           env:
             - name: MANIFEST_BRANCH
               value: "deployment-data"
+            - name: PRIVATE_MANIFEST_REPO
+              valueFrom:
+                configMapKeyRef:
+                  name: swkoo-private-deploy
+                  key: manifestRepo
+                  optional: true
             - name: TRUSTED_PROXY_CIDRS
               value: "10.42.0.0/16,10.0.0.147/32"
             - name: TOKEN_ENCRYPTION_KEY

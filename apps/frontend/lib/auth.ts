@@ -10,6 +10,7 @@ export interface Me {
   avatarUrl: string | null;
   isAllowed: boolean;
   isAdmin: boolean;
+  privateDeployEnabled?: boolean;
   requiresReauth: boolean;
   requiresConsent: boolean;
   policyVersion: string;

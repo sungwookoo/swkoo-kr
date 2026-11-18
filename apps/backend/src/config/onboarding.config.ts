@@ -32,6 +32,7 @@ export interface OnboardingConfig {
   // bypass the code branch's required pull requests and checks.
   manifestRepo: string; // "<owner>/<name>", e.g. "sungwookoo/swkoo-kr"
   manifestBranch: string;
+  privateManifestRepo?: string;
   // GitHub org that owns one private deploy repo per user
   // (<deployOwner>/<login>). The org installation needs Administration:write
   // for repo creation and per-repo Administration:write for archive on
@@ -70,6 +71,7 @@ export const onboardingConfig = registerAs(
     discordScanWebhookUrl: process.env.DISCORD_SCAN_WEBHOOK_URL || undefined,
     manifestRepo: process.env.MANIFEST_REPO ?? 'sungwookoo/swkoo-kr',
     manifestBranch: process.env.MANIFEST_BRANCH ?? 'deployment-data',
+    privateManifestRepo: process.env.PRIVATE_MANIFEST_REPO || undefined,
     deployOwner: process.env.GITHUB_DEPLOY_OWNER ?? 'swkoo-deploy',
     appsDomain: process.env.APPS_DOMAIN ?? 'apps.swkoo.kr',
     domainsBase: process.env.DOMAINS_BASE ?? 'domains.swkoo.kr',

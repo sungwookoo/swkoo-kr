@@ -60,26 +60,26 @@ async function fetcher<T>(url: string): Promise<T> {
   return (await response.json()) as T;
 }
 
-export function useRepos(enabled: boolean): {
+export function useRepos(enabled: boolean, includePrivate = false): {
   repos: RepoSummary[] | undefined;
   isLoading: boolean;
   error: Error | undefined;
 } {
   const { data, error, isLoading } = useSWR<RepoSummary[]>(
-    enabled ? `${API_BASE_URL}/deploy/repos` : null,
+    enabled ? `${API_BASE_URL}/deploy/repos${includePrivate ? '?includePrivate=true' : ''}` : null,
     fetcher,
     { revalidateOnFocus: false }
   );
   return { repos: data, isLoading, error };
 }
 
-export function usePreview(fullName: string | null): {
+export function usePreview(fullName: string | null, includePrivate = false): {
   preview: StackPreview | undefined;
   isLoading: boolean;
   error: Error | undefined;
 } {
   const { data, error, isLoading } = useSWR<StackPreview>(
-    fullName ? `${API_BASE_URL}/deploy/preview?repo=${encodeURIComponent(fullName)}` : null,
+    fullName ? `${API_BASE_URL}/deploy/preview?repo=${encodeURIComponent(fullName)}${includePrivate ? '&includePrivate=true' : ''}` : null,
     fetcher,
     { revalidateOnFocus: false }
   );
@@ -96,11 +96,12 @@ export interface RegisterResponse {
 }
 
 export interface SourceSetupPlan {
+  privateImage?: boolean;
   repo: string; branch: string; sha: string; digest: string;
   files: { path: string; action: 'create' | 'keep' | 'review'; before: string | null; after: string }[];
 }
-export function useSourceSetup(fullName: string | null) {
-  return useSWR<SourceSetupPlan>(fullName ? `${API_BASE_URL}/deploy/setup?repo=${encodeURIComponent(fullName)}` : null,
+export function useSourceSetup(fullName: string | null, includePrivate = false) {
+  return useSWR<SourceSetupPlan>(fullName ? `${API_BASE_URL}/deploy/setup?repo=${encodeURIComponent(fullName)}${includePrivate ? '&includePrivate=true' : ''}` : null,
     requestSourceSetup, { revalidateOnFocus: false, shouldRetryOnError: false });
 }
 async function requestSourceSetup<T>(url: string, body?: object): Promise<T> {
@@ -112,11 +113,12 @@ async function requestSourceSetup<T>(url: string, body?: object): Promise<T> {
     typeof data?.message === 'string' ? data.message : '배포 설정 요청에 실패했습니다. 다시 조회해 주세요.');
   return data;
 }
-export async function createSetupPr(fullName: string, setupDigest: string): Promise<{ prUrl: string }> {
-  return requestSourceSetup(`${API_BASE_URL}/deploy/setup/pr`, { fullName, setupDigest, setupConsent: 'source-setup-v1' });
+export async function createSetupPr(fullName: string, setupDigest: string, includePrivate = false): Promise<{ prUrl: string }> {
+  return requestSourceSetup(`${API_BASE_URL}/deploy/setup/pr`, { fullName, setupDigest, includePrivate, setupConsent: 'source-setup-v1' });
 }
 
 export interface CurrentDeployment {
+  privateImage?: boolean;
   login: string;
   repo: string;
   fullName: string;
@@ -227,6 +229,8 @@ export interface StageInfo {
 }
 
 export interface DeploymentStatus {
+  privateImage?: boolean;
+  imageRepo?: string;
   deploymentKey?: string;
   login: string;
   repo: string;
@@ -321,9 +325,10 @@ export async function saveEnvVars(
 export async function registerDeploy(
   fullName: string,
   subdomain?: string,
-  setupDigest?: string
+  setupDigest?: string,
+  includePrivate = false
 ): Promise<RegisterResponse> {
-  const body = { fullName, subdomain: subdomain?.trim().toLowerCase() || undefined, setupDigest, setupConsent: 'source-setup-v1' };
+  const body = { fullName, subdomain: subdomain?.trim().toLowerCase() || undefined, setupDigest, includePrivate, setupConsent: 'source-setup-v1' };
   const response = await fetch(`${API_BASE_URL}/deploy/register`, {
     method: 'POST',
     credentials: 'include',
@@ -371,4 +376,14 @@ export async function checkSubdomain(slug: string): Promise<SubdomainCheckResult
     throw new Error(`check failed (${response.status})`);
   }
   return (await response.json()) as SubdomainCheckResult;
+}
+
+export async function saveRegistryCredential(login: string, repo: string, token: string): Promise<void> {
+  const url = `${API_BASE_URL}/deploy/registry/${encodeURIComponent(login)}/${encodeURIComponent(repo)}`;
+  const response = await fetch(url, { credentials: 'include', method: 'PUT',
+    headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token }) });
+  if (!response.ok) {
+    const data = await response.json().catch(() => null);
+    throw new Error(typeof data?.message === 'string' ? data.message : '이미지 접근 권한을 저장하지 못했습니다.');
+  }
 }
