@@ -45,7 +45,7 @@ function adminDeploymentsUrl(login: string) {
 
 export function useAdminDeployments(login: string) {
   return useSWR<AdminDeployment[]>(login ? adminDeploymentsUrl(login) : null, fetcher, {
-    refreshInterval: 10_000,
+    refreshInterval: apps => apps?.some(app => app.state === 'deleting' || (app.state === 'paused' && app.stopped !== true)) ? 5_000 : 30_000,
     shouldRetryOnError: false,
   });
 }
