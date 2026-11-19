@@ -4,6 +4,7 @@ import { ALICE, installCatchAll, json, mockAuthenticatedAs } from './fixtures';
 test('administrator reviews resource absence before releasing a reservation, and a changed state requires a fresh review', async ({ page }) => {
   await installCatchAll(page); await mockAuthenticatedAs(page, { ...ALICE, isAdmin: true });
   await page.route('**/api/admin/users', route => json(route, 200, { users: [] }));
+  await page.route('**/api/admin/deployment-capacity', route => json(route, 503, {}));
   await page.route('**/api/admin/deployment-recovery', route => json(route, 200, { reservations: [{ login: 'alice', createdAt: 123 }] }));
   await page.route('**/api/admin/deployment-recovery/alice', route => json(route, 200, {
     login: 'alice', registration: false, application: false, namespace: false, persistentVolumes: 0, canRelease: true, digest: 'reviewed',
@@ -38,6 +39,7 @@ test('an administrator edits and saves a single account’s deployment policy', 
   const target = { ...ALICE, githubLogin: 'test-user', createdAt: '2026-11-01', lastLoginAt: '2026-11-02',
     deployPolicy: { maxApps: 1, cpuMillicores: 500, memoryMiB: 512 } };
   await page.route('**/api/admin/users', route => json(route, 200, { users: [target] }));
+  await page.route('**/api/admin/deployment-capacity', route => json(route, 503, {}));
   await page.route('**/api/admin/deployment-recovery', route => json(route, 200, { reservations: [] }));
   await page.route('**/api/admin/users/test-user/deploy-policy', route => {
     expect(route.request().method()).toBe('PATCH');
@@ -52,4 +54,32 @@ test('an administrator edits and saves a single account’s deployment policy', 
   await page.getByLabel('앱당 메모리 (MiB)').fill('768');
   await page.getByRole('button', { name: '한도 저장' }).click();
   await expect(page.getByText('앱 최대 2개 · 0.75코어 · 768MiB')).toBeVisible();
+});
+
+test('administrator sees actual capacity and refreshes the deployment estimate', async ({ page }) => {
+  await installCatchAll(page);
+  await mockAuthenticatedAs(page, { ...ALICE, isAdmin: true });
+  await page.route('**/api/admin/users', route => json(route, 200, { users: [] }));
+  await page.route('**/api/admin/deployment-recovery', route => json(route, 200, { reservations: [] }));
+  let blocked = false;
+  await page.route('**/api/admin/deployment-capacity', route => json(route, 200, {
+    checkedAt: '2026-11-19T05:00:00Z',
+    cpu: { totalMillicores: 4000, idleMillicores: 3500 },
+    memory: { totalMiB: 24576, availableMiB: 16384 },
+    deployment: {
+      pending: 1, reason: blocked ? 'storage' : null,
+      availableMillicores: 1600, availableMemoryMiB: 12288,
+      requiredMillicores: 200, requiredMemoryMiB: 512,
+      safetyMillicores: 1000, safetyMemoryMiB: 4096, usageCeilingPercent: 70,
+      suggestedLimits: blocked ? null : { cpuMillicores: 1200, memoryMiB: 6144 },
+    },
+  }));
+  await page.goto('/admin');
+  const region = page.getByRole('region', { name: '서버 가용 자원' });
+  await expect(region.getByText('3.5코어 / 4코어')).toBeVisible();
+  await expect(region.getByText(/새 앱 1개의 상한 설정 참고/)).toContainText('CPU 1.2코어');
+  blocked = true;
+  await region.getByRole('button', { name: '새로 확인' }).click();
+  await expect(region.getByText(/신규 배포 보류/)).toContainText('저장공간');
+  await expect(region.getByText(/새 앱 1개의 상한 설정 참고/)).toHaveCount(0);
 });

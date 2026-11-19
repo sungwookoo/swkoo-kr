@@ -7,6 +7,7 @@ import clsx from 'clsx';
 
 import { useMe } from '@/lib/auth';
 import { DeploymentRecovery } from '@/components/DeploymentRecovery';
+import { DeploymentCapacity } from '@/components/DeploymentCapacity';
 import {
   ADMIN_USERS_SWR_KEY,
   AdminUser,
@@ -54,6 +55,7 @@ export function AdminPageClient(): import("react").ReactNode {
           </p>
         </header>
 
+        <DeploymentCapacity />
         <UsersTable />
         <DeploymentRecovery />
       </div>
