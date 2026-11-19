@@ -9,6 +9,7 @@ import { CustomDomainsRepository } from '../domain/domain.repository';
 import { KubeClient } from '../kube/kube.client';
 import { AuthService } from '../onboarding/auth.service';
 import { UsersRepository } from '../onboarding/users.repository';
+import { AppResourceLimits, DEFAULT_APP_RESOURCES, resolveDeployPolicy } from '../onboarding/deploy-policy';
 import { DeployStatusService } from './deploy-status.service';
 import { ArgoCdClient } from '../pipelines/services/argo-cd.client';
 import { GithubAppService } from '../github-app/github-app.service';
@@ -24,6 +25,7 @@ import {
   getUserDeployRepoName,
   getUserRegistrationPath,
   parseStorageProfileBlock,
+  parseAppResourceLimits,
   renderDeployRepoFiles,
   renderUserRegistration,
   renderUserRepoFiles,
@@ -178,6 +180,7 @@ export interface CurrentDeployment {
   privateImage?: boolean;
   imageRepo?: string;
   imageOrganization?: boolean;
+  resourceLimits?: AppResourceLimits;
 }
 
 export interface DeploymentStatus {
@@ -733,13 +736,12 @@ export class DeployService {
     const primary = await this.getCurrentDeployment(userLogin, true);
     const sourceRepo = source.repo.full_name.toLowerCase();
     const isAdmin = this.config.adminLogins?.some(login => login.toLowerCase() === loginLc);
+    const policy = resolveDeployPolicy(user.deployPolicy, Boolean(isAdmin));
     const extraRows = this.users.listAdditionalDeployments?.(user.id) ?? [];
     const existingExtra = extraRows.find(row => row.sourceRepo === sourceRepo);
-    if (!isAdmin && !primary && !existingExtra && extraRows.length
-        && (await this.listDeployments(userLogin, true)).length) {
-      throw new ConflictException({ reason: 'APP_ALREADY_EXISTS', message: '계정당 앱은 1개입니다. 기존 앱을 제거한 뒤 다른 앱을 배포해 주세요.' });
-    }
-    const additional = Boolean(existingExtra || (isAdmin && primary?.fullName.toLowerCase() !== sourceRepo));
+    const primaryMatches = primary?.fullName.toLowerCase() === sourceRepo;
+    const additional = Boolean(existingExtra || (!primaryMatches &&
+      (primary || isAdmin || (policy.maxApps ?? 0) > 1)));
     if (extraRows.some(row => row.sourceRepo !== sourceRepo && row.sourceRepo.split('/')[1] === repo.toLowerCase())
         || (primary?.repo.toLowerCase() === repo.toLowerCase() && primary.fullName.toLowerCase() !== sourceRepo)) {
       throw new ConflictException('같은 이름으로 배포된 앱이 있습니다. 다른 저장소 이름을 사용해 주세요.');
@@ -749,21 +751,25 @@ export class DeployService {
       : loginLc);
     const appName = additional ? deploymentKey : sanitizeName(repo);
     const current = additional
-      ? await this.readDeployment(loginLc, deploymentKey, true)
+      ? (existingExtra ? await this.readDeployment(loginLc, deploymentKey, true) : null)
       : primary;
-    if (additional && !isAdmin && !current) {
-      throw new ForbiddenException('추가 앱을 신규 배포하려면 관리자 권한이 필요합니다.');
-    }
     if (current && Boolean(current.privateImage) !== privateImage) {
       throw new ConflictException('기존 배포의 공개 설정과 다릅니다. 운영자에게 문의해 주세요.');
     }
     if (current?.state === 'deleting') throw new ConflictException({ reason: 'DEPLOYMENT_DELETING', message: '앱과 저장공간을 삭제 중입니다. 삭제가 완료된 뒤 다시 배포해 주세요.' });
     if (current && current.fullName.toLowerCase() !== sourceRepo) {
-      if (additional) throw new ConflictException('이 배포 식별자는 다른 저장소에서 사용 중입니다.');
-      throw new ConflictException({ reason: 'APP_ALREADY_EXISTS', message: '계정당 앱은 1개입니다. 기존 앱을 제거한 뒤 다른 앱을 배포해 주세요.' });
+      throw new ConflictException('이 배포 식별자는 다른 저장소에서 사용 중입니다.');
+    }
+    if (!current && policy.maxApps !== null) {
+      const count = extraRows.length ? (await this.listDeployments(userLogin, true)).length : Number(Boolean(primary));
+      if (count >= policy.maxApps) throw new ConflictException({ reason: 'APP_ALREADY_EXISTS',
+        message: `계정당 앱은 최대 ${policy.maxApps}개입니다. 신규 배포가 필요하면 관리자에게 문의해 주세요.` });
+    }
+    if (additional && !existingExtra && await this.readDeployment(loginLc, deploymentKey, true)) {
+      throw new ConflictException('이 배포 식별자는 다른 앱에서 사용 중입니다.');
     }
     if (additional && req.subdomain?.trim()) {
-      throw new ConflictException('추가 관리자 앱은 고유 주소를 자동으로 받습니다. 배포 후 별도 도메인을 연결할 수 있습니다.');
+      throw new ConflictException('추가 앱은 고유 주소를 자동으로 받습니다. 배포 후 별도 도메인을 연결할 수 있습니다.');
     }
     if (additional && this.users.findBySubdomain(deploymentKey)) {
       throw new ConflictException('자동으로 할당한 주소가 기존 앱과 충돌했습니다. 운영자에게 문의해 주세요.');
@@ -810,6 +816,11 @@ export class DeployService {
       imageRepo,
       privateImage,
       imageOrganization: source.repo.owner.type === 'Organization',
+      resourceLimits: { cpuMillicores: policy.cpuMillicores, memoryMiB: policy.memoryMiB },
+      recreateForResources: Boolean(current) && (
+        (current?.resourceLimits?.cpuMillicores ?? DEFAULT_APP_RESOURCES.cpuMillicores) !== policy.cpuMillicores ||
+        (current?.resourceLimits?.memoryMiB ?? DEFAULT_APP_RESOURCES.memoryMiB) !== policy.memoryMiB
+      ),
       subdomain,
       port: preview.port,
       uid: 1000,
@@ -1033,6 +1044,7 @@ export class DeployService {
       ...(deploymentKey !== loginLc ? { deploymentKey } : {}),
       repo: userRepo,
       fullName: sourceRepo ?? `${loginLc}/${userRepo}`,
+      resourceLimits: registrationContent ? parseAppResourceLimits(registrationContent) : undefined,
       ...(privateImage ? { privateImage: true, imageRepo,
         imageOrganization: registrationContent?.includes('imageOrganization: true') } : {}),
       appName,

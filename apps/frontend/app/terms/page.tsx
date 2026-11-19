@@ -80,7 +80,7 @@ export default function TermsPage(): import("react").ReactNode {
         </Section>
 
         <Section title="5. 자원 한도">
-          <p>사용자당 앱 1개에 아래 기본 자원이 적용됩니다.</p>
+          <p>일반 계정의 기본 한도는 앱 1개이며, 앱마다 아래 기본 자원이 적용됩니다. 계정별 한도는 배포 화면에서 확인할 수 있습니다.</p>
           <ul className="list-disc space-y-1 pl-5">
             <li>공유 CPU: 예약 0.1코어 / 최대 0.5코어</li>
             <li>메모리: 예약 256MiB / 최대 512MiB</li>

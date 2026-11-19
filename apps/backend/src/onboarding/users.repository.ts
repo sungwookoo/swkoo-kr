@@ -8,6 +8,7 @@ import { randomUUID } from 'node:crypto';
 import { webhooksConfig } from '../config/webhooks.config';
 import type { DeploySuccessEmail } from '../email/email.service';
 import { TokenCipher } from './token-cipher';
+import { DeployPolicy } from './deploy-policy';
 
 export interface DeployNotification {
   id: number;
@@ -41,6 +42,7 @@ export interface UserRow {
   // back to the auto-derived `<login>-<repo>` host. Globally unique among
   // non-NULL values (partial UNIQUE index).
   subdomain: string | null;
+  deployPolicy?: DeployPolicy;
 }
 
 export interface TokenSet {
@@ -187,6 +189,7 @@ export class UsersRepository implements OnModuleInit, OnModuleDestroy {
     // permit multiple NULLs, but the partial index makes the intent explicit
     // and avoids surprises if the column default ever changes.
     this.addColumnIfMissing('users', 'subdomain', 'TEXT');
+    this.addColumnIfMissing('users', 'deploy_policy', 'TEXT');
     this.db.exec(
       `CREATE UNIQUE INDEX IF NOT EXISTS idx_users_subdomain
          ON users(subdomain) WHERE subdomain IS NOT NULL`
@@ -263,12 +266,12 @@ export class UsersRepository implements OnModuleInit, OnModuleDestroy {
     created_at AS createdAt, last_login_at AS lastLoginAt,
     CASE WHEN is_allowed = 1 THEN 1 ELSE 0 END AS isAllowed,
     policy_version AS policyVersion,
-    subdomain
+    subdomain, deploy_policy AS deployPolicyJson
   `;
 
   private hydrate(row: unknown): UserRow {
-    const r = row as UserRow & { isAllowed: number | boolean };
-    return { ...r, isAllowed: Boolean(r.isAllowed) };
+    const { deployPolicyJson, ...r } = row as UserRow & { deployPolicyJson: string | null };
+    return { ...r, isAllowed: Boolean(r.isAllowed), ...(deployPolicyJson ? { deployPolicy: JSON.parse(deployPolicyJson) } : {}) };
   }
 
   upsertUser(u: UserUpsert): UserRow {
@@ -360,6 +363,7 @@ export class UsersRepository implements OnModuleInit, OnModuleDestroy {
              token_expires_at = NULL,
              is_allowed    = 0,
              subdomain     = NULL,
+             deploy_policy = NULL,
              deleted_at    = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
            WHERE id = ?`
         )
@@ -456,6 +460,17 @@ export class UsersRepository implements OnModuleInit, OnModuleDestroy {
       .prepare(`UPDATE users SET is_allowed = ? WHERE LOWER(github_login) = ?`)
       .run(isAllowed ? 1 : 0, login.toLowerCase());
     return result.changes > 0;
+  }
+
+  setDeployPolicy(login: string, policy: DeployPolicy, actor: string): boolean {
+    return this.db.transaction(() => {
+      const result = this.db.prepare(
+        'UPDATE users SET deploy_policy = ? WHERE LOWER(github_login) = ? AND deleted_at IS NULL',
+      ).run(JSON.stringify(policy), login.toLowerCase());
+      if (!result.changes) return false;
+      this.audit({ actor, action: 'DEPLOY_POLICY_UPDATED', target: login, reason: null, metaJson: JSON.stringify(policy) });
+      return true;
+    })();
   }
 
   /** Claims a sub-slug for the user, or releases it (subdomain=null).

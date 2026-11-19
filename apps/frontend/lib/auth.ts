@@ -10,11 +10,19 @@ export interface Me {
   avatarUrl: string | null;
   isAllowed: boolean;
   isAdmin: boolean;
+  deployPolicy?: DeployPolicy;
+  hasAdditionalDeployments?: boolean;
   privateDeployEnabled?: boolean;
   requiresReauth: boolean;
   requiresConsent: boolean;
   policyVersion: string;
   brandName: string;
+}
+
+export interface DeployPolicy {
+  maxApps: number | null;
+  cpuMillicores: number;
+  memoryMiB: number;
 }
 
 export async function acceptConsent(version: string): Promise<void> {
