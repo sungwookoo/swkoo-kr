@@ -28,6 +28,31 @@ async function fetcher<T>(url: string): Promise<T> {
 
 export const ADMIN_USERS_SWR_KEY = `${API_BASE_URL}/admin/users`;
 
+interface DeploymentCapacity {
+  checkedAt: string;
+  cpu: { totalMillicores: number; idleMillicores: number };
+  memory: { totalMiB: number; availableMiB: number };
+  deployment: {
+    reason: 'node' | 'usage' | 'compute' | 'storage' | null;
+    pending: number;
+    availableMillicores: number;
+    availableMemoryMiB: number;
+    requiredMillicores: number;
+    requiredMemoryMiB: number;
+    safetyMillicores: number;
+    safetyMemoryMiB: number;
+    usageCeilingPercent: number;
+    suggestedLimits: Omit<DeployPolicy, 'maxApps'> | null;
+  };
+}
+
+export function useDeploymentCapacity() {
+  return useSWR<DeploymentCapacity>(`${API_BASE_URL}/admin/deployment-capacity`, fetcher, {
+    refreshInterval: 30_000,
+    shouldRetryOnError: false,
+  });
+}
+
 export async function setUserDeployPolicy(login: string, policy: DeployPolicy): Promise<DeployPolicy> {
   const response = await fetch(`${ADMIN_USERS_SWR_KEY}/${encodeURIComponent(login)}/deploy-policy`, {
     method: 'PATCH',

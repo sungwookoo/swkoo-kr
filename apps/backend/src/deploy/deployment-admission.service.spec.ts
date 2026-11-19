@@ -1,4 +1,4 @@
-import { DeploymentAdmissionService } from './deployment-admission.service';
+import { ADMISSION_QUERIES, DeploymentAdmissionService } from './deployment-admission.service';
 const Gi = 1024 ** 3;
 const sample = (value: number, metric: Record<string, string> = {}) => ({ metric, value: [Date.now() / 1000, String(value)] as [number, string] });
 describe('deployment admission', () => {
@@ -17,6 +17,41 @@ describe('deployment admission', () => {
     const metrics = { query: jest.fn(async () => data[(i++) % data.length]) };
     return { service: new DeploymentAdmissionService(metrics as any, users as any), users, metrics, reservations, data };
   }
+  function addHostMetrics(s: ReturnType<typeof setup>, available = 18 * Gi, age = 4) {
+    s.data.push([sample(4)], [sample(available)], [sample(24 * Gi)], [sample(age)]);
+  }
+  it('shows actual idle and available resources separately from reservation headroom without writing reservations', async () => {
+    const s = setup();
+    addHostMetrics(s);
+    s.reservations.set('pending', 1);
+    s.reservations.set('running', 2);
+    s.data[2].push(sample(.1, { namespace: 'user-running', pod: 'app', resource: 'cpu' }));
+    const view = await s.service.capacity();
+    expect(view.cpu).toEqual({ totalMillicores: 4000, idleMillicores: 3600 });
+    expect(view.memory).toEqual({ totalMiB: 24576, availableMiB: 18432 });
+    expect(view.deployment).toMatchObject({ pending: 1, reason: null, availableMillicores: 1700,
+      requiredMillicores: 200, requiredMemoryMiB: 512, suggestedLimits: { cpuMillicores: 1700, memoryMiB: 8192 } });
+    expect(s.users.reserveAdmission).not.toHaveBeenCalled();
+    expect(s.users.releaseAdmissionReservation).not.toHaveBeenCalled();
+    expect(s.metrics.query).toHaveBeenCalledTimes(ADMISSION_QUERIES.length + 4);
+  });
+  it('applies the same threshold to the administrator view and actual registration', async () => {
+    const s = setup();
+    s.data[4] = [sample(.7)];
+    const write = setup();
+    write.data[4] = [sample(.7)];
+    addHostMetrics(s);
+    expect((await s.service.capacity()).deployment).toMatchObject({ reason: 'usage', suggestedLimits: null });
+    await expect(write.service.reserve('alice')).rejects.toThrow('여유가 부족');
+  });
+  it('does not return guidance from stale memory metrics or a low current memory reading', async () => {
+    const stale = setup();
+    addHostMetrics(stale, 18 * Gi, 91);
+    await expect(stale.service.capacity()).rejects.toThrow('최신 서버 사용량');
+    const low = setup();
+    addHostMetrics(low, 7.25 * Gi);
+    expect((await low.service.capacity()).deployment.suggestedLimits).toBeNull();
+  });
   it('keeps a pending reservation and does not double count a retry', async () => {
     const s = setup(); await s.service.reserve('Alice'); await s.service.reserve('alice');
     expect([...s.reservations.keys()]).toEqual(['alice']);

@@ -26,6 +26,7 @@ import { DeploymentDiagnosticsService } from './deployment-diagnostics.service';
 import { DeploymentDiagnosticsController } from './deployment-diagnostics.controller';
 import { DeploymentRecoveryController } from './deployment-recovery.controller';
 import { DeploymentRecoveryService } from './deployment-recovery.service';
+import { DeploymentCapacityController } from './deployment-capacity.controller';
 
 @Module({
   imports: [
@@ -39,7 +40,7 @@ import { DeploymentRecoveryService } from './deployment-recovery.service';
     ConfigModule.forFeature(onboardingConfig),
     ConfigModule.forFeature(emailConfig),
   ],
-  controllers: [DeployController, AccountController, SecurityPatchController, DeploymentDiagnosticsController, DeploymentRecoveryController],
+  controllers: [DeployController, AccountController, SecurityPatchController, DeploymentDiagnosticsController, DeploymentRecoveryController, DeploymentCapacityController],
   providers: [DeployStatusService, DeployService, EnvService, CleanupService, ScanService, DeployNotificationsService, SecurityPatchService, SecurityPatchRepository, PlatformMetricsService, DeploymentAdmissionService, DeploymentDiagnosticsService, DeploymentRecoveryService],
   exports: [DeployService, EnvService],
 })
