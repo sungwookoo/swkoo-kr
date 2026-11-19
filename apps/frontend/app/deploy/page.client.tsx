@@ -446,20 +446,21 @@ function DeploymentBanner({ current }: { current: NonNullable<ReturnType<typeof 
   }
 
   const healthy = current.syncStatus === 'Synced' && current.healthStatus === 'Healthy';
+  const paused = current.state === 'paused';
   return (
     <div
       className={
         'flex flex-col gap-3 rounded-lg border p-4 sm:flex-row sm:items-center sm:justify-between ' +
-        (healthy
+        (healthy && !paused
           ? 'border-emerald-600/40 bg-emerald-500/5'
           : 'border-slate-800 bg-slate-900/40')
       }
     >
       <div className="space-y-1">
-        <p className="text-xs uppercase tracking-wide text-slate-500">현재 배포 중</p>
+        <p className="text-xs uppercase tracking-wide text-slate-500">{paused ? '관리자가 일시 중지한 앱' : '현재 배포 중'}</p>
         <p className="font-mono text-slate-200">{current.fullName}</p>
         <p className="text-xs text-slate-400">
-          {healthy ? '✓ Synced / Healthy — ' : '⏳ '}
+          {paused ? current.liveUrl : <>{healthy ? '✓ Synced / Healthy — ' : '⏳ '}
           <a
             href={current.liveUrl}
             target="_blank"
@@ -467,7 +468,7 @@ function DeploymentBanner({ current }: { current: NonNullable<ReturnType<typeof 
             className="underline-offset-2 hover:underline"
           >
             {current.liveUrl}
-          </a>
+          </a></>}
         </p>
       </div>
       <Link

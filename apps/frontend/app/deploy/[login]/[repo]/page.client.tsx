@@ -45,6 +45,7 @@ export function StatusClient({ login, repo }: StatusClientProps): import("react"
   const requiresLogin = errorStatus === 401;
   const forbidden = errorStatus === 403;
   const status = requiresLogin || forbidden ? undefined : cachedStatus;
+  const runningStatus = status?.paused ? undefined : status;
 
   return (
     <main className="relative isolate min-h-[calc(100vh-12rem)] w-full px-6 py-16 sm:py-20">
@@ -71,29 +72,30 @@ export function StatusClient({ login, repo }: StatusClientProps): import("react"
             상태 조회 실패: {error.message}
           </p>
         )}
-        {status && <Checklist status={status} />}
-        {status?.privateImage && <PrivateImagePanel login={login} repo={repo} image={status.imageRepo} />}
-        {status && <DeploymentDiagnostics key={`diagnostics:${login}/${repo}`} login={login} repo={repo} />}
+        {status?.paused && <p className="text-sm text-amber-300">관리자가 앱을 일시 중지했습니다. 앱을 다시 시작하려면 관리자에게 문의해 주세요.</p>}
+        {runningStatus && <Checklist status={runningStatus} />}
+        {runningStatus?.privateImage && <PrivateImagePanel login={login} repo={repo} image={runningStatus.imageRepo} />}
+        {runningStatus && <DeploymentDiagnostics key={`diagnostics:${login}/${repo}`} login={login} repo={repo} />}
 
-        {status && (
+        {runningStatus && (
           <EnvVarsPanel
             login={login}
             repo={repo}
-            storageProfile={status.storageProfile}
-            deploymentPending={['pending', 'running'].includes(status.stages.deploy.status)}
+            storageProfile={runningStatus.storageProfile}
+            deploymentPending={['pending', 'running'].includes(runningStatus.stages.deploy.status)}
           />
         )}
 
-        {status && (
+        {runningStatus && (
           <DomainPanel
             login={login}
             repo={repo}
-            fallbackLiveUrl={status.liveUrl}
+            fallbackLiveUrl={runningStatus.liveUrl}
           />
         )}
 
-        {status && !status.privateImage && <ScanPanel repo={status.deploymentKey ? repo : undefined} />}
-        {status && !status.privateImage && <SecurityPatchPanel key={`${login}/${repo}`} repo={`${login}/${repo}`} />}
+        {runningStatus && !runningStatus.privateImage && <ScanPanel repo={runningStatus.deploymentKey ? repo : undefined} />}
+        {runningStatus && !runningStatus.privateImage && <SecurityPatchPanel key={`${login}/${repo}`} repo={`${login}/${repo}`} />}
 
         {status && <DeleteCard login={login} repo={repo} />}
 
@@ -666,7 +668,8 @@ function Header({
       <h1 className="font-mono text-2xl text-slate-100">
         {login}/{repo}
       </h1>
-      {status && (
+      {status?.paused && <p className="font-mono text-sm text-slate-400">{status.liveUrl}</p>}
+      {status && !status.paused && (
         <p className="text-sm text-slate-400">
           {liveReady ? '✓ 라이브 — ' : failed ? '⚠ 배포 확인 필요 — ' : '⏳ 배포 진행 중 — '}
           <a

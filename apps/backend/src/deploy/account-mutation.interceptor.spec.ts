@@ -2,8 +2,8 @@ import { firstValueFrom, of, Subject, throwError } from 'rxjs';
 import { AccountMutationInterceptor } from './account-mutation.interceptor';
 
 describe('account mutation exclusion', () => {
-  const ctx = (id: number, path = '/api/deploy/register', method = 'POST') => ({
-    switchToHttp: () => ({ getRequest: () => ({ user: { id }, path, method }) }),
+  const ctx = (id: number, path = '/api/deploy/register', method = 'POST', login?: string) => ({
+    switchToHttp: () => ({ getRequest: () => ({ user: { id, githubLogin: id === 1 ? 'alice' : 'admin' }, path, method, params: { login } }) }),
   } as any);
   it('blocks duplicate requests and delete/env/domain changes until registration settles', async () => {
     const guard = new AccountMutationInterceptor(), pending = new Subject<string>();
@@ -24,6 +24,13 @@ describe('account mutation exclusion', () => {
     expect(await firstValueFrom(guard.intercept(ctx(2, '/api/deploy/env/bob/app', 'PUT'), { handle: () => of('other') }))).toBe('other');
     expect(() => guard.intercept(ctx(2), { handle: () => of('wrong') })).toThrow('처리 중');
     expect(() => guard.intercept(ctx(99, '/api/admin/deployment-recovery/alice/release'), { handle: () => of('wrong') })).toThrow('처리 중');
+    pending.next('ok'); await first;
+  });
+  it('serializes an admin mutation with the app owner’s environment and domain changes', async () => {
+    const guard = new AccountMutationInterceptor(), pending = new Subject<string>();
+    const first = firstValueFrom(guard.intercept(ctx(99, '/api/admin/users/alice/deployments/alice/lifecycle', 'POST', 'alice'), { handle: () => pending }));
+    expect(() => guard.intercept(ctx(1, '/api/deploy/env/alice/app', 'PUT'), { handle: () => of('wrong') })).toThrow('처리 중');
+    expect(() => guard.intercept(ctx(1, '/api/deploy/domain/alice/app'), { handle: () => of('wrong') })).toThrow('처리 중');
     pending.next('ok'); await first;
   });
   it('retains exclusion if the response subscriber disconnects', async () => {

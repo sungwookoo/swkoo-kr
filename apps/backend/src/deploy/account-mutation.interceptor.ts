@@ -17,14 +17,17 @@ export class AccountMutationInterceptor implements NestInterceptor {
     const path = req.path.toLowerCase().replace(/^\/api(?=\/)/, '').replace(/\/+$/, '');
     const recovery = /^\/admin\/deployment-recovery\/[^/]+\/release$/.test(path);
     const policyChange = req.method === 'PATCH' && /^\/admin\/users\/[^/]+\/deploy-policy$/.test(path);
+    const appLifecycle = req.method === 'POST' && /^\/admin\/users\/[^/]+\/deployments\/[^/]+\/lifecycle$/.test(path);
     if (!req.user || !['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method) ||
-        !(recovery || policyChange || path.startsWith('/deploy/') || path === '/deploy' || (path === '/account' && req.method === 'DELETE'))) {
+        !(recovery || policyChange || appLifecycle || path.startsWith('/deploy/') || path === '/deploy' || (path === '/account' && req.method === 'DELETE'))) {
       return next.handle();
     }
     const keys = [`account:${req.user.id}`];
+    if (req.user.githubLogin) keys.push(`login:${req.user.githubLogin.toLowerCase()}`);
+    if (appLifecycle && req.params?.login) keys.push(`login:${req.params.login.toLowerCase()}`);
     // Different accounts share the registration Git branch; don't race commits
     // or capacity admission while a previous registration is still being saved.
-    if (recovery || policyChange || path === '/deploy/register' || path === '/deploy' || path.startsWith('/deploy/apps/') || path === '/account') keys.push('registration');
+    if (recovery || policyChange || appLifecycle || path === '/deploy/register' || path === '/deploy' || path.startsWith('/deploy/apps/') || path === '/account') keys.push('registration');
     if (keys.some(key => this.active.has(key))) {
       throw new ConflictException({ reason: 'OPERATION_IN_PROGRESS',
         message: '변경 작업을 처리 중입니다. 현재 상태를 확인하고 잠시 후 다시 시도해 주세요.' });

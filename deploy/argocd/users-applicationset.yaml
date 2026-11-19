@@ -20,6 +20,14 @@ spec:
   goTemplate: true
   goTemplateOptions:
     - missingkey=error
+  # Both states keep the Kustomize object, so the ignored image override survives.
+  templatePatch: |
+    spec:
+      source:
+        kustomize:
+          replicas:
+            - name: {{ .appName | toJson }}
+              count: {{ if eq (toString (dig "suspended" false .)) "true" }}0{{ else }}1{{ end }}
   # Image Updater patches /spec/source/kustomize/images on each new digest.
   # Without this, ApplicationSet would clobber that field on every refresh.
   ignoreApplicationDifferences:

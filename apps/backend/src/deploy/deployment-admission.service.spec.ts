@@ -81,6 +81,13 @@ describe('deployment admission', () => {
     await expect(s.service.reserve('alice')).rejects.toThrow('확인하지 못해');
     expect(s.users.reserveAdmission).not.toHaveBeenCalled();
   });
+  it('resumes a stopped app without reserving an additional PVC', async () => {
+    const s = setup();
+    s.data[12] = [sample(125 * Gi)];
+    await expect(s.service.reserve('alice', 'resume')).resolves.toBeUndefined();
+    s.data[4] = [sample(.7)];
+    await expect(s.service.reserve('bob', 'resume')).rejects.toThrow('여유 자원이 부족');
+  });
   it('reconciles a reservation only when its namespace is included in the request snapshot', async () => {
     const s = setup(); s.reservations.set('bob', Date.now() - 1000);
     s.data[2].push(sample(.1, { namespace: 'user-bob', pod: 'app', resource: 'cpu' }));

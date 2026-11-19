@@ -28,6 +28,41 @@ async function fetcher<T>(url: string): Promise<T> {
 
 export const ADMIN_USERS_SWR_KEY = `${API_BASE_URL}/admin/users`;
 
+export type AppLifecycleAction = 'pause' | 'resume' | 'delete';
+
+interface AdminDeployment {
+  key: string;
+  fullName: string;
+  liveUrl: string;
+  state: 'active' | 'paused' | 'deleting';
+  ready: boolean;
+  stopped: boolean | null;
+}
+
+function adminDeploymentsUrl(login: string) {
+  return `${ADMIN_USERS_SWR_KEY}/${encodeURIComponent(login)}/deployments`;
+}
+
+export function useAdminDeployments(login: string) {
+  return useSWR<AdminDeployment[]>(login ? adminDeploymentsUrl(login) : null, fetcher, {
+    refreshInterval: apps => apps?.some(app => app.state === 'deleting' || (app.state === 'paused' && app.stopped !== true)) ? 5_000 : 30_000,
+    shouldRetryOnError: false,
+  });
+}
+
+export async function changeAppLifecycle(login: string, key: string, action: AppLifecycleAction, confirmation?: string) {
+  const response = await fetch(`${adminDeploymentsUrl(login)}/${encodeURIComponent(key)}/lifecycle`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action, confirmation }),
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    throw new Error(typeof body?.message === 'string' ? body.message : '앱 상태 변경 요청에 실패했습니다. 목록을 다시 확인해 주세요.');
+  }
+}
+
 interface DeploymentCapacity {
   checkedAt: string;
   cpu: { totalMillicores: number; idleMillicores: number };

@@ -81,6 +81,14 @@ describe('source review before deployment side effects', () => {
     expect(await s.service.registerForUser('alice', req)).toMatchObject({ ok: true });
     expect((s.service as any).admission.reserve).not.toHaveBeenCalled();
   });
+  it('keeps a paused app in the account slot and prevents registering over its pause', async () => {
+    const s = setup();
+    jest.spyOn(s.service, 'getCurrentDeployment').mockResolvedValue({ state: 'paused', repo: 'app', fullName: 'alice/app' } as any);
+    await expect(s.service.registerForUser('alice', req)).rejects.toThrow('일시 중지');
+    await expect(s.service.registerForUser('alice', { ...req, fullName: 'alice/another-app' })).rejects.toThrow('계정당 앱은 최대');
+    expect(s.create).not.toHaveBeenCalled();
+    expect(s.github.commitFilesAtomic).not.toHaveBeenCalled();
+  });
   it('registers independent stateful apps from one administrator and preserves the original registration', async () => {
     const s = setup();
     (s.service as any).config.adminLogins = ['ALICE'];
