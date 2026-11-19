@@ -60,17 +60,18 @@ async function fetcher<T>(url: string): Promise<T> {
   return (await response.json()) as T;
 }
 
-export function useRepos(enabled: boolean, includePrivate = false): {
-  repos: RepoSummary[] | undefined;
-  isLoading: boolean;
-  error: Error | undefined;
-} {
-  const { data, error, isLoading } = useSWR<RepoSummary[]>(
-    enabled ? `${API_BASE_URL}/deploy/repos${includePrivate ? '?includePrivate=true' : ''}` : null,
+export function useRepos(enabled: boolean, includePrivate = false, scope = 'all', search = '') {
+  const params = new URLSearchParams();
+  if (includePrivate) params.set('includePrivate', 'true');
+  if (scope !== 'all') params.set('scope', scope);
+  if (search) params.set('q', search);
+  const query = params.toString();
+  const { data, error, isLoading, isValidating, mutate } = useSWR<RepoSummary[]>(
+    enabled ? `${API_BASE_URL}/deploy/repos${query ? '?' + query : ''}` : null,
     fetcher,
     { revalidateOnFocus: false }
   );
-  return { repos: data, isLoading, error };
+  return { repos: data, isLoading, error, isValidating, mutate };
 }
 
 export function usePreview(fullName: string | null, includePrivate = false): {

@@ -218,7 +218,8 @@ export class DeployService {
     private readonly admission: DeploymentAdmissionService
   ) {}
 
-  async listRepos(userId: number, login: string, includePrivate = false): Promise<RepoSummary[]> {
+  async listRepos(userId: number, login: string, includePrivate = false, scope?: string, search?: string): Promise<RepoSummary[]> {
+    const q = typeof search === 'string' ? search.trim().toLowerCase().slice(0, 140) : '';
     const accessToken = await this.auth.getValidAccessToken(userId);
     const allowPrivate = includePrivate && Boolean(this.config.privateManifestRepo);
     const repos: SourceRepository[] = [];
@@ -232,7 +233,11 @@ export class DeployService {
         headers: { Authorization: `Bearer ${accessToken}`, Accept: 'application/vnd.github+json' },
         timeout: 5000,
       });
-      repos.push(...data.filter(repo => canDeploySource(login, repo, allowPrivate)));
+      repos.push(...data.filter(repo => canDeploySource(login, repo, allowPrivate)
+        && !this.isManagedSource(repo.full_name)
+        && (scope !== 'personal' || repo.owner.type === 'User')
+        && (scope !== 'organization' || repo.owner.type === 'Organization')
+        && (!q || repo.full_name.toLowerCase().includes(q))));
       if (data.length < 100) break;
     }
     return repos.slice(0, 30).map(r => ({
@@ -242,7 +247,14 @@ export class DeployService {
     }));
   }
 
+  private isManagedSource(fullName: string): boolean {
+    return fullName.split('/')[0].toLowerCase() === this.config.deployOwner?.toLowerCase();
+  }
+
   private async authorizeSource(userId: number, login: string, fullName: string, includePrivate: boolean) {
+    if (this.isManagedSource(fullName)) {
+      throw new ForbiddenException('플랫폼 내부 배포 저장소는 소스 저장소로 사용할 수 없습니다.');
+    }
     if (!this.config.privateManifestRepo && fullName.split('/')[0].toLowerCase() !== login.toLowerCase()) {
       throw new ForbiddenException({ reason: 'NOT_REPO_OWNER', message: '본인 GitHub 계정 소유의 repo만 배포할 수 있습니다.' });
     }
