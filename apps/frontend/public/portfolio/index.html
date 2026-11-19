@@ -32,7 +32,7 @@
 <section class="wrap"><div class="hero">
 <div class="identity"><h1>구성우</h1><p class="occupation">풀스택·웹 서비스 개발자</p></div>
 <p class="career-line">진학어플라이 · 2023.08–현재 &nbsp; / &nbsp; 경력 3년 2개월 <span>(2026.11 기준)</span></p>
-<p class="lead">입학전형·성적산출 웹 서비스를 개발합니다. 성적산출 시스템의 요구사항 정의부터 검증 화면·계산 및 저장 로직 구현까지 맡았습니다. 개발한 시스템은 <strong>3개 대학에서 주 성적산출 시스템으로 운영 중이며, 추가 대학에서도 기존 시스템과 병행 활용하고 있습니다.</strong></p>
+<p class="lead">입학전형 업무를 웹으로 전환하며 성적산출 시스템의 요구사항부터 Next.js 검증 화면, NestJS 계산·저장 로직까지 맡았습니다. 이 시스템은 <strong>3개 대학에서 주 성적산출 시스템으로 운영 중이며, 추가 대학에서도 기존 시스템과 병행 활용하고 있습니다.</strong></p>
 <ul class="summary" aria-label="대표 작업 요약">
 <li><a href="#score-system"><strong>3개 대학 주 시스템 운영</strong><span>성적산출 시스템 신규 개발</span><i class="summary-arrow" aria-hidden="true">→</i></a></li>
 <li><a href="#delivery"><strong>부서 전체 배포 전환</strong><span>PM2·k8s → k3s</span><i class="summary-arrow" aria-hidden="true">→</i></a></li>
@@ -51,7 +51,7 @@
 <p class="note">두 시스템은 함께 구성된 제품입니다. 입학전형시스템에서는 팀 프로젝트의 보고·업로드·연계 기능 개발에 참여했고, 별도 개발 프로젝트로 분리된 성적산출 시스템은 요구사항부터 구현까지 맡았습니다.</p>
 <h4>교차검증을 거쳐 실제 입시에 적용</h4><p>2025년 12월 개발을 시작했습니다. <strong>2026학년도 정시에는 약 10개 대학의 수능성적 계산을 기존 시스템과 교차검증</strong>하는 데 활용했습니다. 현재는 <strong>2027학년도 수시 내신성적 계산의 주 시스템으로 3개 대학이 사용</strong>하고 있습니다.</p>
 <h4>담당 범위: 자료 수신·계산·검증·출력</h4><p>학생부·수능 자료 수신, 산출, 검증, 출력을 개발했습니다. 대학과 모집시기별 자료를 관리하고, 입학전형 관리시스템과 원천 자료·산출 결과를 주고받도록 연결했습니다.</p>
-<h4>여러 지원자의 결과를 검증하는 화면</h4><p>화면 설계와 Next.js 프론트엔드 구현도 직접 담당했습니다. 목록과 상세 화면을 왕복하지 않고 학생별 계산 근거를 확인하게 했으며, 여러 학생을 비교할 때는 전체 목록형으로 전환할 수 있게 했습니다.</p>
+<h4>여러 지원자의 결과를 검증하는 화면</h4><p>Next.js에서 왼쪽 목록으로 지원자를 선택하고 오른쪽에서 계산 근거를 확인하도록 구현했습니다. 여러 지원자를 비교할 때는 전체 목록형으로 전환할 수 있습니다. <strong>목록과 선택한 지원자의 상세를 따로 조회</strong>하고, 빠르게 다른 지원자를 선택하면 이전 요청의 응답을 무시해 화면에 잘못된 점수가 표시되지 않도록 했습니다.</p>
 <figure class="validation-figure" aria-labelledby="validation-caption">
 <figcaption id="validation-caption"><strong>성적 검증 화면의 두 가지 보기</strong><span>설명용 재구성 · 가상 데이터</span></figcaption>
 <div class="view-label">개별 검증 <span>목록에서 선택하고, 같은 화면에서 근거 확인</span></div>
@@ -63,7 +63,7 @@
 <table class="comparison-table"><caption class="sr-only">전체 목록형 보기 예시</caption><thead><tr><th scope="col">지원자</th><th scope="col">산출점수</th><th scope="col">적용점수</th><th scope="col">변경 사유</th></tr></thead><tbody><tr><th scope="row">A</th><td>82.50</td><td>82.50</td><td>변경 없음</td></tr><tr class="corrected-row"><th scope="row">B</th><td>82.50</td><td><strong>84.00</strong></td><td>보정 기준 적용</td></tr><tr><th scope="row">C</th><td>91.00</td><td>91.00</td><td>변경 없음</td></tr></tbody></table>
 <p class="figure-note">실제 서비스 화면이 아닌 구조 설명입니다. 점수와 보정 사유는 예시입니다.</p>
 </figure>
-<p>보정된 점수는 <strong>원래 산출점수·적용점수·변경 사유를 구분</strong>해, 담당자가 현재 점수의 근거를 함께 확인하도록 설계했습니다. <strong>동시 수정은 버전 검사와 DB 잠금으로 보호</strong>하고, 원천 자료가 삭제돼도 보정 사유와 변경 이력이 남도록 구현했습니다.</p><h4>대학별 요구와 공통 처리의 경계</h4><p>대학별 산식 변경이 공통 자료 처리에 영향을 주는 범위를 줄이기 위해, 학생부 계산 로직과 자료 조회·저장을 분리했습니다. 수능은 산출 설정과 환산표를 기반으로 처리하도록 구성했습니다.</p>
+<p>보정된 점수는 <strong>원래 산출점수·적용점수·변경 사유를 구분</strong>해, 담당자가 현재 점수의 근거를 함께 확인하도록 설계했습니다. <strong>동시 수정은 버전 검사와 DB 잠금으로 보호</strong>하고, 원천 자료가 삭제돼도 보정 사유와 변경 이력이 남도록 구현했습니다.</p><h4>대학별 요구와 공통 처리의 경계</h4><p>대학마다 학생부 산식이 달라 변경 범위를 좁힐 필요가 있었습니다. <strong>학교별 계산과 공통 자료 조회·저장을 분리</strong>해 산식이 바뀌어도 공통 처리 흐름을 유지할 수 있게 했습니다. 수능 환산은 산출 설정과 환산표를 읽어 처리하도록 구성했습니다.</p>
 <h4>재산출 실패로 기존 결과가 사라지지 않도록</h4><p>선택한 전형의 계산이 <strong>모두 성공했을 때 새 결과로 교체</strong>하고, 계산 중이거나 실패하면 기존 완료 결과를 유지하도록 개발했습니다. 검증 화면·PDF·Excel·외부 반출이 같은 저장 결과를 사용하도록 연결했습니다.</p><p class="note">해당 워크플로 전환은 병합·개발 환경 배포 및 출력·연동 검증을 완료했습니다. 개발 환경의 재산출·반출 동시 실행 최종 검증은 진행 중입니다.</p><p class="note">개발 이후 현재까지 유지보수·개선 개발을 이어가고 있습니다. 학교별 추가개발·유지보수와 운영은 부서 운영자·동료 개발자들과 함께 진행합니다.</p><p class="related-work">이 시스템에서 이어진 개선 <a href="#performance">저장 병목·결과 검증 ↗</a><a href="#integration">실패에 대비한 자료 연계 ↗</a></p><p class="tech">Next.js · NestJS · PostgreSQL · Prisma · Redis</p></div></article>
 <article class="case" id="admissions">
 <div class="case-head"><div class="case-meta"><b>02 · 입학전형</b><span>입학전형시스템<br> 팀 프로젝트 개발 참여</span></div><div><h3>접수 현황이 바뀌어도 출력 당시의 기록은 보존</h3><p class="result">입학전형시스템의 웹 전환에 참여해, <strong>현재 접수 현황과 이미 출력한 보고서를 구분해 관리하도록 설계·개발했습니다.</strong> 업로드 결과 확인과 자료 일괄 수정도 맡았습니다.</p></div></div>
@@ -86,8 +86,8 @@
 <article class="case" id="performance">
 <div class="case-head"><div class="case-meta"><b>04 · 성적산출 개선</b><span>성적산출 시스템<br> 저장 경로 개선</span></div><div><h3>저장 병목을 줄이고 결과를 검증</h3><p class="result">성적산출 시스템의 <strong>저장 병목을 측정해 변경 범위를 좁히고, 저장된 값과 실패 처리까지 검증했습니다.</strong></p></div></div>
 <div class="case-body"><h4>단계별 측정으로 개선 대상을 좁혔습니다</h4><p>전체 산출 과정의 실행 시간을 나눠 확인해 저장 구간을 개선 대상으로 잡았습니다. <strong>스냅샷 저장부터 변경하고, 과목 상세와 최종 결과 저장 순으로 확대하며 각 변경의 효과를 확인</strong>했습니다. 계산 규칙·산출 대상·트랜잭션 순서는 유지했습니다.</p>
-<div class="decision"><h4>AI 활용과 변경 범위 결정</h4><p>코드 분석·구현·검증에 Codex를 활용했습니다. 광범위한 리팩터링안은 적용하지 않고, <strong>측정에서 확인한 저장 병목으로 변경 범위를 한정</strong>했습니다.</p></div>
-<h4>저장 방식 변경과 데이터 처리 조건</h4><p>Prisma <code>createMany</code>를 파라미터 바인딩 PostgreSQL JSONB 일괄 삽입으로 교체했습니다. 과목 상세는 최대 8,000행씩 나눠 저장하고, 비정상 점수가 JSON 변환 중 null로 바뀌는 경우를 차단했습니다.</p>
+<div class="decision"><h4>Codex 활용과 직접 내린 판단</h4><p>저장 경로 분석과 구현·테스트에 Codex를 활용했습니다. 변경 범위는 단계별 측정을 근거로 제가 결정했습니다. <strong>계산 규칙과 트랜잭션 순서를 유지하면서 저장 경로만 변경</strong>했습니다.</p></div>
+<h4>저장 방식 변경과 데이터 처리 조건</h4><p>Prisma <code>createMany</code>를 파라미터 바인딩 PostgreSQL JSONB 일괄 삽입으로 교체했습니다. 과목 상세는 최대 8,000행씩 나눠 저장했습니다. 리뷰에서 비정상 점수가 JSON 변환 중 null로 저장될 수 있는 경로를 확인해 차단했습니다.</p>
 <h4>변경 후 확인한 범위</h4><p>변경 전후 산출 결과·실패·과목 상세의 <strong>건수 일치</strong>와 관련 집중 테스트·빌드 통과를 확인했습니다. 후속 검증에서는 <strong>실제 PostgreSQL에 저장한 뒤 필드별로 다시 조회</strong>해 JSONB 매핑을 확인하고, 비정상 점수가 해당 지원자의 실패로 격리되는지도 검증했습니다.</p>
 <div class="benchmark" aria-label="동일 시즌 16,511명 로컬 전체 산출 시간 비교"><p class="benchmark-label">측정 결과 · 동일 시즌 16,511명 · 로컬 전체 산출 시간</p><div class="bar-row"><span>변경 전</span><div class="bar-track"><div class="bar before">225.1초</div></div></div><div class="bar-row"><span>변경 후</span><div class="bar-track"><div class="bar after">107.7초</div></div></div><div class="bench-result"><span>같은 로컬 DB·실행 방식에서 설정별 실행 기록 비교</span><span>측정값 기준 52.1% 감소</span></div></div>
 <p class="note">2026.08.24 로컬 Windows · NestJS · PostgreSQL 환경의 실행 기록입니다. 각 설정의 실행값을 비교했으며, 반복 측정 평균을 의미하지 않습니다.</p><h4>조회에서도 반복 처리와 화면 대기를 줄였습니다</h4><p>지원자 목록의 상세는 <strong>현재 페이지에 필요한 자료만 조회</strong>하고, 통계는 전체 결과를 반복해서 읽는 대신 DB에서 집계하도록 개선했습니다. 대량 자료의 목록·집계 결과가 유지되는지 로컬 PostgreSQL과 실제 자료 복사본으로 검증했습니다.</p><h4>효과가 작은 추가 실험은 제외했습니다</h4><p>스냅샷을 100명씩 생성·직렬화하는 실험도 진행했지만, 메모리 감소가 작고 DB 왕복이 늘어 적용하지 않았습니다. 메모리 사용량 개선은 후속 과제로 남겼습니다.</p><p class="tech">NestJS · Prisma · PostgreSQL / JSONB</p></div></article>
