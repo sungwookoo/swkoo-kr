@@ -86,8 +86,13 @@ export class DeployController {
 
   @Get('repos')
   @Header('Cache-Control', 'private, no-store')
-  listRepos(@Req() req: AuthedRequest, @Query('includePrivate') includePrivate?: string): Promise<RepoSummary[]> {
-    return this.service.listRepos(req.user.id, req.user.githubLogin, includePrivate === 'true');
+  listRepos(
+    @Req() req: AuthedRequest,
+    @Query('includePrivate') includePrivate?: string,
+    @Query('scope') scope?: string,
+    @Query('q') search?: string,
+  ): Promise<RepoSummary[]> {
+    return this.service.listRepos(req.user.id, req.user.githubLogin, includePrivate === 'true', scope, search);
   }
 
   @Get('preview')

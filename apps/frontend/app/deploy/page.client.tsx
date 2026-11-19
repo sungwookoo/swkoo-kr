@@ -209,7 +209,7 @@ export function DeployPageClient(): import("react").ReactNode {
             </Link>
           </div>
           <p className="text-sm text-slate-500">
-            {me.privateDeployEnabled ? '내 개인 저장소와 GitHub 관리 권한이 있는 조직 저장소를 최근 업데이트 순으로 보여줍니다.' : '내 공개 저장소를 최근 업데이트 순으로 보여줍니다.'}
+            {me.privateDeployEnabled ? '내 개인 저장소와 GitHub 관리 권한이 있는 조직 저장소를 최근 업데이트 순으로 최대 30개 보여줍니다.' : '내 공개 저장소를 최근 업데이트 순으로 보여줍니다.'}
           </p>
           {me.privateDeployEnabled && <label className="flex items-center gap-2 text-sm text-slate-300">
             <input type="checkbox" checked={includePrivate} onChange={event => {
@@ -223,6 +223,8 @@ export function DeployPageClient(): import("react").ReactNode {
 
         <RepoGrid
           includePrivate={includePrivate}
+          organizationEnabled={!!me.privateDeployEnabled}
+          githubLogin={me.githubLogin}
           selectedFullName={selectedRepo}
           onSelect={(fullName, isPrivate) => {
             if (isPrivate) {
@@ -524,79 +526,120 @@ function ProfileBadge({
 function RepoGrid({
   selectedFullName,
   includePrivate,
+  organizationEnabled,
+  githubLogin,
   onSelect,
   onClear,
 }: {
   selectedFullName: string | null;
   includePrivate: boolean;
+  organizationEnabled: boolean;
+  githubLogin: string;
   onSelect: (fullName: string, isPrivate: boolean) => void;
   onClear: () => void;
 }): import("react").ReactNode {
-  const { repos, isLoading, error } = useRepos(true, includePrivate);
-
-  if (isLoading) {
-    return <p className="text-slate-500">repo 목록을 가져오는 중…</p>;
-  }
-  if (error) {
-    return (
-      <p className="text-sm text-amber-400">
-        repo 목록을 불러오지 못했어요: {error.message}
-      </p>
-    );
-  }
-  if (!repos || repos.length === 0) {
-    return (
-      <div className="space-y-4 rounded-lg border border-slate-800 bg-slate-900/40 p-6">
-        <p className="text-slate-300">
-          선택할 수 있는 GitHub 저장소가 없습니다.
-        </p>
-        <p className="text-sm text-slate-500">
-          처음이시면 swkoo.kr 에서 검증된 Next.js 템플릿으로 시작하시는 게 가장 빠릅니다 — 한 번 클릭으로 본인 GitHub 에 새 repo 가 만들어집니다.
-        </p>
-        <div className="flex flex-wrap items-center gap-3 pt-1">
-          <a
-            href="https://github.com/sungwookoo/nextjs-sample/generate"
-            target="_blank"
-            rel="noreferrer"
-            className="group inline-flex items-center gap-2 rounded-md bg-white px-4 py-2 text-sm font-semibold text-black transition-colors hover:bg-zinc-200"
-          >
-            <span>템플릿으로 새 repo 만들기 (sungwookoo/nextjs-sample)</span>
-            <span className="transition-transform group-hover:translate-x-0.5">↗</span>
-          </a>
-          <Link
-            href="/deploy/getting-started"
-            className="text-sm text-slate-500 transition-colors hover:text-slate-300"
-          >
-            시작 가이드 →
-          </Link>
-        </div>
-        <p className="text-xs text-slate-600 pt-2">
-          이미 만드신 repo가 있다면 화면이 갱신되도록 페이지를 새로고침해주세요. GitHub App access 가 <span className="font-mono">Only select repositories</span> 면{' '}
-          <a
-            href="https://github.com/apps/swkoo-deploy/installations/select_target"
-            target="_blank"
-            rel="noreferrer"
-            className="underline decoration-slate-700 underline-offset-2 hover:text-slate-300"
-          >
-            여기서
-          </a>{' '}
-          새 repo 를 추가하셔야 보입니다.
-        </p>
-      </div>
-    );
-  }
+  const [scope, setScope] = useState('all');
+  const [input, setInput] = useState('');
+  const [search, setSearch] = useState('');
+  const { repos, isLoading, error, isValidating, mutate } = useRepos(true, includePrivate, scope, search);
+  const exactOwner = search.match(/^([a-z\d][a-z\d-]{0,38})\/[.a-z\d_-]+$/i)?.[1];
+  const organization = exactOwner && exactOwner.toLowerCase() !== githubLogin.toLowerCase() ? exactOwner : undefined;
+  const installations = organization
+    ? `https://github.com/organizations/${organization}/settings/installations`
+    : 'https://github.com/settings/installations';
 
   return (
-    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-      {repos.map((repo) => (
-        <RepoCard
-          key={repo.fullName}
-          repo={repo}
-          selected={repo.fullName === selectedFullName}
-          onSelect={() => onSelect(repo.fullName, repo.isPrivate)}
-          onClear={onClear}
-        />
-      ))}
+    <div className="space-y-4">
+      <form className="flex flex-wrap items-end gap-2" onSubmit={(event) => {
+        event.preventDefault();
+        const query = input.trim().replace(/^https?:\/\/github\.com\//i, '').replace(/[?#].*$/, '').replace(/\/$/, '').replace(/\.git$/i, '');
+        if (query === search) void mutate();
+        else {
+          if (selectedFullName) onClear();
+          setSearch(query);
+        }
+      }}>
+        {organizationEnabled && <label className="flex flex-col gap-1 text-sm text-slate-300">
+          소유 유형
+          <select value={scope} onChange={event => {
+            if (selectedFullName) onClear();
+            setScope(event.target.value);
+          }}
+            className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2">
+            <option value="all">전체</option>
+            <option value="personal">개인</option>
+            <option value="organization">조직</option>
+          </select>
+        </label>}
+        <label className="flex min-w-48 flex-1 flex-col gap-1 text-sm text-slate-300">
+          저장소 검색
+          <input type="search" value={input} maxLength={165} onChange={event => {
+            setInput(event.target.value);
+            if (!event.target.value.trim()) setSearch('');
+          }} placeholder="이름, owner/repo 또는 GitHub 주소"
+            className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2" />
+        </label>
+        <button type="submit" className="rounded-md border border-slate-700 px-3 py-2 text-sm text-slate-200">검색</button>
+      </form>
+
+      <details open={search && repos?.length === 0 ? true : undefined}
+        className="rounded-md border border-slate-800 p-3 text-sm text-slate-300">
+        <summary className="cursor-pointer">찾는 저장소가 없나요?</summary>
+        <p className="mt-2 text-slate-400">
+          GitHub에서 {organization ? `${organization} 조직` : '저장소 소유 계정 또는 조직'}을 선택한 뒤
+          <span className="font-medium text-slate-300"> Only select repositories</span>에서 {exactOwner ? search : '배포할 저장소'}를 추가하세요.
+          조직 정책에 따라 조직 소유자의 승인이 필요할 수 있습니다.
+        </p>
+        <p className="mt-1 text-slate-400">돌아와서 목록을 새로고침하세요. 비공개 저장소라면 위의 ‘비공개 저장소 포함’을 켜 주세요.</p>
+        <div className="mt-2 flex flex-wrap gap-x-4 gap-y-2">
+          <a href="https://github.com/apps/swkoo-deploy/installations/new" target="_blank" rel="noreferrer"
+            className="text-emerald-300 underline">GitHub App 설치 또는 요청 ↗</a>
+          <a href={installations} target="_blank" rel="noreferrer" className="text-emerald-300 underline">설치된 앱의 저장소 권한 관리 ↗</a>
+          <button type="button" disabled={isValidating} onClick={() => void mutate()}
+            className="text-emerald-300 underline disabled:opacity-60">{isValidating ? '목록 확인 중…' : '목록 새로고침'}</button>
+        </div>
+      </details>
+
+      {isLoading && <p className="text-slate-500" role="status">저장소 목록을 가져오는 중…</p>}
+      {error && <p className="text-sm text-amber-400" role="alert">저장소 목록을 불러오지 못했습니다. 목록 새로고침을 눌러 주세요.</p>}
+      {!isLoading && !error && !repos?.length && (search || scope !== 'all'
+        ? <p className="text-sm text-slate-400" role="status">조건에 맞는 저장소가 없습니다. 소유 유형, 공개 범위 또는 GitHub App 접근 권한을 확인해 주세요.</p>
+        : <div className="space-y-4 rounded-lg border border-slate-800 bg-slate-900/40 p-6">
+            <p className="text-slate-300">
+              선택할 수 있는 GitHub 저장소가 없습니다.
+            </p>
+            <p className="text-sm text-slate-500">
+              처음이시면 swkoo.kr 에서 검증된 Next.js 템플릿으로 시작하시는 게 가장 빠릅니다 — 한 번 클릭으로 본인 GitHub 에 새 repo 가 만들어집니다.
+            </p>
+            <div className="flex flex-wrap items-center gap-3 pt-1">
+              <a
+                href="https://github.com/sungwookoo/nextjs-sample/generate"
+                target="_blank"
+                rel="noreferrer"
+                className="group inline-flex items-center gap-2 rounded-md bg-white px-4 py-2 text-sm font-semibold text-black transition-colors hover:bg-zinc-200"
+              >
+                <span>템플릿으로 새 repo 만들기 (sungwookoo/nextjs-sample)</span>
+                <span className="transition-transform group-hover:translate-x-0.5">↗</span>
+              </a>
+              <Link
+                href="/deploy/getting-started"
+                className="text-sm text-slate-500 transition-colors hover:text-slate-300"
+              >
+                시작 가이드 →
+              </Link>
+            </div>
+        </div>)}
+      {!!repos?.length && <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {repos.map((repo) => (
+          <RepoCard
+            key={repo.fullName}
+            repo={repo}
+            selected={repo.fullName === selectedFullName}
+            onSelect={() => onSelect(repo.fullName, repo.isPrivate)}
+            onClear={onClear}
+          />
+        ))}
+      </div>}
     </div>
   );
 }

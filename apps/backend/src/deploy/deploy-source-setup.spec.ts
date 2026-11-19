@@ -39,12 +39,27 @@ describe('source review before deployment side effects', () => {
       { name: 'private', full_name: 'alice/private', private: true, visibility: 'private', owner: { login: 'alice', type: 'User' } },
       { name: 'peer', full_name: 'bob/peer', visibility: 'public', owner: { login: 'bob', type: 'User' } },
       { name: 'org', full_name: 'org/org', visibility: 'public', owner: { login: 'org', type: 'Organization' }, permissions: { admin: true } },
+      { name: 'managed', full_name: 'SwKoo-Deploy/managed', visibility: 'private', private: true, owner: { login: 'SwKoo-Deploy', type: 'Organization' }, permissions: { admin: true } },
     ];
     s.sourceMetadata.mockResolvedValue({ data: repos });
     expect((await s.service.listRepos(1, 'alice')).map(repo => repo.name)).toEqual(['public', 'org']);
     expect(s.sourceMetadata).toHaveBeenLastCalledWith(expect.stringContaining('/user/repos'),
       expect.objectContaining({ params: expect.objectContaining({ visibility: 'public' }) }));
     expect((await s.service.listRepos(1, 'alice', true)).map(repo => repo.name)).toEqual(['public', 'private', 'org']);
+    expect((await s.service.listRepos(1, 'alice', true, 'personal')).map(repo => repo.name)).toEqual(['public', 'private']);
+    expect((await s.service.listRepos(1, 'alice', true, 'organization', 'ORG/ORG')).map(repo => repo.name)).toEqual(['org']);
+    expect(await s.service.listRepos(1, 'alice', true, 'organization', 'managed')).toEqual([]);
+  });
+  it('denies the internal organization before reading or writing source repository data', async () => {
+    const s = setup();
+    (s.service as any).config.privateManifestRepo = 'operator/private-control';
+    const fullName = 'SWKOO-deploy/managed';
+    await expect(s.service.previewRepository(1, 'alice', fullName, true)).rejects.toThrow('플랫폼 내부');
+    await expect(s.service.previewSourceSetup('alice', fullName, true)).rejects.toThrow('플랫폼 내부');
+    await expect(s.service.registerForUser('alice', { ...req, fullName, includePrivate: true })).rejects.toThrow('플랫폼 내부');
+    expect(s.sourceMetadata).not.toHaveBeenCalled();
+    expect(s.inspect).not.toHaveBeenCalled();
+    expect(s.create).not.toHaveBeenCalled();
   });
   it('recovery treats an empty or malformed registration as present and propagates Argo lookup failures', async () => {
     const s = setup(), argo = (s.service as any).argo;

@@ -73,11 +73,36 @@ test('scenario 2: empty repo list shows template CTA and GitHub App access link'
     'https://github.com/sungwookoo/nextjs-sample/generate'
   );
   // GitHub App access change link — for users on "Only select repositories".
-  const accessLink = page.getByRole('link', { name: /여기서/ });
+  await page.getByText('찾는 저장소가 없나요?').click();
+  const accessLink = page.getByRole('link', { name: /GitHub App 설치 또는 요청/ });
   await expect(accessLink).toHaveAttribute(
     'href',
-    'https://github.com/apps/swkoo-deploy/installations/select_target'
+    'https://github.com/apps/swkoo-deploy/installations/new'
   );
+});
+
+test('pasting an organization repository URL keeps the search when permissions are refreshed', async ({ page }) => {
+  await mockAuthenticatedAs(page, { ...ALICE, privateDeployEnabled: true });
+  let connected = false;
+  await page.route(/\/api\/deploy\/repos(?:\?|$)/, async route => {
+    const params = new URL(route.request().url()).searchParams;
+    const matches = connected && params.get('q') === 'my-team/private-demo'
+      && params.get('scope') === 'organization' && params.get('includePrivate') === 'true';
+    await json(route, 200, matches ? [{
+      name: 'private-demo', fullName: 'my-team/private-demo', updatedAt: '2026-10-01', isPrivate: true,
+    }] : []);
+  });
+  await page.goto('/deploy');
+  await page.getByRole('checkbox', { name: '비공개 저장소 포함' }).check();
+  await page.getByLabel('소유 유형').selectOption('organization');
+  await page.getByRole('searchbox', { name: '저장소 검색' }).fill('https://github.com/my-team/private-demo.git');
+  await page.getByRole('button', { name: '검색', exact: true }).click();
+  await expect(page.getByText(/조건에 맞는 저장소가 없습니다/)).toBeVisible();
+  await expect(page.getByRole('link', { name: /설치된 앱의 저장소 권한 관리/ }))
+    .toHaveAttribute('href', 'https://github.com/organizations/my-team/settings/installations');
+  connected = true;
+  await page.getByRole('button', { name: '목록 새로고침' }).click();
+  await expect(page.getByRole('button', { name: /my-team\/private-demo/ })).toBeVisible();
 });
 
 test('private repositories are requested only after opt-in and hidden again when turned off', async ({ page }) => {
