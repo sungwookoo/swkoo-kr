@@ -127,7 +127,7 @@ export interface CurrentDeployment {
   liveUrl: string;
   syncStatus: string | null;
   healthStatus: string | null;
-  state: 'active' | 'deleting';
+  state: 'active' | 'paused' | 'deleting';
 }
 
 export const CURRENT_SWR_KEY = `${API_BASE_URL}/deploy/current`;
@@ -230,6 +230,7 @@ export interface StageInfo {
 }
 
 export interface DeploymentStatus {
+  paused?: boolean;
   privateImage?: boolean;
   imageRepo?: string;
   deploymentKey?: string;

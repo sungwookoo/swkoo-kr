@@ -30,7 +30,49 @@ test('ordinary users never render the recovery controls or request administrator
   let adminRequests = 0;
   await page.route('**/api/admin/**', route => { adminRequests++; return json(route, 403, {}); });
   await page.goto('/admin'); await expect(page).toHaveURL(/\/$/);
-  await expect(page.getByRole('region', { name: '배포 예약 복구' })).toHaveCount(0); expect(adminRequests).toBe(0);
+  await expect(page.getByRole('region', { name: '배포 예약 복구' })).toHaveCount(0);
+  await expect(page.getByRole('region', { name: '배포 앱 관리' })).toHaveCount(0);
+  expect(adminRequests).toBe(0);
+});
+
+test('administrator pauses and resumes one app and types its full name before deletion', async ({ page }) => {
+  await installCatchAll(page);
+  await mockAuthenticatedAs(page, { ...ALICE, isAdmin: true });
+  await page.route('**/api/admin/users', route => json(route, 200, { users: [{
+    ...ALICE, githubLogin: 'test-user', createdAt: '2026-11-01', lastLoginAt: '2026-11-02',
+  }] }));
+  await page.route('**/api/admin/deployment-capacity', route => json(route, 503, {}));
+  await page.route('**/api/admin/deployment-recovery', route => json(route, 200, { reservations: [] }));
+  let state = 'active';
+  const writes: unknown[] = [];
+  await page.route('**/api/admin/users/test-user/deployments', route => json(route, 200, state === 'deleted' ? [] : [{
+    key: 'test-user', fullName: 'test-user/sample', liveUrl: 'https://sample.apps.swkoo.kr',
+    state, stopped: state === 'paused', ready: state === 'active',
+  }]));
+  await page.route('**/api/admin/users/test-user/deployments/test-user/lifecycle', route => {
+    const payload = route.request().postDataJSON();
+    writes.push(payload);
+    state = { pause: 'paused', resume: 'active', delete: 'deleted' }[payload.action as 'pause' | 'resume' | 'delete'];
+    return json(route, 201, { commit: 'commit-id' });
+  });
+  await page.goto('/admin');
+  const panel = page.getByRole('region', { name: '배포 앱 관리' });
+  await panel.getByLabel('사용자 선택').selectOption('test-user');
+  await expect(panel.getByText('실행 중', { exact: true })).toBeVisible();
+  await panel.getByRole('button', { name: '일시 중지', exact: true }).click();
+  expect(writes).toEqual([]);
+  await panel.getByRole('button', { name: '중지 확인' }).click();
+  await expect(panel.getByText('일시 중지됨')).toBeVisible();
+  await expect(panel.getByText('https://sample.apps.swkoo.kr')).toBeVisible();
+  await panel.getByRole('button', { name: '다시 시작' }).click();
+  await expect(panel.getByText('실행 중', { exact: true })).toBeVisible();
+  await panel.getByRole('button', { name: '영구 삭제', exact: true }).click();
+  await panel.getByRole('textbox').fill('test-user/another');
+  await expect(panel.getByRole('button', { name: '삭제 확인' })).toBeDisabled();
+  await panel.getByRole('textbox').fill('test-user/sample');
+  await panel.getByRole('button', { name: '삭제 확인' }).click();
+  await expect(panel.getByText('이 사용자의 배포 앱이 없습니다.')).toBeVisible();
+  expect(writes).toEqual([{ action: 'pause' }, { action: 'resume' }, { action: 'delete', confirmation: 'test-user/sample' }]);
 });
 
 test('an administrator edits and saves a single account’s deployment policy', async ({ page }) => {

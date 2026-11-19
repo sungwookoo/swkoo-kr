@@ -78,13 +78,13 @@ export class DeploymentAdmissionService {
     const memoryRemaining = allocated('memory') - requestedMemory;
     return {
       observed, cpuUsed, memoryUsed, cpuRemaining, memoryRemaining,
-      reason: (slots: number) => {
+      reason: (slots: number, storageSlots = slots) => {
         if (blocked) return 'node' as const;
         if (cpuUsed >= MAX_USAGE || memoryUsed >= MAX_USAGE) return 'usage' as const;
         if (cpuRemaining - slots * APP_CPU < MIN_CPU || memoryRemaining - slots * APP_MEMORY < MIN_MEMORY) return 'compute' as const;
         // Existing PVC requests and intermittent disk use are both deducted to keep a safety margin.
         if (diskFree - existingEphemeral - slots * APP_EPHEMERAL < MIN_DISK ||
-            dataFree - existingStorage - slots * Gi < MIN_DISK || rootInodes < .10 || dataInodes < .10) return 'storage' as const;
+            dataFree - existingStorage - storageSlots * Gi < MIN_DISK || rootInodes < .10 || dataInodes < .10) return 'storage' as const;
         return null;
       },
     };
@@ -132,15 +132,19 @@ export class DeploymentAdmissionService {
     };
   }
 
-  async reserve(login: string): Promise<void> {
+  async reserve(login: string, mode: 'register' | 'resume' = 'register'): Promise<void> {
     const at = Date.now();
     const snapshot = await this.snapshot(at);
     const loginLc = login.toLowerCase();
-    if (snapshot.observed.has(`user-${loginLc}`)) throw new ConflictException({ reason: 'NAMESPACE_NOT_CLEARED', message: '이전 앱의 자원이 아직 남아 있습니다. 삭제 완료 후 다시 시도하거나 운영자에게 문의해 주세요.' });
+    if (snapshot.observed.has(`user-${loginLc}`)) throw new ConflictException({ reason: 'NAMESPACE_NOT_CLEARED', message: mode === 'resume'
+      ? '서버 지표에 이전 파드의 자원이 남아 있습니다. 잠시 후 다시 시도해 주세요.'
+      : '이전 앱의 자원이 아직 남아 있습니다. 삭제 완료 후 다시 시도하거나 운영자에게 문의해 주세요.' });
     const pending = this.users.listAdmissionReservations();
     const unobserved = pending.filter(row => !snapshot.observed.has(`user-${row.login}`) && row.login !== loginLc);
-    if (snapshot.reason(unobserved.length + 1)) {
-      throw new ServiceUnavailableException({ reason: 'CAPACITY_UNAVAILABLE', message: '서버의 배포 여유가 부족해 신규 배포를 보류했습니다. 기존 앱은 유지됩니다. 잠시 후 다시 시도하거나 운영자에게 문의해 주세요.' });
+    if (snapshot.reason(unobserved.length + 1, unobserved.length + Number(mode === 'register'))) {
+      throw new ServiceUnavailableException({ reason: 'CAPACITY_UNAVAILABLE', message: mode === 'resume'
+        ? '서버에 여유 자원이 부족해 앱을 다시 시작하지 못했습니다. 잠시 후 다시 시도해 주세요.'
+        : '서버의 배포 여유가 부족해 신규 배포를 보류했습니다. 기존 앱은 유지됩니다. 잠시 후 다시 시도하거나 운영자에게 문의해 주세요.' });
     }
     for (const row of pending) if (snapshot.observed.has(`user-${row.login}`)) this.users.releaseAdmissionReservation(row.login);
     this.users.reserveAdmission(loginLc, at);

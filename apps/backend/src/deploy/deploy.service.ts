@@ -1,4 +1,4 @@
-import { ConflictException, ForbiddenException, Inject, Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, Logger, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigType } from '@nestjs/config';
 import { PatchStrategy, setHeaderOptions } from '@kubernetes/client-node';
 import axios from 'axios';
@@ -173,15 +173,14 @@ export interface CurrentDeployment {
   liveUrl: string;
   syncStatus: string | null;
   healthStatus: string | null;
-  // 'active' — metadata.yaml exists.
-  // 'deleting' — metadata.yaml is gone but the ArgoCD Application lingers
-  // until ApplicationSet prunes it (~1-3 min).
-  state: 'active' | 'deleting';
+  state: 'active' | 'paused' | 'deleting';
   privateImage?: boolean;
   imageRepo?: string;
   imageOrganization?: boolean;
   resourceLimits?: AppResourceLimits;
 }
+
+const SUSPENDED_REGISTRATION = /^suspended:[ \t]*true[ \t]*\r?$/m;
 
 export interface DeploymentStatus {
   login: string;
@@ -191,6 +190,7 @@ export interface DeploymentStatus {
   liveUrl: string;
   privateImage?: boolean;
   imageRepo?: string;
+  paused?: boolean;
   stages: {
     manifests: StageInfo;
     build: StageInfo;
@@ -756,6 +756,7 @@ export class DeployService {
       throw new ConflictException('기존 배포의 공개 설정과 다릅니다. 운영자에게 문의해 주세요.');
     }
     if (current?.state === 'deleting') throw new ConflictException({ reason: 'DEPLOYMENT_DELETING', message: '앱과 저장공간을 삭제 중입니다. 삭제가 완료된 뒤 다시 배포해 주세요.' });
+    if (current?.state === 'paused') throw new ConflictException({ reason: 'DEPLOYMENT_PAUSED', message: '관리자가 일시 중지한 앱입니다. 다시 시작하려면 관리자에게 문의해 주세요.' });
     if (current && current.fullName.toLowerCase() !== sourceRepo) {
       throw new ConflictException('이 배포 식별자는 다른 저장소에서 사용 중입니다.');
     }
@@ -1036,7 +1037,8 @@ export class DeployService {
     const user = this.users.findByLogin(loginLc);
     const subdomain = deploymentKey === loginLc
       ? this.resolveSubdomain(user, loginLc, privateImage ? 'app' : appName) : deploymentKey;
-    const state: CurrentDeployment['state'] = registrationContent ? 'active' : 'deleting';
+    const state: CurrentDeployment['state'] = !registrationContent ? 'deleting'
+      : SUSPENDED_REGISTRATION.test(registrationContent) ? 'paused' : 'active';
 
     return {
       login: loginLc,
@@ -1068,6 +1070,83 @@ export class DeployService {
     if (exists || volumes.items.some(volume => volume.spec?.claimRef?.namespace === namespace)) {
       throw new ConflictException('이전 배포의 네임스페이스 또는 저장공간이 정리 중입니다.');
     }
+  }
+
+  async listAdminDeployments(login: string) {
+    const deployments = await this.listDeployments(login, true);
+    return Promise.all(deployments.map(async app => {
+      const runtime = app.state === 'deleting' ? null : await this.readRuntimeState(app).catch(() => null);
+      return {
+        key: app.deploymentKey ?? app.login,
+        fullName: app.fullName,
+        state: app.state,
+        liveUrl: app.liveUrl,
+        ready: runtime?.ready ?? false,
+        stopped: runtime?.stopped ?? null,
+      };
+    }));
+  }
+
+  private async readRuntimeState(app: CurrentDeployment) {
+    if (!this.kube.apps || !this.kube.core) return null;
+    const namespace = `user-${app.deploymentKey ?? app.login}`;
+    const deployment = await this.kube.apps.readNamespacedDeployment({ namespace, name: app.appName });
+    if (deployment.spec?.replicas !== 0) return { ready: (deployment.status?.availableReplicas ?? 0) > 0, stopped: false };
+    const pods = await this.kube.core.listNamespacedPod({ namespace, labelSelector: `app=${app.appName}` });
+    return { ready: false, stopped: pods.items.length === 0 };
+  }
+
+  async changeDeploymentLifecycle(login: string, key: string, action: unknown, confirmation: unknown, actor: string) {
+    if (action !== 'pause' && action !== 'resume' && action !== 'delete') {
+      throw new BadRequestException('지원하지 않는 배포 작업입니다.');
+    }
+    const user = this.users.findByLogin(login);
+    const loginLc = user?.githubLogin.toLowerCase();
+    if (!user || !loginLc || (key !== loginLc && !this.users.listAdditionalDeployments(user.id).some(row => row.key === key))) {
+      throw new NotFoundException('해당 사용자의 앱을 찾을 수 없습니다.');
+    }
+    const app = await this.readDeployment(loginLc, key, true);
+    if (!app || app.state === 'deleting') throw new ConflictException('앱이 없거나 삭제 중입니다. 목록을 다시 확인해 주세요.');
+    if (action === 'delete' && confirmation !== app.fullName) {
+      throw new BadRequestException('삭제하려면 앱의 저장소 전체 이름을 정확히 입력해 주세요.');
+    }
+
+    const { content, privateImage } = await this.readRegistration(key);
+    if (content?.match(/^login:[ \t]*(\S+)$/m)?.[1] !== key ||
+        content?.match(/^appName:[ \t]*(\S+)$/m)?.[1] !== app.appName ||
+        content?.match(/^sourceRepo:[ \t]*(\S+)$/m)?.[1] !== app.fullName ||
+        SUSPENDED_REGISTRATION.test(content) !== (app.state === 'paused')) {
+      throw new ConflictException('앱 등록 정보가 변경되었습니다. 목록을 다시 확인해 주세요.');
+    }
+    if (action === 'delete') return this.removeDeployment(key, actor, privateImage, app.fullName);
+    if ((action === 'pause' && app.state === 'paused') || (action === 'resume' && app.state === 'active')) return { ok: true };
+    if (action === 'resume') {
+      const runtime = await this.readRuntimeState(app).catch(() => null);
+      if (runtime === null) throw new ServiceUnavailableException('앱의 중지 상태를 확인할 수 없습니다. 잠시 후 다시 시도해 주세요.');
+      if (!runtime.stopped) throw new ConflictException('앱을 중지하는 중입니다. 파드가 종료된 뒤 다시 시도해 주세요.');
+    }
+
+    const [owner, repo] = (privateImage ? this.config.privateManifestRepo! : this.config.manifestRepo).split('/');
+    const unavailable = () => new ServiceUnavailableException('앱 상태 변경 결과를 확인하지 못했습니다. 목록을 다시 조회해 주세요.');
+    const token = await this.githubApp.getInstallationTokenForRepo(owner, repo, { contents: 'write' }).catch(() => { throw unavailable(); });
+    if (action === 'resume') await this.admission.reserve(key, 'resume');
+    const commit = await this.githubApp.commitFilesAtomic({
+      owner, repo, token,
+      branch: privateImage ? 'main' : this.config.manifestBranch,
+      files: {
+        [getUserRegistrationPath(key)]: action === 'pause'
+          ? `${content.trimEnd()}\nsuspended: true\n`
+          : content.replace(/^suspended:[ \t]*true[ \t]*\r?\n?/m, ''),
+      },
+      message: `feat(deploy): ${action} ${key} via swkoo.kr/admin`,
+    }).catch(() => { throw unavailable(); });
+    this.users.audit({
+      actor, action: action === 'pause' ? 'ADMIN_DEPLOY_PAUSE' : 'ADMIN_DEPLOY_RESUME',
+      target: app.fullName, reason: null, metaJson: JSON.stringify({ deploymentKey: key, commit }),
+    });
+    if (action === 'pause') this.users.releaseAdmissionReservation(key);
+    void this.refreshUsersApplicationSet(privateImage);
+    return { commit };
   }
 
   /** Reads the user's existing registration file (if any) from the
@@ -1162,12 +1241,16 @@ export class DeployService {
     let deploymentKey = loginLc;
     if (repoName) {
       const current = await this.getCurrentDeployment(loginLc, true, repoName);
-      if (!current || current.state !== 'active' || current.repo.toLowerCase() !== repoName.toLowerCase()) {
+      if (!current || current.state === 'deleting' || current.repo.toLowerCase() !== repoName.toLowerCase()) {
         throw new ConflictException({ reason: 'DEPLOYMENT_NOT_CURRENT', message: '삭제할 앱을 확인할 수 없습니다.' });
       }
       deploymentKey = current.deploymentKey ?? loginLc;
     }
     const privateRegistration = Boolean(this.config.privateManifestRepo) && (await this.readRegistration(deploymentKey)).privateImage;
+    return this.removeDeployment(deploymentKey, userLogin, privateRegistration);
+  }
+
+  private async removeDeployment(deploymentKey: string, actor: string, privateRegistration: boolean, adminTarget?: string): Promise<{ commit: string }> {
     const [owner, repo] = (privateRegistration ? this.config.privateManifestRepo! : this.config.manifestRepo).split('/');
     let commit: string;
     try {
@@ -1177,7 +1260,7 @@ export class DeployService {
         repo,
         branch: privateRegistration ? 'main' : this.config.manifestBranch,
         files: {},
-        message: `feat(deploy): unregister ${loginLc} via swkoo.kr/deploy\n\nUser-initiated removal.`,
+        message: `feat(deploy): unregister ${deploymentKey} via swkoo.kr/${adminTarget ? 'admin' : 'deploy'}`,
         token,
         deletePaths: [getUserRegistrationPath(deploymentKey)],
       });
@@ -1185,9 +1268,9 @@ export class DeployService {
       const msg = (err as Error).message;
       if (msg === 'NOTHING_TO_COMMIT') {
         this.users.audit({
-          actor: userLogin,
-          action: 'DEPLOY_UNREGISTER',
-          target: null,
+          actor,
+          action: adminTarget ? 'ADMIN_DEPLOY_DELETE' : 'DEPLOY_UNREGISTER',
+          target: adminTarget ?? null,
           reason: 'NO_EXISTING_DEPLOYMENT',
           metaJson: null,
         });
@@ -1196,6 +1279,7 @@ export class DeployService {
           message: '제거할 배포가 없습니다.',
         });
       }
+      if (adminTarget) throw new ServiceUnavailableException('앱 삭제 결과를 확인하지 못했습니다. 목록을 다시 조회해 주세요.');
       throw err;
     }
 
@@ -1212,7 +1296,7 @@ export class DeployService {
     const orphanRows = this.customDomains.findByLogin(deploymentKey);
     for (const row of orphanRows) {
       this.users.audit({
-        actor: userLogin,
+        actor,
         action: 'DOMAIN_DELETED_BY_DEPLOY_DELETE',
         target: `${row.login}/${row.appName}:${row.domain}`,
         reason: null,
@@ -1235,15 +1319,15 @@ export class DeployService {
         token: repoToken,
       });
     } catch (err) {
-      this.logger.warn(`archiveRepo failed for ${loginLc}: ${(err as Error).message}`);
+      this.logger.warn(`archiveRepo failed for ${deploymentKey}: ${(err as Error).message}`);
     }
 
     this.users.audit({
-      actor: userLogin,
-      action: 'DEPLOY_UNREGISTER',
-      target: null,
+      actor,
+      action: adminTarget ? 'ADMIN_DEPLOY_DELETE' : 'DEPLOY_UNREGISTER',
+      target: adminTarget ?? null,
       reason: null,
-      metaJson: JSON.stringify({ commit }),
+      metaJson: JSON.stringify({ commit, ...(adminTarget ? { deploymentKey } : {}) }),
     });
 
     void this.refreshUsersApplicationSet(privateRegistration);
@@ -1298,8 +1382,14 @@ export class DeployService {
     const subdomain = row?.key ?? this.resolveSubdomain(user, loginLc, appName);
     const liveUrl = `https://${subdomain}.${this.config.appsDomain}`;
 
-    const current = this.config.privateManifestRepo ? await this.getCurrentDeployment(login, false, repo) : null;
-    const protectedApp = current?.privateImage && current.repo.toLowerCase() === repo.toLowerCase() ? current : null;
+    const current = await this.getCurrentDeployment(login, false, repo);
+    const matchingApp = current?.repo.toLowerCase() === repo.toLowerCase() ? current : null;
+    const protectedApp = matchingApp?.privateImage ? matchingApp : null;
+    if (matchingApp?.state === 'paused') {
+      const pending: StageInfo = { status: 'pending', message: '앱 일시 중지' };
+      return { login: loginLc, ...(row ? { deploymentKey } : {}), repo, appName, liveUrl: matchingApp.liveUrl, paused: true,
+        stages: { manifests: { status: 'success', message: '매니페스트 등록 완료' }, build: pending, imageDetected: pending, deploy: pending, live: pending } };
+    }
     const [stages, storageProfile] = await Promise.all([
       protectedApp ? this.statusService.getStages(requestingUserId, loginLc, repo, protectedApp.liveUrl, deploymentKey, protectedApp)
         : row ? this.statusService.getStages(requestingUserId, loginLc, repo, liveUrl, deploymentKey)

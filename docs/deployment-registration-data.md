@@ -18,3 +18,9 @@ ApplicationSet은 부트스트랩 리소스이므로 이 전환에서는 병합�
 등록·삭제 회귀 테스트는 운영 데이터 브랜치를 전달하는지 확인한다. GitHub ref 갱신 오류는 안전한 HTTP 오류로 변환하며, Axios 요청의 설치 토큰이 예외 로그로 전파되지 않도록 한다.
 
 ApplicationSet의 즉시 재조회는 `argocd.argoproj.io/application-set-refresh=true`로 요청한다. 기존 `argocd.argoproj.io/refresh=hard`는 Application용이므로 이 리소스에서는 사용하지 않는다. [Argo CD 공식 annotation 문서](https://argo-cd.readthedocs.io/en/stable/user-guide/annotations-and-labels/)를 기준으로 수정하고 API 요청 회귀 테스트를 추가했다.
+
+## 관리자 앱 관리
+
+관리자 메뉴에서 사용자와 앱을 선택한다. 일시 중지는 해당 앱의 등록 파일에 `suspended: true`를 저장한다. ApplicationSet은 배포 복제본을 0개로 유지한다. 파드가 모두 종료되면 CPU·메모리 예약이 반환되며 주소·PVC·데이터·앱 슬롯은 유지된다. 다시 시작할 때는 서버 여유를 확인하고 같은 주소와 볼륨으로 복구한다. 영구 삭제는 저장소 전체 이름을 확인한 후 등록 정보를 제거한다. 네임스페이스와 PVC가 정리되며 GitHub 원본 저장소와 빌드 이미지는 유지된다.
+
+기능 배포 전 `deploy/argocd/users-applicationset.yaml`과 `deploy/argocd/private-users-applicationset.yaml`을 서버에서 검증하고 클러스터에 적용한다. 두 ApplicationSet은 별도 부트스트랩 리소스다. 코드 롤백이 필요한 경우 중지된 앱을 자동으로 시작시키지 않도록 ApplicationSet의 복제본 설정을 유지한다.

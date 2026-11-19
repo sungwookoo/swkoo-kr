@@ -7,6 +7,15 @@ spec:
   goTemplate: true
   goTemplateOptions:
     - missingkey=error
+  templatePatch: |
+    {{- if eq (toString (dig "suspended" false .)) "true" }}
+    spec:
+      source:
+        kustomize:
+          replicas:
+            - name: {{ .appName | toJson }}
+              count: 0
+    {{- end }}
   ignoreApplicationDifferences:
     - jsonPointers:
         - /spec/source/kustomize/images
@@ -32,6 +41,8 @@ spec:
         repoURL: 'https://github.com/{{ .deployRepo }}.git'
         targetRevision: main
         path: .
+        # Keep the parent object when removing the replicas override.
+        kustomize: {}
       destination:
         server: https://kubernetes.default.svc
         namespace: 'user-{{ .login }}'
