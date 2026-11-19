@@ -3,16 +3,21 @@ import {
   Body,
   Controller,
   Get,
+  Header,
+  Inject,
   NotFoundException,
   Param,
   Patch,
   Req,
   UseGuards,
 } from '@nestjs/common';
+import { ConfigType } from '@nestjs/config';
+import { onboardingConfig } from '../config/onboarding.config';
 
 import { AdminGuard } from './admin.guard';
 import { AuthedRequest, JwtAuthGuard } from './jwt-auth.guard';
 import { UsersRepository } from './users.repository';
+import { DeployPolicy, isDeployPolicy, resolveDeployPolicy } from './deploy-policy';
 
 interface AdminUserView {
   githubLogin: string;
@@ -22,6 +27,7 @@ interface AdminUserView {
   createdAt: string;
   lastLoginAt: string;
   isAllowed: boolean;
+  deployPolicy: DeployPolicy;
 }
 
 interface PatchUserBody {
@@ -31,9 +37,13 @@ interface PatchUserBody {
 @Controller('admin')
 @UseGuards(JwtAuthGuard, AdminGuard)
 export class AdminController {
-  constructor(private readonly users: UsersRepository) {}
+  constructor(
+    private readonly users: UsersRepository,
+    @Inject(onboardingConfig.KEY) private readonly config: ConfigType<typeof onboardingConfig>,
+  ) {}
 
   @Get('users')
+  @Header('Cache-Control', 'private, no-store')
   listUsers(): { users: AdminUserView[] } {
     const rows = this.users.listAllUsers();
     return {
@@ -45,8 +55,26 @@ export class AdminController {
         createdAt: u.createdAt,
         lastLoginAt: u.lastLoginAt,
         isAllowed: u.isAllowed,
+        deployPolicy: resolveDeployPolicy(u.deployPolicy, this.isAdmin(u.githubLogin)),
       })),
     };
+  }
+
+  @Patch('users/:login/deploy-policy')
+  patchDeployPolicy(@Param('login') login: string, @Body() body: unknown, @Req() req: AuthedRequest) {
+    if (!isDeployPolicy(body)) {
+      throw new BadRequestException('최대 앱 수는 0 이상의 정수(기본값은 비워 두기), CPU는 100~4000m, 메모리는 256~8192MiB로 입력해 주세요.');
+    }
+    const { maxApps, cpuMillicores, memoryMiB } = body;
+    const policy = { maxApps, cpuMillicores, memoryMiB };
+    if (!this.users.setDeployPolicy(login, policy, req.user.githubLogin)) {
+      throw new NotFoundException('사용자를 찾을 수 없습니다.');
+    }
+    return { ok: true, deployPolicy: resolveDeployPolicy(policy, this.isAdmin(login)) };
+  }
+
+  private isAdmin(login: string): boolean {
+    return this.config.adminLogins.some(admin => admin.toLowerCase() === login.toLowerCase());
   }
 
   @Patch('users/:login')

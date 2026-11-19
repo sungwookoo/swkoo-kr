@@ -11,6 +11,7 @@ import {
   ADMIN_USERS_SWR_KEY,
   AdminUser,
   setUserAllowed,
+  setUserDeployPolicy,
   useAdminUsers,
 } from '@/lib/admin';
 
@@ -47,8 +48,9 @@ export function AdminPageClient(): import("react").ReactNode {
             사용자 관리
           </h1>
           <p className="text-sm text-zinc-400">
-            allowlist는 DB <code className="font-mono text-zinc-300">users.is_allowed</code> 컬럼이
-            진실. 토글 즉시 반영, 백엔드 audit_log에 기록됩니다.
+            배포 권한과 계정별 한도를 설정합니다. 앱 수 한도는 새 앱을 등록할 때,
+            CPU·메모리 한도는 배포 화면에서 앱을 새로 등록하거나 다시 등록할 때 적용됩니다.
+            한도를 저장해도 실행 중인 앱은 중단되지 않습니다.
           </p>
         </header>
 
@@ -93,6 +95,7 @@ function UsersTable(): import("react").ReactNode {
             <th className="px-4 py-3 font-medium">사용자</th>
             <th className="px-4 py-3 font-medium">가입</th>
             <th className="px-4 py-3 font-medium">최근 로그인</th>
+            <th className="px-4 py-3 font-medium">배포 한도</th>
             <th className="px-4 py-3 font-medium text-right">배포 허용</th>
           </tr>
         </thead>
@@ -128,11 +131,64 @@ function UserRow({ user }: { user: AdminUser }): import("react").ReactNode {
       <td className="px-4 py-3 font-mono text-xs text-zinc-500">
         {formatRelative(user.lastLoginAt)}
       </td>
+      <td className="px-4 py-3">
+        <DeployPolicyForm key={JSON.stringify(user.deployPolicy)} user={user} />
+      </td>
       <td className="px-4 py-3 text-right">
         <AllowToggle login={user.githubLogin} isAllowed={user.isAllowed} />
       </td>
     </tr>
   );
+}
+
+function DeployPolicyForm({ user }: { user: AdminUser }) {
+  const { mutate } = useSWRConfig();
+  const policy = user.deployPolicy ?? { maxApps: 1, cpuMillicores: 500, memoryMiB: 512 };
+  const [apps, setApps] = useState(policy.maxApps === null ? '' : String(policy.maxApps));
+  const [cpu, setCpu] = useState(String(policy.cpuMillicores));
+  const [memory, setMemory] = useState(String(policy.memoryMiB));
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState('');
+
+  return <details>
+    <summary className="cursor-pointer whitespace-nowrap text-sm">
+      {policy.maxApps === null ? '앱 수 제한 없음' : `앱 최대 ${policy.maxApps}개`} · {policy.cpuMillicores / 1000}코어 · {policy.memoryMiB}MiB
+    </summary>
+    <form className="mt-2 min-w-56 space-y-2 text-xs" onSubmit={async event => {
+      event.preventDefault();
+      setPending(true);
+      setError('');
+      try {
+        const saved = await setUserDeployPolicy(user.githubLogin, {
+          maxApps: apps === '' ? null : Number(apps), cpuMillicores: Number(cpu), memoryMiB: Number(memory),
+        });
+        await mutate(ADMIN_USERS_SWR_KEY, (data?: { users: AdminUser[] }) => data && ({
+          users: data.users.map(row => row.githubLogin === user.githubLogin ? { ...row, deployPolicy: saved } : row),
+        }), { revalidate: false });
+      } catch (err) {
+        setError((err as Error).message);
+      } finally {
+        setPending(false);
+      }
+    }}>
+      <fieldset disabled={pending} className="grid grid-cols-2 items-center gap-2">
+        <label htmlFor={`apps-${user.githubLogin}`}>최대 앱 수</label>
+        <input id={`apps-${user.githubLogin}`} type="number" min="0" step="1" value={apps} placeholder="기본값"
+          className="w-full rounded border border-zinc-700 bg-zinc-950 p-1" onChange={event => setApps(event.target.value)} />
+        <label htmlFor={`cpu-${user.githubLogin}`}>앱당 CPU (m)</label>
+        <input id={`cpu-${user.githubLogin}`} type="number" min="100" max="4000" step="1" required value={cpu}
+          className="w-full rounded border border-zinc-700 bg-zinc-950 p-1" onChange={event => setCpu(event.target.value)} />
+        <label htmlFor={`memory-${user.githubLogin}`}>앱당 메모리 (MiB)</label>
+        <input id={`memory-${user.githubLogin}`} type="number" min="256" max="8192" step="1" required value={memory}
+          className="w-full rounded border border-zinc-700 bg-zinc-950 p-1" onChange={event => setMemory(event.target.value)} />
+      </fieldset>
+      <p className="text-zinc-400">앱 수를 비우면 계정의 기본값으로 돌아갑니다. CPU 1000m는 1코어입니다.</p>
+      {error && <p role="alert" className="text-amber-400">{error}</p>}
+      <button disabled={pending} className="rounded border border-zinc-700 px-3 py-1 disabled:opacity-50">
+        {pending ? '저장 중…' : '한도 저장'}
+      </button>
+    </form>
+  </details>;
 }
 
 function AllowToggle({

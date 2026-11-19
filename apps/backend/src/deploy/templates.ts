@@ -7,12 +7,16 @@
 // onboarding reference; this file is the authoritative source for
 // swkoo.kr/deploy auto-onboarding.
 
+import { AppResourceLimits, DEFAULT_APP_RESOURCES, isDeployPolicy } from '../onboarding/deploy-policy';
+
 export interface RenderParams {
   login: string;
   appName: string;
   imageRepo: string;
   privateImage?: boolean;
   imageOrganization?: boolean;
+  resourceLimits?: AppResourceLimits;
+  recreateForResources?: boolean;
   subdomain: string;
   port: number;
   uid: number;
@@ -143,6 +147,13 @@ export function getCustomDomainIngressPath(appName: string): string {
  * Image Updater values (image.repo, image.updateStrategy) and the
  * pointer (deployRepo) the template substitutes into source.repoURL. */
 export function renderUserRegistration(params: RenderParams): string {
+  const appLimits = params.resourceLimits ?? DEFAULT_APP_RESOURCES;
+  const limitsBlock = appLimits.cpuMillicores !== DEFAULT_APP_RESOURCES.cpuMillicores ||
+    appLimits.memoryMiB !== DEFAULT_APP_RESOURCES.memoryMiB
+    ? `appLimits:
+  cpuMillicores: ${appLimits.cpuMillicores}
+  memoryMiB: ${appLimits.memoryMiB}
+` : '';
   // storage block: only emitted when the app has a profile. The
   // preservation guard in deploy.service reads THIS block back on
   // re-deploy — its presence (regardless of fresh detection) keeps
@@ -166,7 +177,14 @@ ${params.imageOrganization ? 'imageOrganization: true\n' : ''}image:
   updateStrategy: digest
   scanResult: pending
   writeBackMethod: argocd-image-updater
-${storageBlock}`;
+${limitsBlock}${storageBlock}`;
+}
+
+export function parseAppResourceLimits(content: string): AppResourceLimits | undefined {
+  const match = content.match(/^appLimits:\r?\n  cpuMillicores: (\d+)\r?\n  memoryMiB: (\d+)\r?$/m);
+  if (!match) return;
+  const limits = { cpuMillicores: Number(match[1]), memoryMiB: Number(match[2]) };
+  return isDeployPolicy({ maxApps: null, ...limits }) ? limits : undefined;
 }
 
 /** Regex parser for the metadata.yaml `storage:` block. Used by the
@@ -361,6 +379,7 @@ metadata:
 }
 
 function renderResourceQuota(params: RenderParams): string {
+  const limits = params.resourceLimits ?? DEFAULT_APP_RESOURCES;
   return `${GENERATED_HEADER}apiVersion: v1
 kind: ResourceQuota
 metadata:
@@ -370,8 +389,8 @@ spec:
   hard:
     requests.cpu: "500m"
     requests.memory: "512Mi"
-    limits.cpu: "1"
-    limits.memory: "1Gi"
+    limits.cpu: "${limits.cpuMillicores === 500 ? '1' : `${limits.cpuMillicores * 2}m`}"
+    limits.memory: "${limits.memoryMiB === 512 ? '1Gi' : `${limits.memoryMiB * 2}Mi`}"
     requests.storage: "1Gi"
     requests.ephemeral-storage: "256Mi"
     limits.ephemeral-storage: "2Gi"
@@ -382,6 +401,7 @@ spec:
 }
 
 function renderLimitRange(params: RenderParams): string {
+  const limits = params.resourceLimits ?? DEFAULT_APP_RESOURCES;
   return `${GENERATED_HEADER}apiVersion: v1
 kind: LimitRange
 metadata:
@@ -391,16 +411,16 @@ spec:
   limits:
     - type: Container
       default:
-        cpu: 500m
-        memory: 512Mi
+        cpu: ${limits.cpuMillicores}m
+        memory: ${limits.memoryMiB}Mi
         ephemeral-storage: 1Gi
       defaultRequest:
         cpu: 100m
         memory: 256Mi
         ephemeral-storage: 128Mi
       max:
-        cpu: 500m
-        memory: 512Mi
+        cpu: ${limits.cpuMillicores}m
+        memory: ${limits.memoryMiB}Mi
         ephemeral-storage: 1Gi
       min:
         cpu: 10m
@@ -634,13 +654,14 @@ roleRef:
 
 function renderDeployment(params: RenderParams): string {
   const sp = params.storageProfile;
+  const limits = params.resourceLimits ?? DEFAULT_APP_RESOURCES;
   // Strategy: stateful → Recreate (single PVC, RWO, single replica
   // means no second pod can attach during a rolling update). Stateless
   // → omit so k8s defaults to RollingUpdate.
-  const strategyBlock = sp
+  const strategyBlock = sp || params.recreateForResources
     ? `  strategy:
     type: Recreate
-`
+${params.recreateForResources ? '    rollingUpdate: null\n' : ''}`
     : '';
   // Pod-level securityContext gains fsGroup + fsGroupChangePolicy so
   // the non-root container can write to the local-path PV (which is
@@ -674,8 +695,8 @@ function renderDeployment(params: RenderParams): string {
               memory: 256Mi
               ephemeral-storage: 128Mi
             limits:
-              cpu: 500m
-              memory: 512Mi
+              cpu: ${limits.cpuMillicores}m
+              memory: ${limits.memoryMiB}Mi
               ephemeral-storage: 1Gi
           command: ["/bin/sh", "-lc"]
           args:
@@ -765,8 +786,8 @@ ${podSecurityContext}${initContainersBlock}      containers:
               memory: 256Mi
               ephemeral-storage: 128Mi
             limits:
-              cpu: 500m
-              memory: 512Mi
+              cpu: ${limits.cpuMillicores}m
+              memory: ${limits.memoryMiB}Mi
               ephemeral-storage: 1Gi
           ports:
             - containerPort: ${params.port}

@@ -17,6 +17,7 @@ import type { Request, Response } from 'express';
 import { onboardingConfig } from '../config/onboarding.config';
 import { AuthService, OAUTH_STATE_COOKIE, SESSION_COOKIE } from './auth.service';
 import { UsersRepository } from './users.repository';
+import { resolveDeployPolicy } from './deploy-policy';
 
 const SESSION_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 const RETURN_COOKIE = '__Host-swkoo_oauth_return';
@@ -177,6 +178,8 @@ export class AuthController {
       avatarUrl: user.avatarUrl,
       isAllowed: user.isAllowed,
       isAdmin,
+      deployPolicy: resolveDeployPolicy(user.deployPolicy, isAdmin),
+      hasAdditionalDeployments: Boolean(this.users.listAdditionalDeployments?.(user.id).length),
       privateDeployEnabled: Boolean(this.config.privateManifestRepo),
       requiresReauth,
       requiresConsent: user.policyVersion !== CURRENT_POLICY_VERSION,

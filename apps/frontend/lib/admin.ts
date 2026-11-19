@@ -1,6 +1,7 @@
 import useSWR from 'swr';
 
 import { API_BASE_URL } from './api-base';
+import type { DeployPolicy } from './auth';
 
 export interface AdminUser {
   githubLogin: string;
@@ -10,6 +11,7 @@ export interface AdminUser {
   createdAt: string;
   lastLoginAt: string;
   isAllowed: boolean;
+  deployPolicy?: DeployPolicy;
 }
 
 interface AdminUsersResponse {
@@ -25,6 +27,18 @@ async function fetcher<T>(url: string): Promise<T> {
 }
 
 export const ADMIN_USERS_SWR_KEY = `${API_BASE_URL}/admin/users`;
+
+export async function setUserDeployPolicy(login: string, policy: DeployPolicy): Promise<DeployPolicy> {
+  const response = await fetch(`${ADMIN_USERS_SWR_KEY}/${encodeURIComponent(login)}/deploy-policy`, {
+    method: 'PATCH',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(policy),
+  });
+  const body = await response.json().catch(() => null);
+  if (!response.ok) throw new Error(typeof body?.message === 'string' ? body.message : '배포 한도를 저장하지 못했습니다.');
+  return body.deployPolicy;
+}
 
 export function useAdminUsers(enabled: boolean): {
   users: AdminUser[] | undefined;

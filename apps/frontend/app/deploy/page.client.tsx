@@ -173,6 +173,7 @@ export function DeployPageClient(): import("react").ReactNode {
     );
   }
 
+  const showAppList = me.isAdmin || me.hasAdditionalDeployments || (me.deployPolicy?.maxApps ?? 1) > 1;
   return (
     <Shell>
       <div className="w-full max-w-5xl space-y-8">
@@ -196,7 +197,12 @@ export function DeployPageClient(): import("react").ReactNode {
           </button>
         </header>
 
-        {me.isAdmin ? <AdminDeployments /> : <CurrentBanner />}
+        {me.deployPolicy && <p className="text-sm text-slate-400">
+          내 배포 한도 · {me.deployPolicy.maxApps === null ? '앱 수 제한 없음' : `앱 최대 ${me.deployPolicy.maxApps}개`}
+          {' · 앱당 CPU 최대 '}{me.deployPolicy.cpuMillicores / 1000}코어 · 메모리 최대 {me.deployPolicy.memoryMiB}MiB
+          <span className="block text-xs">CPU·메모리 변경은 이 화면에서 배포를 등록하거나 다시 등록할 때 적용됩니다.</span>
+        </p>}
+        {showAppList ? <AccountDeployments /> : <CurrentBanner />}
 
         <div className="space-y-3">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -239,7 +245,7 @@ export function DeployPageClient(): import("react").ReactNode {
           onClear={() => { setPrivateSelection(null); router.replace('/deploy', { scroll: false }); }}
         />
 
-        {selectedRepo && <PreviewPanel key={selectedRepo} fullName={selectedRepo} includePrivate={includePrivate} deploymentLogin={me.githubLogin} automaticAddress={me.isAdmin} />}
+        {selectedRepo && <PreviewPanel key={selectedRepo} fullName={selectedRepo} includePrivate={includePrivate} deploymentLogin={me.githubLogin} automaticAddress={showAppList} />}
 
         <AccountSection login={me.githubLogin} />
       </div>
@@ -415,7 +421,7 @@ function CurrentBanner(): import("react").ReactNode {
   return <DeploymentBanner current={current} />;
 }
 
-function AdminDeployments() {
+function AccountDeployments() {
   const { data, error } = useDeployments(true);
   if (error) return <p className="text-sm text-amber-400">{error.message}</p>;
   if (!data?.length) return null;
@@ -494,7 +500,7 @@ function Shell({
         className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[42rem] bg-[radial-gradient(ellipse_at_top,rgba(16,185,129,0.08),transparent_60%)]"
       />
       <p className="mx-auto mb-4 max-w-2xl text-center text-sm text-slate-400">
-        앱당 공유 CPU 최대 0.5코어 · 메모리 최대 512MiB
+        기본값은 앱당 공유 CPU 최대 0.5코어 · 메모리 최대 512MiB
         <br />
         예약: CPU 0.1코어 · 메모리 256MiB. 지원되는 Prisma SQLite 앱은 영구 저장공간 최대 1GiB를 제공합니다.
         <br />
@@ -1051,7 +1057,7 @@ function DeployTrigger({
         </p>
       )}
       <p className="text-xs text-slate-500">
-        파일 생성·유지 확인 후 배포 매니페스트를 등록합니다. 기존 파일 변경은 별도 PR로 검토합니다. 한 사용자당 1개 앱만 등록 가능합니다.
+        파일 생성·유지 확인 후 배포 매니페스트를 등록합니다. 기존 파일 변경은 별도 PR로 검토합니다.
       </p>
     </div>
   );

@@ -131,6 +131,48 @@ describe('source review before deployment side effects', () => {
     expect(commit.files['app/pvc.yaml']).toMatch(/storageClassName: local-path/);
     expect(commit.files['app/deployment.yaml']).toMatch(/localhostProfile: swkoo-user-storage-v1.json/);
   });
+  it('allows a second app for a normal account, then blocks the next app before writes', async () => {
+    const s = setup();
+    s.users.findByLogin.mockReturnValue({ id: 1, githubLogin: 'alice', isAllowed: true,
+      deployPolicy: { maxApps: 2, cpuMillicores: 750, memoryMiB: 768 },
+    } as any);
+    await s.service.registerForUser('alice', req);
+    expect(s.github.commitFilesAtomic).toHaveBeenCalledWith(expect.objectContaining({
+      repo: 'control', files: { 'deploy/users/alice.yaml': expect.stringContaining('sourceRepo: alice/app') },
+    }));
+    s.github.commitFilesAtomic.mockClear();
+    const first = { login: 'alice', repo: 'app', fullName: 'alice/app', state: 'active' } as const;
+    jest.spyOn(s.service, 'getCurrentDeployment').mockResolvedValue(first as any);
+    jest.spyOn(s.service as any, 'readDeployment').mockResolvedValue(null);
+    const second = await s.service.registerForUser('alice', { ...req, fullName: 'alice/second' });
+    expect(second.subdomain).toMatch(/^app--second-/);
+    const key = second.subdomain;
+    const config = (s.github.commitFilesAtomic.mock.calls as any)[0][0].files;
+    expect(config[`${key}/deployment.yaml`]).toMatch(/limits:\s+cpu: 750m\s+memory: 768Mi/);
+    expect(config['limit-range.yaml']).toMatch(/max:\s+cpu: 750m\s+memory: 768Mi/);
+    expect(config['resource-quota.yaml']).toMatch(/limits.cpu: "1500m"\s+limits.memory: "1536Mi"/);
+    s.users.listAdditionalDeployments.mockReturnValue([{ key, sourceRepo: 'alice/second' }]);
+    jest.spyOn(s.service, 'listDeployments').mockResolvedValue([first, { deploymentKey: key, fullName: 'alice/second' }] as any);
+    s.github.commitFilesAtomic.mockClear();
+    s.create.mockClear();
+    await expect(s.service.registerForUser('alice', { ...req, fullName: 'alice/third' })).rejects.toThrow('최대 2개');
+    expect(s.github.commitFilesAtomic).not.toHaveBeenCalled();
+    expect(s.create).not.toHaveBeenCalled();
+  });
+
+  it('allows an existing app to redeploy over the new count limit and applies lower container caps', async () => {
+    const s = setup();
+    s.users.findByLogin.mockReturnValue({ id: 1, githubLogin: 'alice', isAllowed: true,
+      deployPolicy: { maxApps: 0, cpuMillicores: 100, memoryMiB: 256 },
+    } as any);
+    jest.spyOn(s.service, 'getCurrentDeployment').mockResolvedValue({ state: 'active', repo: 'app',
+      fullName: 'alice/app', resourceLimits: { cpuMillicores: 750, memoryMiB: 768 } } as any);
+    await s.service.registerForUser('alice', req);
+    const config = (s.github.commitFilesAtomic.mock.calls as any)[0][0].files;
+    expect(config['app/deployment.yaml']).toMatch(/strategy:\s+type: Recreate/);
+    expect(config['app/deployment.yaml']).toMatch(/limits:\s+cpu: 100m\s+memory: 256Mi/);
+    expect((s.service as any).admission.reserve).not.toHaveBeenCalled();
+  });
   it.each(['deleting', 'other-app'])('blocks %s before any source or manifest writes', async state => {
     const s = setup();
     jest.spyOn(s.service, 'getCurrentDeployment').mockResolvedValue({ repo: state === 'deleting' ? 'app' : 'other', fullName: state === 'deleting' ? 'alice/app' : 'alice/other', state: state === 'deleting' ? 'deleting' : 'active' } as any);
