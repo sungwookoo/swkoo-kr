@@ -740,8 +740,7 @@ export class DeployService {
     const extraRows = this.users.listAdditionalDeployments?.(user.id) ?? [];
     const existingExtra = extraRows.find(row => row.sourceRepo === sourceRepo);
     const primaryMatches = primary?.fullName.toLowerCase() === sourceRepo;
-    const additional = Boolean(existingExtra || (!primaryMatches &&
-      (primary || isAdmin || (policy.maxApps ?? 0) > 1)));
+    const additional = Boolean(existingExtra || (!primaryMatches && (primary || isAdmin)));
     if (extraRows.some(row => row.sourceRepo !== sourceRepo && row.sourceRepo.split('/')[1] === repo.toLowerCase())
         || (primary?.repo.toLowerCase() === repo.toLowerCase() && primary.fullName.toLowerCase() !== sourceRepo)) {
       throw new ConflictException('같은 이름으로 배포된 앱이 있습니다. 다른 저장소 이름을 사용해 주세요.');

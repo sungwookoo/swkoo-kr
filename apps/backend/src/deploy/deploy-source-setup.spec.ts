@@ -136,6 +136,11 @@ describe('source review before deployment side effects', () => {
     s.users.findByLogin.mockReturnValue({ id: 1, githubLogin: 'alice', isAllowed: true,
       deployPolicy: { maxApps: 2, cpuMillicores: 750, memoryMiB: 768 },
     } as any);
+    await s.service.registerForUser('alice', req);
+    expect(s.github.commitFilesAtomic).toHaveBeenCalledWith(expect.objectContaining({
+      repo: 'control', files: { 'deploy/users/alice.yaml': expect.stringContaining('sourceRepo: alice/app') },
+    }));
+    s.github.commitFilesAtomic.mockClear();
     const first = { login: 'alice', repo: 'app', fullName: 'alice/app', state: 'active' } as const;
     jest.spyOn(s.service, 'getCurrentDeployment').mockResolvedValue(first as any);
     jest.spyOn(s.service as any, 'readDeployment').mockResolvedValue(null);
